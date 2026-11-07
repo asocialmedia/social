@@ -5,10 +5,12 @@ import {
   ArrowLeft,
   Copy,
   ListChecks,
+  MoreHorizontal,
   Reply,
   Search,
   Shield,
   Smile,
+  Trash2,
   X,
 } from "lucide-react-native";
 import {
@@ -47,9 +49,14 @@ import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import { UserBadge } from "@/features/home/components/user-badge";
 import {
   ackMessageDelivered,
+  createConversation,
+  deleteMessage,
+  editMessage,
   ensureConversationKeys,
   fetchConversationDetail,
+  hideMessages,
   markConversationRead,
+  reencryptMessageForEdit,
   toggleMessageReaction,
   postConversationKeys,
   sendEncryptedMessage,
@@ -57,18 +64,35 @@ import {
 } from "@/features/messages/lib/client";
 import type { ConversationPrefs } from "@/features/messages/lib/client";
 import {
+  buildViewerMediaItems,
+  viewerAnchorIndex,
+} from "@/features/messages/lib/conversation-media";
+import {
   conversationKind,
   conversationLeft,
   conversationName,
 } from "@/features/messages/lib/conversation-presentation";
 import { resolveConversationTheme } from "@/features/messages/lib/conversation-theme";
-import { getMediaImages } from "@/features/messages/lib/crypto";
+import {
+  decryptMessage,
+  editMessagePayload,
+  getMediaImages,
+} from "@/features/messages/lib/crypto";
 import type { MessagePayload } from "@/features/messages/lib/crypto";
 import { messageDecryptor } from "@/features/messages/lib/decryptor";
 import type {
   DecryptEntry,
   DecryptItem,
 } from "@/features/messages/lib/decryptor";
+import { detailsPlacement } from "@/features/messages/lib/details-placement";
+import {
+  canDeleteForEveryone,
+  canEditMessage,
+  chunkMessageIds,
+  messageDeleteCopy,
+  pendingDeleteCount,
+} from "@/features/messages/lib/message-delete";
+import type { PendingMessageDelete } from "@/features/messages/lib/message-delete";
 import { getMessageGroupMeta } from "@/features/messages/lib/message-grouping";
 import { getMessageReceipt } from "@/features/messages/lib/message-receipts";
 import { messageReadRetryDelay } from "@/features/messages/lib/read-retry";
@@ -100,6 +124,7 @@ import {
   keyboardOverlap,
   keyboardScreenTop,
 } from "@/lib/layout/keyboard-overlap";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/layout/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import { logWarn } from "@/lib/lifecycle/telemetry";
 import { getApiBaseUrl } from "@/lib/network/api-env";
@@ -137,12 +162,16 @@ import { NativeIncognitoUsageNotice } from "./incognito-usage-notice";
 import { MessageBubble } from "./message-bubble";
 import { MessageComposer, reclaimOwnMedia } from "./message-composer";
 import type { ComposerTarget } from "./message-composer";
+import { MessageDeleteDialog } from "./message-delete-dialog";
 import { MessageIdentityLocked } from "./message-identity-locked";
 import { MessageMediaViewer } from "./message-media-viewer";
+import { MessageOptionsSheet } from "./message-options-sheet";
 import { MessagePresenceIndicator } from "./message-presence-indicator";
 import { MessageReactionSheet } from "./message-reaction-sheet";
 import { MessageSearchBar } from "./message-search-bar";
 import { MessageSearchResults } from "./message-search-results";
+import { MessageSharePicker } from "./message-share-picker";
+import { MessageSheet } from "./message-sheet";
 import { MessagesIconButton } from "./messages-primitives";
 import { ThreadSkeleton } from "./messages-skeleton";
 import { SelectableMessageRow } from "./selectable-message-row";
@@ -283,6 +312,17 @@ function NormalMessageThreadScreen({
   });
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [reactionTarget, setReactionTarget] = useState<string | null>(null);
+  // The per-message options sheet (web's message-options-menu) and the delete
+  // confirm (web's MessageDeleteDialog). `pendingDelete` mirrors web's union:
+  // bulk ids for "for me", one message for "for everyone".
+  const [optionsMessageId, setOptionsMessageId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] =
+    useState<PendingMessageDelete | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  // The message being forwarded into another conversation through the share
+  // picker (the options sheet's Forward row).
+  const [forwardMessageId, setForwardMessageId] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ComposerTarget | null>(null);
   const [reactionPendingIds, setReactionPendingIds] = useState<
     ReadonlySet<string>
@@ -699,17 +739,35 @@ function NormalMessageThreadScreen({
       ) {
         return;
       }
-      const images = getMediaImages(entry);
       const apiBase = getApiBaseUrl();
-      setViewer({
-        images: images.map((image) =>
-          image.url.startsWith("http") ? image.url : `${apiBase}${image.url}`
-        ),
-        index,
-      });
+      // The fullscreen viewer walks every photo in the loaded transcript, not
+      // just the tapped album, like web's conversation media index.
+      const viewerItems = buildViewerMediaItems(
+        messages,
+        (id) => decrypted.get(id),
+        apiBase
+      );
+      if (viewerItems.length > 0) {
+        setViewer({
+          images: viewerItems.map((viewerItem) => viewerItem.url),
+          index: viewerAnchorIndex(viewerItems, message.id, index),
+        });
+      } else {
+        const images = getMediaImages(entry);
+        if (images.length === 0) {
+          return;
+        }
+        setViewer({
+          images: images.map((image) =>
+            image.url.startsWith("http") ? image.url : `${apiBase}${image.url}`
+          ),
+          index,
+        });
+      }
       // The sender's client is the only party that can re-assert the conversation
       // link on its own media, since the ids live inside the encrypted payload.
       if (message.senderId === userId) {
+        const images = getMediaImages(entry);
         void reclaimOwnMedia(
           images
             .map((image) => image.url.split("/api/media/")[1] ?? "")
@@ -718,7 +776,7 @@ function NormalMessageThreadScreen({
         );
       }
     },
-    [conversationId, userId]
+    [conversationId, decrypted, messages, userId]
   );
 
   const retryRow = useCallback(
@@ -812,6 +870,128 @@ function NormalMessageThreadScreen({
     },
     [handleMessageReaction]
   );
+
+  // ---- message options + delete --------------------------------------------
+
+  const requestDeleteForMe = useCallback((message: MessageData) => {
+    setPendingDelete({ messageIds: [message.id], scope: "for-me" });
+    setOptionsMessageId(null);
+    setDeleteOpen(true);
+  }, []);
+
+  const requestDeleteForEveryone = useCallback((message: MessageData) => {
+    setPendingDelete({ message: { id: message.id }, scope: "for-everyone" });
+    setOptionsMessageId(null);
+    setDeleteOpen(true);
+  }, []);
+
+  const confirmPendingDelete = useCallback(async () => {
+    if (!pendingDelete || deleteBusy) {
+      return;
+    }
+    setDeleteBusy(true);
+    try {
+      const options = await apiOptions();
+      if (pendingDelete.scope === "for-everyone") {
+        // Optimistic retract: mark the row deleted, then confirm with the
+        // server. A failure reloads the window so the row comes back.
+        transcriptStore.applyMessageDeleted(
+          conversationId,
+          pendingDelete.message.id,
+          new Date()
+        );
+        await deleteMessage(pendingDelete.message.id, options);
+      } else {
+        // Optimistic hide: rows leave the transcript, then the hides post in
+        // request-sized chunks. A failure reloads the window to restore them.
+        const ids = new Set(pendingDelete.messageIds);
+        transcriptStore.removeMessages(conversationId, ids);
+        const chunks = chunkMessageIds(pendingDelete.messageIds);
+        await Promise.all(
+          chunks.map((chunk) =>
+            hideMessages(conversationId, [...chunk], options)
+          )
+        );
+      }
+      setPendingDelete(null);
+      setDeleteOpen(false);
+      setDeleteBusy(false);
+    } catch (error) {
+      toast({
+        description:
+          error instanceof Error ? error.message : "Couldn't delete message",
+        title: "Message not deleted",
+        variant: "destructive",
+      });
+      transcript.loadNewest();
+      setDeleteBusy(false);
+    }
+  }, [apiOptions, conversationId, deleteBusy, pendingDelete, transcript]);
+
+  const copyMessage = useCallback(
+    (messageId: string) => {
+      const message = transcriptStore
+        .getSnapshot(conversationId)
+        .messages.find((row) => row.id === messageId);
+      const payload = messageDecryptor.get(messageId);
+      if (!message || message.deletedAt || !isPayload(payload)) {
+        return;
+      }
+      void Clipboard.setStringAsync(messageSummary(payload));
+      haptic();
+    },
+    [conversationId]
+  );
+
+  const handleSaveEdit = useCallback(
+    async (text: string) => {
+      if (!editing || !privateKey || !userId) {
+        throw new Error("Message keys aren’t ready yet. Please retry shortly.");
+      }
+      const options = await apiOptions();
+      const rootKeys = await getBaseKeys(conversationId);
+      const [firstRoot] = rootKeys;
+      if (!firstRoot) {
+        throw new Error("Message keys aren't ready yet");
+      }
+      const current = transcriptStore
+        .getSnapshot(conversationId)
+        .messages.find((row) => row.id === editing.id);
+      if (!current || current.deletedAt) {
+        throw new Error("This message is no longer available.");
+      }
+      const cached = messageDecryptor.get(editing.id);
+      const payload = isPayload(cached)
+        ? cached
+        : await decryptMessage(firstRoot, userId, conversationId, {
+            ciphertext: current.ciphertext,
+            iv: current.iv,
+            ratchetIndex: current.ratchetIndex,
+          });
+      const reencrypted = await reencryptMessageForEdit({
+        conversationId,
+        current: {
+          ciphertext: current.ciphertext,
+          iv: current.iv,
+          ratchetIndex: current.ratchetIndex,
+        },
+        editedPayload: editMessagePayload(payload, text),
+        rootKeys,
+        senderId: userId,
+      });
+      if (!reencrypted) {
+        throw new Error("Message keys aren't ready yet");
+      }
+      const updated = await editMessage(
+        editing.id,
+        { ciphertext: reencrypted.ciphertext, iv: reencrypted.iv },
+        options
+      );
+      transcriptStore.applyMessageEdit(conversationId, updated);
+      messageDecryptor.retry(updated.id);
+    },
+    [apiOptions, conversationId, editing, getBaseKeys, privateKey, userId]
+  );
   const onLiveEndChange = useCallback(
     (atLatest: boolean) => {
       if (atLatest && !atLiveEnd.current && foreground && !searchOpen) {
@@ -865,6 +1045,112 @@ function NormalMessageThreadScreen({
       haptic();
     }
   }, [messages, selectedIds]);
+
+  // The message behind the options sheet, resolved from the loaded window.
+  const optionsMessage = useMemo(
+    () =>
+      optionsMessageId
+        ? (messages.find((row) => row.id === optionsMessageId) ?? null)
+        : null,
+    [messages, optionsMessageId]
+  );
+
+  // Selection-scoped actions live here, after the gestures hook declares
+  // `selectedIds` and `clearSelection`, so no callback reads them during init.
+  const requestDeleteSelectedForMe = useCallback(() => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) {
+      return;
+    }
+    clearSelection();
+    setOptionsMessageId(null);
+    setPendingDelete({ messageIds: ids, scope: "for-me" });
+    setDeleteOpen(true);
+  }, [clearSelection, selectedIds]);
+
+  const handleEditMessage = useCallback(
+    (message: MessageData) => {
+      const payload = messageDecryptor.get(message.id);
+      setOptionsMessageId(null);
+      clearSelection();
+      setReplyTo(null);
+      setEditing({
+        id: message.id,
+        senderId: message.senderId,
+        text: isPayload(payload) ? messageSummary(payload) : "",
+      });
+    },
+    [clearSelection]
+  );
+
+  // Forwards the decrypted payload into another conversation, re-wrapped for
+  // its members. Only text and post cards forward; media stays put rather
+  // than re-uploading bytes the peer already stores under another link.
+  const forwardToConversation = useCallback(
+    async (recipientId: string, caption: string) => {
+      if (!forwardMessageId || !privateKey || !userId) {
+        throw new Error("Message keys aren’t ready yet. Please retry shortly.");
+      }
+      const source = transcriptStore
+        .getSnapshot(conversationId)
+        .messages.find((row) => row.id === forwardMessageId);
+      const entry = messageDecryptor.get(forwardMessageId);
+      if (!source || source.deletedAt || !isPayload(entry)) {
+        throw new Error("This message is no longer available.");
+      }
+      const trimmed = caption.trim();
+      const payload: MessagePayload =
+        entry.type === "post"
+          ? {
+              content: trimmed || entry.content,
+              postId: entry.postId,
+              type: "post",
+            }
+          : { content: trimmed || messageSummary(entry), type: "text" };
+      const options = await apiOptions();
+      const { conversation: target } = await createConversation(
+        recipientId,
+        options
+      );
+      const rootKey = await ensureConversationKeys(target, privateKey, userId, {
+        postKeys: (keyTarget, keys) =>
+          postConversationKeys(keyTarget, keys, options),
+        refreshConversation: async () => {
+          const fresh = await fetchConversationDetail(target.id, options);
+          return fresh.conversation;
+        },
+      });
+      invalidateKeys(target.id);
+      if (!rootKey) {
+        throw new Error("Message keys aren't ready yet");
+      }
+      let baseIndex = 0;
+      for (const row of transcriptStore.getSnapshot(target.id).messages) {
+        if (row.senderId === userId) {
+          baseIndex = Math.max(baseIndex, row.ratchetIndex + 1);
+        }
+      }
+      const sent = await sendEncryptedMessage(
+        target.id,
+        rootKey,
+        userId,
+        baseIndex,
+        payload,
+        options
+      );
+      transcriptStore.appendMessage(target.id, sent);
+      setForwardMessageId(null);
+      setOptionsMessageId(null);
+    },
+    [
+      apiOptions,
+      conversationId,
+      forwardMessageId,
+      invalidateKeys,
+      privateKey,
+      userId,
+    ]
+  );
   const scrollToSearchIndex = useCallback(
     (index: number) => {
       threadListRef.current?.scrollToIndex({
@@ -1170,6 +1456,25 @@ function NormalMessageThreadScreen({
               onPress={handleSelectAll}
               size={32}
             />
+            <MessagesIconButton
+              icon={Trash2}
+              label="Delete selected messages"
+              onPress={requestDeleteSelectedForMe}
+              size={32}
+            />
+            {selectedIds.size === 1 ? (
+              <MessagesIconButton
+                icon={MoreHorizontal}
+                label="More options for selected message"
+                onPress={() => {
+                  const [id] = selectedIds;
+                  if (id) {
+                    setOptionsMessageId(id);
+                  }
+                }}
+                size={32}
+              />
+            ) : null}
           </View>
         ) : (
           <ThreadHeader
@@ -1322,6 +1627,7 @@ function NormalMessageThreadScreen({
                     }
                     ref={threadListRef}
                     data={items}
+                    {...LIST_VIRTUALIZATION_PROPS}
                     onScrollToIndexFailed={search.handleScrollToIndexFailed}
                     style={{ flex: 1 }}
                     inverted
@@ -1403,6 +1709,7 @@ function NormalMessageThreadScreen({
             onCancelEdit={() => setEditing(null)}
             onCancelReply={() => setReplyTo(null)}
             onSend={handleSend}
+            onSaveEdit={handleSaveEdit}
             onTyping={() => {
               void (async () => {
                 const options = await apiOptions();
@@ -1413,7 +1720,15 @@ function NormalMessageThreadScreen({
           />
         )}
       </ChatModeTransition>
-      {detailsOpen && currentConversation && userId ? (
+      {detailsPlacement({
+        collapsed: false,
+        // Native has no desktop rail: the bottom sheet is the only surface, so
+        // this always resolves to the sheet branch, like web below `lg`.
+        desktopViewport: false,
+        requested: detailsOpen,
+      }) === "sheet" &&
+      currentConversation &&
+      userId ? (
         <ConversationDetails
           conversation={currentConversation}
           contentRevision={messages
@@ -1454,6 +1769,91 @@ function NormalMessageThreadScreen({
             void handleMessageReaction(target, emoji);
           }}
         />
+      ) : null}
+      {optionsMessage ? (
+        <MessageSheet
+          onClose={() => setOptionsMessageId(null)}
+          open
+          title="Message options"
+        >
+          <MessageOptionsSheet
+            canDeleteForEveryone={canDeleteForEveryone(optionsMessage, userId)}
+            canEdit={canEditMessage(optionsMessage, userId)}
+            canForward={(() => {
+              const entry = decrypted.get(optionsMessage.id);
+              return (
+                isPayload(entry) &&
+                (entry.type === "text" || entry.type === "post")
+              );
+            })()}
+            createdAt={optionsMessage.createdAt}
+            editedAt={optionsMessage.editedAt}
+            onCopy={() => {
+              copyMessage(optionsMessage.id);
+              setOptionsMessageId(null);
+            }}
+            onDeleteEveryone={() => requestDeleteForEveryone(optionsMessage)}
+            onDeleteMe={() => requestDeleteForMe(optionsMessage)}
+            onEdit={() => handleEditMessage(optionsMessage)}
+            onForward={() => {
+              setOptionsMessageId(null);
+              setForwardMessageId(optionsMessage.id);
+            }}
+            onMoreReactions={() => {
+              setOptionsMessageId(null);
+              setReactionTarget(optionsMessage.id);
+            }}
+            onReact={(emoji) => {
+              void handleMessageReaction(optionsMessage.id, emoji);
+            }}
+            onReply={() => {
+              handleReply(optionsMessage.id);
+              setOptionsMessageId(null);
+            }}
+            onSelect={() => {
+              toggleSelected(optionsMessage.id);
+              setOptionsMessageId(null);
+            }}
+            reactionPending={reactionPendingIds.has(optionsMessage.id)}
+            receipt={getMessageReceipt({
+              createdAt: optionsMessage.createdAt,
+              mine: optionsMessage.senderId === userId,
+              watermarks: transcript.snapshot.peerWatermarks,
+            })}
+          />
+        </MessageSheet>
+      ) : null}
+      {pendingDelete ? (
+        <MessageDeleteDialog
+          busy={deleteBusy}
+          copy={messageDeleteCopy({
+            count: pendingDeleteCount(pendingDelete),
+            scope: pendingDelete.scope,
+          })}
+          onConfirm={() => {
+            void confirmPendingDelete();
+          }}
+          onOpenChange={(open) => {
+            if (!open && !deleteBusy) {
+              setDeleteOpen(false);
+              setPendingDelete(null);
+            }
+          }}
+          open={deleteOpen}
+        />
+      ) : null}
+      {forwardMessageId ? (
+        <MessageSheet
+          onClose={() => setForwardMessageId(null)}
+          open
+          title="Forward message"
+        >
+          <MessageSharePicker
+            onShare={(recipientId, caption) =>
+              forwardToConversation(recipientId, caption)
+            }
+          />
+        </MessageSheet>
       ) : null}
     </View>
   );

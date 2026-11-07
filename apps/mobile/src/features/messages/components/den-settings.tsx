@@ -15,6 +15,13 @@ import {
   updateDenDetails,
 } from "@/features/messages/lib/client";
 import type { DenInformation } from "@/features/messages/lib/client";
+import {
+  DEN_BANS_EMPTY,
+  DEN_BANS_SUMMARY,
+  denBanRowSubtitle,
+  denConfirmCopy,
+} from "@/features/messages/lib/den-confirm";
+import { denInviteCountdown } from "@/features/messages/lib/den-invite";
 import type { MessageConversationData } from "@/features/messages/lib/types";
 import {
   pickProfileImage,
@@ -239,6 +246,15 @@ export function DenSettings({
               kind === "link"
                 ? information.den.inviteCode
                 : information.den.inviteShortCode;
+            // The expiry fact rides with the door, like web's invite sheet:
+            // null is a door that never expires.
+            const expiresAt =
+              kind === "link"
+                ? (information.den.inviteExpiresAt ?? null)
+                : (information.den.inviteShortCodeExpiresAt ?? null);
+            const countdown = expiresAt
+              ? denInviteCountdown(new Date(expiresAt), new Date())
+              : "No expiry";
             return (
               <View key={kind} style={{ gap: 8 }}>
                 {value ? (
@@ -258,6 +274,7 @@ export function DenSettings({
                     </Text>
                   </Pressable>
                 ) : null}
+                <Text style={{ color: theme.dividerText }}>{countdown}</Text>
                 <StatusActionButton
                   label={value ? `Replace join ${kind}` : `Create join ${kind}`}
                   disabled={busy}
@@ -267,35 +284,65 @@ export function DenSettings({
             );
           })}
           <Text style={{ ...text, fontFamily: "SofiaProBold" }}>
-            Banned members
+            Banned members · {bans.length}
           </Text>
+          <Text style={{ color: theme.dividerText }}>{DEN_BANS_SUMMARY}</Text>
           {bans.length ? (
-            bans.map((ban) => (
-              <View
-                key={ban.id}
-                style={{ alignItems: "center", flexDirection: "row", gap: 12 }}
-              >
-                <Text style={{ ...text, flex: 1 }}>
-                  {ban.displayName ?? ban.username ?? "Member"}
-                </Text>
-                <Pressable
-                  disabled={busy}
-                  onPress={() => {
-                    void mutate((options) =>
-                      changeDenMember(
-                        conversation.id,
-                        { action: "unban", userId: ban.id },
-                        options
-                      )
-                    );
+            bans.map((ban) => {
+              const bannedName = ban.displayName ?? ban.username ?? "Member";
+              return (
+                <View
+                  key={ban.id}
+                  style={{
+                    alignItems: "center",
+                    flexDirection: "row",
+                    gap: 12,
                   }}
                 >
-                  <Text style={{ color: "#ff9500" }}>Unban</Text>
-                </Pressable>
-              </View>
-            ))
+                  <View style={{ flex: 1 }}>
+                    <Text style={text}>{bannedName}</Text>
+                    <Text style={{ color: theme.dividerText, fontSize: 12 }}>
+                      {denBanRowSubtitle({
+                        bannedByName: null,
+                        reason: ban.reason,
+                      })}
+                    </Text>
+                  </View>
+                  <Pressable
+                    accessibilityLabel={`Unban ${bannedName}`}
+                    disabled={busy}
+                    onPress={() => {
+                      // Lifting a ban restores eligibility, not membership, so
+                      // it wears the ordinary confirm rather than a
+                      // destructive one, like web's DenConfirmDialog.
+                      const copy = denConfirmCopy({
+                        kind: "unban-member",
+                        memberName: bannedName,
+                      });
+                      Alert.alert(copy.title, copy.description, [
+                        { style: "cancel", text: "Cancel" },
+                        {
+                          onPress: () => {
+                            void mutate((options) =>
+                              changeDenMember(
+                                conversation.id,
+                                { action: "unban", userId: ban.id },
+                                options
+                              )
+                            );
+                          },
+                          text: copy.confirmLabel,
+                        },
+                      ]);
+                    }}
+                  >
+                    <Text style={{ color: "#ff9500" }}>Unban</Text>
+                  </Pressable>
+                </View>
+              );
+            })
           ) : (
-            <Text style={{ color: theme.dividerText }}>No banned members</Text>
+            <Text style={{ color: theme.dividerText }}>{DEN_BANS_EMPTY}</Text>
           )}
           {information.membership.role === "OWNER" ? (
             <StatusActionButton

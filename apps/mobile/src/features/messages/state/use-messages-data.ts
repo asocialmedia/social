@@ -26,6 +26,7 @@ import {
 
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
+import { reconcileAnchoredWindow } from "@/features/messages/lib/anchored-window";
 import { changedMessageIds } from "@/features/messages/lib/changed-message-ids";
 import {
   ackMessageDelivered,
@@ -695,6 +696,14 @@ export function useTranscript(
       }
       windowGeneration.current += 1;
       const generation = windowGeneration.current;
+      // Snapshot the row ids as they stand at issue time. A live arrival
+      // that lands while the anchored read is in flight must survive the
+      // install, so the write reconciles instead of blindly replacing.
+      const issuedIds = new Set(
+        transcriptStore
+          .getSnapshot(conversationId)
+          .messages.map((row) => row.id)
+      );
       anchored.current = true;
       try {
         const page = await fetchMessages(
@@ -704,7 +713,17 @@ export function useTranscript(
           MESSAGE_PAGE_SIZE
         );
         if (windowGeneration.current === generation) {
-          transcriptStore.replaceWindow(conversationId, page);
+          transcriptStore.replaceWindow(
+            conversationId,
+            reconcileAnchoredWindow({
+              // Older windows keep arrivals in the live-tail summary; only a
+              // tail window folds them in.
+              carryArrivals: page.nextCursor === null,
+              currentPages: transcriptStore.getPages(conversationId),
+              fetched: page,
+              issuedIds,
+            })
+          );
         }
       } catch (caughtError) {
         if (windowGeneration.current === generation) {

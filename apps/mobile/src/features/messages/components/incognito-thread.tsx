@@ -42,6 +42,7 @@ import {
   openViewOnceMedia,
 } from "@/features/messages/lib/view-once-client";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/layout/list-virtualization";
 
 import { getMediaImages } from "../lib/crypto";
 import {
@@ -451,6 +452,7 @@ export function NativeIncognitoThread({
               data={visibleRows}
               keyExtractor={(row) => row.message.id}
               keyboardShouldPersistTaps="handled"
+              {...LIST_VIRTUALIZATION_PROPS}
               maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
               contentContainerStyle={{ flexGrow: 1, gap: 10, padding: 16 }}
               ListHeaderComponent={

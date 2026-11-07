@@ -272,6 +272,12 @@ export class TranscriptStore {
     this.setPages(conversationId, page);
   }
 
+  // The loaded pages for an anchored-write reconcile. Read-only: the caller
+  // reconciles the fetched window against these and installs the result.
+  getPages(conversationId: string): readonly MessagePage[] {
+    return this.#entries.get(conversationId)?.pages ?? [];
+  }
+
   /** Prepends an older page, keeping the transcript oldest-first. */
   prependOlder(conversationId: string, page: MessagePage): void {
     const entry = this.#entries.get(conversationId);

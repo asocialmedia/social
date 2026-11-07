@@ -59,6 +59,13 @@ import {
   discardMessageMedia,
   linkMessageMedia,
 } from "@/features/messages/lib/client";
+import {
+  beginSend,
+  canStartSend,
+  failSend,
+  idleSendState,
+} from "@/features/messages/lib/composer-send-state";
+import type { ComposerSendState } from "@/features/messages/lib/composer-send-state";
 import type { MessagePayload } from "@/features/messages/lib/crypto";
 import { deliverMessages } from "@/features/messages/lib/deliver-messages";
 import { uploadStagedAttachments } from "@/features/messages/lib/message-attachment-upload";
@@ -99,6 +106,7 @@ export function MessageComposer({
   onCancelEdit,
   onCancelReply,
   onSend,
+  onSaveEdit,
   onTyping,
   replyTo,
   peerName,
@@ -111,6 +119,7 @@ export function MessageComposer({
   onCancelEdit: () => void;
   onCancelReply: () => void;
   onSend: (payload: MessagePayload) => Promise<void>;
+  onSaveEdit?: (text: string) => Promise<void>;
   onTyping: () => void;
   replyTo: ComposerTarget | null;
   peerName: string;
@@ -161,7 +170,14 @@ export function MessageComposer({
   );
   const { crop, cropper } = useProfileMediaCropper();
   const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
-  const [sending, setSending] = useState(false);
+  // Explicit send state (see lib/composer-send-state.ts): a send starts only
+  // from idle or failed, and a failure keeps its error so the send stays
+  // retryable instead of collapsing back to idle.
+  const [sendState, setSendState] = useState<ComposerSendState>(idleSendState);
+  // Synchronous in-flight guard. State commits on the next render, so two rapid
+  // taps would both read `idle` from the closure; the ref flips in the same
+  // tick as the first tap and the second tap no-ops.
+  const sendFlight = useRef<string | null>(null);
   const viewOnceMode = attachments.some((attachment) => attachment.viewOnce);
   const typingSent = useRef(false);
   const lastTypedAt = useRef(0);
@@ -224,7 +240,7 @@ export function MessageComposer({
   const isUploading = attachments.some((item) => item.progress !== null);
   const canSend =
     !disabled &&
-    !sending &&
+    canStartSend(sendState) &&
     !isUploading &&
     (!viewOnceMode || attachments.length > 0) &&
     (fieldValue.trim().length > 0 ||
@@ -572,17 +588,72 @@ export function MessageComposer({
   }, []);
 
   const handleSend = useCallback(() => {
-    if (!canSend) {
+    if (!canSend || sendFlight.current) {
       return;
     }
-    setSending(true);
+    // The flight ref is the double-tap guard; the union is the state machine.
+    // Both must agree before a send starts.
+    const clientId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let next: ComposerSendState;
+    try {
+      next = beginSend(sendState, clientId);
+    } catch {
+      return;
+    }
+    sendFlight.current = clientId;
+    setSendState(next);
+    // An edit rewrites the targeted message in place instead of sending a new
+    // one. The same state machine guards it: a failure keeps the draft and the
+    // failed state so the user can retry.
+    if (editing && onSaveEdit) {
+      const text = fieldValue.trim();
+      void (async () => {
+        try {
+          await onSaveEdit(text);
+          if (sendFlight.current !== clientId) {
+            return;
+          }
+          sendFlight.current = null;
+          setSendState(idleSendState());
+          if (!incognitoSessionId) {
+            useMessageTextDraft.getState().clear(draftKey);
+          }
+          setDraft("");
+          onCancelEdit();
+          stopTyping();
+        } catch (error) {
+          if (sendFlight.current !== clientId) {
+            return;
+          }
+          sendFlight.current = null;
+          const message =
+            error instanceof Error ? error.message : "Couldn't save edit";
+          toast({
+            description: message,
+            title: "Edit not saved",
+            variant: "destructive",
+          });
+          setSendState(failSend(clientId, message));
+        }
+      })();
+      return;
+    }
     void runSend({
       attachments,
       caption: fieldValue.trim(),
-      onSettled: () => {
-        setSending(false);
+      onFailure: (message) => {
+        if (sendFlight.current !== clientId) {
+          return;
+        }
+        sendFlight.current = null;
+        setSendState(failSend(clientId, message));
       },
       onSuccess: () => {
+        if (sendFlight.current !== clientId) {
+          return;
+        }
+        sendFlight.current = null;
+        setSendState(idleSendState());
         useSharedPostDraft.getState().clear(conversationId);
         if (!incognitoSessionId) {
           useMessageTextDraft.getState().clear(draftKey);
@@ -603,10 +674,13 @@ export function MessageComposer({
     sharedPostId,
     attachments,
     canSend,
+    sendState,
     onCancelEdit,
     fieldValue,
     onCancelReply,
     onSend,
+    onSaveEdit,
+    editing,
     replyTo,
     stopTyping,
     draftKey,
@@ -695,6 +769,18 @@ export function MessageComposer({
           stickersEnabled={stickersEnabled}
           tab={expressionTab}
         />
+      ) : null}
+      {sendState.kind === "failed" ? (
+        <Pressable
+          accessibilityLabel="Retry sending message"
+          accessibilityRole="button"
+          onPress={handleSend}
+          style={styles.retryRow}
+        >
+          <Text style={styles.retryText}>
+            Couldn&apos;t send. Tap to try again.
+          </Text>
+        </Pressable>
       ) : null}
       <View
         style={[
@@ -910,7 +996,7 @@ async function runSend(input: {
   attachments: StagedAttachment[];
   postId?: string;
   caption: string;
-  onSettled: () => void;
+  onFailure: (message: string) => void;
   onSuccess: () => void;
   replyTo: ComposerTarget | null;
   send: (payload: MessagePayload) => Promise<void>;
@@ -935,15 +1021,16 @@ async function runSend(input: {
       // sent", with the thrown message as the description when there is one. The
       // draft surviving is not a substitute for saying so -- without this the
       // send fails silently and the only symptom is the text still sitting there.
+      const message =
+        error instanceof Error ? error.message : "Couldn't send message";
       toast({
-        description:
-          error instanceof Error ? error.message : "Couldn't send message",
+        description: message,
         title: "Message not sent",
         variant: "destructive",
       });
+      input.onFailure(message);
     }
   );
-  input.onSettled();
 }
 
 /**
@@ -1251,6 +1338,20 @@ const styles = StyleSheet.create({
     left: 0,
     position: "absolute",
     right: 0,
+  },
+  retryRow: {
+    alignItems: "center",
+    backgroundColor: "#ff3b3014",
+    borderRadius: 12,
+    marginBottom: 8,
+    marginHorizontal: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  retryText: {
+    color: "#ff3b30",
+    fontFamily: "SofiaProMed",
+    fontSize: 13,
   },
   root: {
     borderTopWidth: 1,

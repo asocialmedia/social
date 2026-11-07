@@ -171,32 +171,49 @@ export interface PresenceUser {
 // retries the request, so by the time an error reaches a caller it is a real
 // failure rather than something the app can fix by asking again.
 export class MessagesApiError extends Error {
+  // A den route's domain outcome, forwarded verbatim. The status cannot always
+  // carry it (several codes share 400/409/403), so a client that wants copy
+  // specific to one of them branches on this. Optional because the DM routes
+  // never write one.
+  readonly code: string | undefined;
   readonly expectedIndex: number | undefined;
   readonly status: number;
 
-  constructor(message: string, status: number, expectedIndex?: number) {
+  constructor(
+    message: string,
+    status: number,
+    expectedIndex?: number,
+    code?: string
+  ) {
     super(message);
     this.name = "MessagesApiError";
     this.status = status;
     this.expectedIndex = expectedIndex;
+    this.code = code;
   }
 }
 
 async function parseError(response: Response): Promise<Error> {
   let message = `Request failed (${response.status})`;
+  let code: string | undefined;
   let expectedIndex: number | undefined;
   let retryAfterSeconds: number | undefined;
   try {
     const body = (await response.json()) as {
+      code?: string;
       error?: string;
       expectedIndex?: number;
       retryAfterSeconds?: number;
     };
     const {
+      code: bodyCode,
       error: bodyError,
       expectedIndex: bodyExpectedIndex,
       retryAfterSeconds: bodyRetryAfter,
     } = body;
+    if (typeof bodyCode === "string") {
+      code = bodyCode;
+    }
     if (typeof bodyError === "string") {
       message = bodyError;
     }
@@ -216,7 +233,7 @@ async function parseError(response: Response): Promise<Error> {
       retryAfterSeconds ?? (Number.isFinite(headerRetry) ? headerRetry : 1);
     throw new HistoryThrottledError(wait);
   }
-  return new MessagesApiError(message, response.status, expectedIndex);
+  return new MessagesApiError(message, response.status, expectedIndex, code);
 }
 
 async function request<T>(
@@ -1204,6 +1221,13 @@ export interface DenInformation {
     inviteCode: string | null;
     inviteShortCode: string | null;
     ownerId: string | null;
+    // The expiry facts ride with the code under the same manager gate, like
+    // web's DenDetailResponse. Null for a door that never expires or that
+    // predates expiry; absent on older cached payloads.
+    inviteDurationDays?: number | null;
+    inviteExpiresAt?: string | null;
+    inviteShortCodeDurationDays?: number | null;
+    inviteShortCodeExpiresAt?: string | null;
   };
   membership: { role: "OWNER" | "ADMIN" | "MEMBER" };
 }
@@ -1240,6 +1264,9 @@ export function changeDenMember(
       | "promote"
       | "demote"
       | "transfer";
+    // A ban reason is optional on the way in as well as on display: only
+    // owners and Elders ever read it, and the server slices it to its cap.
+    reason?: string | null;
   },
   options: ApiCallOptions
 ): Promise<void> {
@@ -1261,9 +1288,13 @@ export function changeDenMember(
   }[action];
   let body:
     | { memberIds: string[] }
-    | { userId: string; role?: "ADMIN" | "MEMBER" } = { userId };
+    | { userId: string; role?: "ADMIN" | "MEMBER" }
+    | { reason: string | null; userId: string } = { userId };
   if (action === "add") {
     body = { memberIds: [userId] };
+  }
+  if (action === "ban") {
+    body = { reason: input.reason ?? null, userId };
   }
   if (action === "promote" || action === "demote") {
     body = { role: action === "promote" ? "ADMIN" : "MEMBER", userId };

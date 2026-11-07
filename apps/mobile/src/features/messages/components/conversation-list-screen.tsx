@@ -29,7 +29,6 @@ import {
   Text,
   TextInput,
   Pressable,
-  ScrollView,
   View,
 } from "react-native";
 
@@ -54,6 +53,7 @@ import {
   unreadConversationCounts,
 } from "@/features/messages/lib/conversation-presentation";
 import type { ConversationFilter } from "@/features/messages/lib/conversation-presentation";
+import { previewBatchForItems } from "@/features/messages/lib/conversation-preview-requests";
 import { messageDecryptor } from "@/features/messages/lib/decryptor";
 import type { DecryptItem } from "@/features/messages/lib/decryptor";
 import type { GlobalMessageSearchResult } from "@/features/messages/lib/global-message-search";
@@ -87,6 +87,7 @@ import { MessagePresenceIndicator } from "./message-presence-indicator";
 import { MessagesErrorState } from "./messages-error-state";
 import { MessagesIconButton, PressableRow } from "./messages-primitives";
 import { ConversationListSkeleton } from "./messages-skeleton";
+import { OnlineFriendsStrip } from "./online-friends-strip";
 
 export { conversationListStore } from "@/features/messages/state/conversation-list-store";
 
@@ -183,7 +184,6 @@ export function ConversationListScreen({
     },
     [list, onOpen]
   );
-  const openingPerson = creatingId !== null;
   const handleOnlinePerson = (person: PresenceUser) => {
     void startConversation(person.id);
   };
@@ -269,20 +269,12 @@ export function ConversationListScreen({
     [presence]
   );
 
+  // Web's useConversationPreviewRequests: the server stores only ciphertext,
+  // so a list preview is a decrypt like any other. A deleted last message
+  // previews from the row alone, so decrypting it would be work whose result is
+  // thrown away.
   const decryptItems = useMemo<DecryptItem[]>(
-    () =>
-      list.rows
-        .filter((row) => row.lastMessage !== null)
-        .map((row) => ({
-          conversationId: row.conversation.id,
-          message: {
-            ciphertext: row.lastMessage?.ciphertext ?? "",
-            id: row.lastMessage?.id ?? row.conversation.id,
-            iv: row.lastMessage?.iv ?? "",
-            ratchetIndex: row.lastMessage?.ratchetIndex ?? 0,
-            senderId: row.lastMessage?.senderId ?? "",
-          },
-        })),
+    () => previewBatchForItems(list.rows),
     [list.rows]
   );
 
@@ -401,48 +393,18 @@ export function ConversationListScreen({
                 </>
               )}
             </View>
-            {!query &&
-            presence.some(
-              (person) => person.status === "online" && person.isFollowing
-            ) ? (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{
-                  gap: 12,
-                  paddingHorizontal: 10,
-                  paddingVertical: 8,
+            {query ? null : (
+              <OnlineFriendsStrip
+                creating={creatingId}
+                onSelect={(userId) => {
+                  const person = presence.find((entry) => entry.id === userId);
+                  if (person) {
+                    handleOnlinePerson(person);
+                  }
                 }}
-              >
-                {presence
-                  .filter(
-                    (person) => person.status === "online" && person.isFollowing
-                  )
-                  .map((person) => (
-                    <Pressable
-                      key={person.id}
-                      accessibilityLabel={`Message ${person.displayName} (@${person.username}), online`}
-                      accessibilityState={{
-                        busy: creatingId === person.id,
-                        disabled: openingPerson,
-                      }}
-                      disabled={openingPerson}
-                      onPress={() => handleOnlinePerson(person)}
-                      style={{ opacity: openingPerson ? 0.6 : 1 }}
-                    >
-                      <UserAvatar
-                        size={48}
-                        url={person.avatarUrl}
-                        userId={person.id}
-                      />
-                      <MessagePresenceIndicator
-                        status="online"
-                        testID="online-friend-presence"
-                      />
-                    </Pressable>
-                  ))}
-              </ScrollView>
-            ) : null}
+                users={presence}
+              />
+            )}
             <View
               accessibilityLabel={
                 searching ? "Filter message results" : "Filter conversations"

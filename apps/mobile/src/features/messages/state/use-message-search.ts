@@ -18,6 +18,10 @@ import type {
   SearchCandidate,
   SearchPage,
 } from "@/features/messages/lib/message-search";
+import {
+  isMessageSearchQueryTooLong,
+  MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE,
+} from "@/features/messages/lib/message-search-status";
 import type { TranscriptItem } from "@/features/messages/lib/transcript-rows";
 import type { MessageData } from "@/features/messages/lib/types";
 import { orderedCopy } from "@/lib/format/ordered-copy";
@@ -356,7 +360,12 @@ export function useMessageSearch({
   let statusLabel = ranked.length
     ? `${page.rangeStart}–${page.rangeEnd} matches`
     : "No matches";
-  if (committedQuery.trim().length < 2) {
+  // The contract wins over every other state: an overlong query never ran, so
+  // neither "no matches" nor a stale error may speak for it.
+  if (isMessageSearchQueryTooLong(committedQuery)) {
+    emptyLabel = MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE;
+    statusLabel = MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE;
+  } else if (committedQuery.trim().length < 2) {
     emptyLabel = "Type at least 2 characters to search messages";
     statusLabel = "";
   } else if (pending) {

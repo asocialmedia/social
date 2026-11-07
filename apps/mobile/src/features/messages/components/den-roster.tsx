@@ -1,25 +1,48 @@
 import { MenuView } from "@expo/ui/community/menu";
 import { MoreHorizontal } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Alert, Pressable, Text, TextInput, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
+import { StatusActionButton } from "@/components/feedback/status-action-button";
+import { DialogPanel } from "@/components/surface/dialog-panel";
 import { premiumInput } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { changeDenMember } from "@/features/messages/lib/client";
+import type { DenInformation } from "@/features/messages/lib/client";
 import {
-  denPersonUnavailable,
-  fetchRecentDenPeople,
-  changeDenMember,
-  searchMessageUsers,
-} from "@/features/messages/lib/client";
-import type {
-  DenInformation,
-  SearchUserResult,
-} from "@/features/messages/lib/client";
+  denBanConfirmCopy,
+  denConfirmCopy,
+} from "@/features/messages/lib/den-confirm";
+import type { DenConfirmKind } from "@/features/messages/lib/den-confirm";
+import {
+  DEN_BAN_REASON_LABEL,
+  DEN_BAN_REASON_MAX,
+  DEN_BAN_REASON_PLACEHOLDER,
+  normalizeDenBanReason,
+} from "@/features/messages/lib/den-forms";
+import { denAddRoom } from "@/features/messages/lib/member-picker-rules";
+import type { PickerPerson } from "@/features/messages/lib/member-picker-rules";
 import type { MessageConversationData } from "@/features/messages/lib/types";
 import { orderedCopy } from "@/lib/format/ordered-copy";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
+
+import { MemberPicker, MemberPickerSearch } from "./member-picker";
+
+// Maps a roster menu action to its confirm-dialog kind. Bans carry a reason and
+// open their own sheet; promote/demote apply immediately.
+function confirmKindForAction(
+  action: Parameters<typeof changeDenMember>[1]["action"]
+): DenConfirmKind | null {
+  if (action === "remove") {
+    return "remove-member";
+  }
+  if (action === "transfer") {
+    return "transfer-ownership";
+  }
+  return null;
+}
 
 export function DenRoster({
   conversation,
@@ -35,9 +58,21 @@ export function DenRoster({
   const { theme, isDark } = useAppTheme();
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
-  const [people, setPeople] = useState<SearchUserResult[]>([]);
+  // The add-members picker owns its query and selection; the roster's own
+  // search field keeps filtering members. Both reset when adding closes.
+  const [addQuery, setAddQuery] = useState("");
+  const [addSelected, setAddSelected] = useState<PickerPerson[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Banning is the only den confirmation with a field, so it gets its own
+  // sheet instead of an Alert: the reason tells the next owner what happened.
+  // The sheet remounts per target (keyed below), which resets the reason
+  // without flashing the previous person's.
+  const [banTarget, setBanTarget] = useState<{
+    displayName: string;
+    userId: string;
+  } | null>(null);
+  const [banReason, setBanReason] = useState("");
   const pending = useRef(false);
   const field = premiumInput(isDark, false);
   const members = orderedCopy(
@@ -49,38 +84,46 @@ export function DenRoster({
   );
   const canManage = information?.canManage === true;
   const owner = information?.membership.role === "OWNER";
-  useEffect(() => {
-    if (!adding) {
+  // Adds every picked person, then closes the picker. One request per person:
+  // the route admits members individually and reports per-id refusals.
+  const addSelectedMembers = async () => {
+    if (pending.current || addSelected.length === 0) {
       return;
     }
-    let active = true;
-    const timer = setTimeout(async () => {
-      try {
-        const options = {
-          apiBase: getApiBaseUrl(),
-          cookie: await authClient.getCookie(),
-        };
-        const found = query.trim()
-          ? await searchMessageUsers(query.trim(), options, "den")
-          : await fetchRecentDenPeople(userId, options);
-        if (active) {
-          setPeople(found);
-          setError(null);
-        }
-      } catch {
-        if (active) {
-          setError("Couldn't find people. Try again.");
-        }
+    pending.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      const options = {
+        apiBase: getApiBaseUrl(),
+        cookie: await authClient.getCookie(),
+      };
+      for (const person of addSelected) {
+        // oxlint-disable-next-line no-await-in-loop -- membership writes must land in pick order so a partial failure leaves a predictable roster
+        await changeDenMember(
+          conversation.id,
+          { action: "add", userId: person.id },
+          options
+        );
       }
-    }, 200);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [adding, query, userId]);
+      setAddQuery("");
+      setAddSelected([]);
+      setAdding(false);
+      onChanged();
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Couldn't update this den. Try again."
+      );
+    }
+    pending.current = false;
+    setBusy(false);
+  };
   const mutate = async (
     targetId: string,
-    action: Parameters<typeof changeDenMember>[1]["action"]
+    action: Parameters<typeof changeDenMember>[1]["action"],
+    reason?: string | null
   ) => {
     if (pending.current) {
       return;
@@ -91,14 +134,11 @@ export function DenRoster({
     try {
       await changeDenMember(
         conversation.id,
-        { action, userId: targetId },
+        reason === undefined
+          ? { action, userId: targetId }
+          : { action, reason, userId: targetId },
         { apiBase: getApiBaseUrl(), cookie: await authClient.getCookie() }
       );
-      if (action === "add") {
-        setQuery("");
-        setPeople([]);
-        setAdding(false);
-      }
       onChanged();
     } catch (caughtError) {
       setError(
@@ -113,24 +153,28 @@ export function DenRoster({
   const confirm = (
     targetId: string,
     action: Parameters<typeof changeDenMember>[1]["action"],
-    label: string
+    memberName: string
   ) => {
-    Alert.alert(
-      `${label}?`,
-      action === "transfer"
-        ? "This member becomes the owner. You remain an Elder."
-        : "This changes their access to this den. Their previous history is preserved.",
-      [
-        { style: "cancel", text: "Cancel" },
-        {
-          onPress: () => {
-            void mutate(targetId, action);
-          },
-          style: "destructive",
-          text: label,
+    // Bans carry a reason, so they open the ban sheet instead of an Alert.
+    if (action === "ban") {
+      setBanReason("");
+      setBanTarget({ displayName: memberName, userId: targetId });
+      return;
+    }
+    const kind = confirmKindForAction(action);
+    const copy = kind
+      ? denConfirmCopy({ kind, memberName })
+      : { confirmLabel: action, description: "", title: `${action}?` };
+    Alert.alert(copy.title, copy.description, [
+      { style: "cancel", text: "Cancel" },
+      {
+        onPress: () => {
+          void mutate(targetId, action);
         },
-      ]
-    );
+        style: "destructive",
+        text: copy.confirmLabel,
+      },
+    ]);
   };
   const textStyle = { color: theme.inputText, fontFamily: "SofiaProMed" };
   return (
@@ -148,8 +192,8 @@ export function DenRoster({
             disabled={busy}
             onPress={() => {
               setAdding((value) => !value);
-              setQuery("");
-              setPeople([]);
+              setAddQuery("");
+              setAddSelected([]);
             }}
           >
             <Text style={{ ...textStyle, color: "#ff9500" }}>
@@ -158,62 +202,75 @@ export function DenRoster({
           </Pressable>
         ) : null}
       </View>
-      <TextInput
-        accessibilityLabel={
-          adding ? "Find people to add" : "Search den members"
-        }
-        placeholder={adding ? "Search people you follow…" : "Search members…"}
-        value={query}
-        onChangeText={setQuery}
-        editable={!busy}
-        placeholderTextColor={field.placeholder}
-        style={{
-          backgroundColor: field.background,
-          borderRadius: 12,
-          boxShadow: field.shadows,
-          color: field.text,
-          height: 40,
-          paddingHorizontal: 12,
-        }}
-      />
-      {adding
-        ? people
-            .filter(
-              (person) =>
-                person.id !== userId &&
-                !members.some((member) => member.userId === person.id)
-            )
-            .map((person) => (
-              <Pressable
-                key={person.id}
-                disabled={busy || Boolean(denPersonUnavailable(person))}
-                accessibilityLabel={`Add ${person.displayName}`}
-                onPress={() => {
-                  void mutate(person.id, "add");
-                }}
+      {adding ? (
+        <>
+          <MemberPickerSearch
+            onChange={setAddQuery}
+            placeholder="Search people you follow…"
+            value={addQuery}
+          />
+          <MemberPicker
+            disabled={busy}
+            excludeIds={members.map((member) => member.userId)}
+            maxSelected={denAddRoom(members.length)}
+            onToggle={(person) =>
+              setAddSelected((current) => {
+                if (current.some((entry) => entry.id === person.id)) {
+                  return current.filter((entry) => entry.id !== person.id);
+                }
+                return current.length < denAddRoom(members.length)
+                  ? [...current, person]
+                  : current;
+              })
+            }
+            query={addQuery}
+            selectedIds={addSelected.map((person) => person.id)}
+            userId={userId}
+          />
+          {addSelected.length > 0 ? (
+            <Pressable
+              accessibilityLabel={`Add ${addSelected.length} members to this den`}
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={() => {
+                void addSelectedMembers();
+              }}
+              style={{ paddingVertical: 8 }}
+            >
+              <Text
                 style={{
-                  alignItems: "center",
-                  flexDirection: "row",
-                  gap: 10,
-                  paddingVertical: 8,
+                  color: "#ff9500",
+                  fontFamily: "SofiaProMed",
+                  textAlign: "center",
                 }}
               >
-                <UserAvatar
-                  url={person.avatarUrl}
-                  userId={person.id}
-                  size={36}
-                />
-                <Text style={{ ...textStyle, flex: 1 }}>
-                  {person.displayName}
-                  {denPersonUnavailable(person)
-                    ? ` · ${denPersonUnavailable(person)}`
-                    : ""}
-                </Text>
-                <Text style={{ color: "#ff9500" }}>
-                  {denPersonUnavailable(person) ? "Unavailable" : "Add"}
-                </Text>
-              </Pressable>
-            ))
+                {busy
+                  ? "Adding…"
+                  : `Add ${addSelected.length} member${addSelected.length === 1 ? "" : "s"}`}
+              </Text>
+            </Pressable>
+          ) : null}
+        </>
+      ) : (
+        <TextInput
+          accessibilityLabel="Search den members"
+          placeholder="Search members…"
+          value={query}
+          onChangeText={setQuery}
+          editable={!busy}
+          placeholderTextColor={field.placeholder}
+          style={{
+            backgroundColor: field.background,
+            borderRadius: 12,
+            boxShadow: field.shadows,
+            color: field.text,
+            height: 40,
+            paddingHorizontal: 12,
+          }}
+        />
+      )}
+      {adding
+        ? null
         : members
             .filter((member) =>
               `${member.user.displayName} ${member.user.username}`
@@ -312,8 +369,7 @@ export function DenRoster({
                           confirm(
                             member.userId,
                             action,
-                            actions.find((option) => option.id === action)
-                              ?.title ?? action
+                            member.user.displayName || member.user.username
                           );
                         }
                       }}
@@ -336,6 +392,109 @@ export function DenRoster({
           {error}
         </Text>
       ) : null}
+      {banTarget ? (
+        <BanMemberDialog
+          busy={busy}
+          displayName={banTarget.displayName}
+          key={banTarget.userId}
+          onClose={() => setBanTarget(null)}
+          onConfirm={(reason) => {
+            const target = banTarget;
+            setBanTarget(null);
+            void mutate(target.userId, "ban", reason);
+          }}
+          reason={banReason}
+          onReasonChange={setBanReason}
+        />
+      ) : null}
     </View>
+  );
+}
+
+// The ban confirmation: the only den confirmation with a field, so it gets its
+// own dialog rather than an Alert. Ported from web's DenBanDialog: the reason
+// is optional, only owners and Elders read it, and the sheet remounts per
+// target (keyed above) so a previous person's reason never flashes.
+function BanMemberDialog({
+  busy,
+  displayName,
+  onClose,
+  onConfirm,
+  onReasonChange,
+  reason,
+}: {
+  busy: boolean;
+  displayName: string;
+  onClose: () => void;
+  onConfirm: (reason: string | null) => void;
+  onReasonChange: (value: string) => void;
+  reason: string;
+}) {
+  const { theme, isDark } = useAppTheme();
+  const copy = denBanConfirmCopy(displayName);
+  const field = premiumInput(isDark, false);
+  return (
+    <DialogPanel
+      busy={busy}
+      description={copy.description}
+      onClose={onClose}
+      title={copy.title}
+    >
+      <View style={{ gap: 12 }}>
+        <View style={{ gap: 4 }}>
+          <Text
+            style={{
+              color: theme.dividerText,
+              fontFamily: "SofiaProReg",
+              fontSize: 12,
+            }}
+          >
+            {DEN_BAN_REASON_LABEL}
+          </Text>
+          <TextInput
+            accessibilityLabel="Ban reason"
+            editable={!busy}
+            maxLength={DEN_BAN_REASON_MAX}
+            multiline
+            onChangeText={onReasonChange}
+            placeholder={DEN_BAN_REASON_PLACEHOLDER}
+            placeholderTextColor={field.placeholder}
+            style={{
+              backgroundColor: field.background,
+              borderRadius: 12,
+              boxShadow: field.shadows,
+              color: field.text,
+              fontFamily: "SofiaProReg",
+              minHeight: 72,
+              paddingHorizontal: 12,
+              paddingVertical: 10,
+            }}
+            value={reason}
+          />
+        </View>
+        <StatusActionButton
+          disabled={busy}
+          label={copy.confirmLabel}
+          onPress={() => onConfirm(normalizeDenBanReason(reason))}
+        />
+        <Pressable
+          accessibilityLabel="Cancel ban"
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={onClose}
+          style={{ paddingVertical: 8 }}
+        >
+          <Text
+            style={{
+              color: theme.inputText,
+              fontFamily: "SofiaProMed",
+              textAlign: "center",
+            }}
+          >
+            Cancel
+          </Text>
+        </Pressable>
+      </View>
+    </DialogPanel>
   );
 }
