@@ -224,7 +224,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.9.31",
+      "version": "1.9.32",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -397,10 +397,11 @@
     },
     "packages/logger": {
       "name": "@asm/logger",
-      "version": "1.0.23",
+      "version": "1.0.25",
       "dependencies": {
         "@opentelemetry/api": "^1.9.1",
         "@opentelemetry/api-logs": "^0.221.0",
+        "@opentelemetry/core": "^2.10.0",
         "@opentelemetry/exporter-logs-otlp-http": "^0.221.0",
         "@opentelemetry/exporter-metrics-otlp-http": "^0.221.0",
         "@opentelemetry/exporter-trace-otlp-http": "^0.221.0",

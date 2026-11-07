@@ -31,6 +31,7 @@ import {
   readOtelConfig,
 } from "./otel-config";
 import type { OtelConfig } from "./otel-config";
+import { bindTelemetryExport } from "./telemetry-context";
 
 // Container health probes hit /api/health every 30s per replica. Next traces
 // each one into a full request span, so four health-check spans a minute per
@@ -192,6 +193,16 @@ export function initTelemetry(options: {
     headers: { ...baseHeaders, ...buildStreamHeader(config) },
     url: logEndpoint,
   });
+
+  traceExporter.export = bindTelemetryExport(
+    traceExporter.export.bind(traceExporter)
+  );
+  metricExporter.export = bindTelemetryExport(
+    metricExporter.export.bind(metricExporter)
+  );
+  logExporter.export = bindTelemetryExport(
+    logExporter.export.bind(logExporter)
+  );
 
   const tracerProvider = new NodeTracerProvider({
     resource,

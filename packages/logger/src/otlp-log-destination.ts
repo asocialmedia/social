@@ -1,5 +1,7 @@
 import { Writable } from "node:stream";
 
+import { bindTelemetryExport } from "./telemetry-context";
+
 const LEVELS: Record<string, { severityText: string; severityNumber: number }> =
   {
     "10": { severityNumber: 1, severityText: "TRACE" },
@@ -97,7 +99,7 @@ export function createOtlpLogDestination(
   const queue: Record<string, unknown>[] = [];
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  async function flush() {
+  const flush = bindTelemetryExport(async () => {
     if (timer) {
       clearTimeout(timer);
       timer = null;
@@ -139,7 +141,7 @@ export function createOtlpLogDestination(
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write(`[otel-log] failed to export logs: ${message}\n`);
     }
-  }
+  });
 
   function scheduleFlush() {
     if (!timer && queue.length > 0) {
