@@ -35,6 +35,7 @@ import { requestPasswordReset } from "@/features/auth/lib/auth-api";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
+import { clearStoredPrivateKey } from "@/features/messages/lib/crypto";
 import { networkRequest } from "@/features/network/lib/network-api";
 import {
   registerForPushNotifications,
@@ -1118,16 +1119,21 @@ function MessageRecoveryCard({
   runWithInstallToken: ReturnType<typeof useInstall>["runWithInstallToken"];
 }) {
   const { theme } = useAppTheme();
+  const { user } = useSessionContext();
+  const userId = user?.id ?? null;
   const [state, setState] = useState<"loading" | "not-set-up" | "enabled">(
     "loading"
   );
   const [resetOpen, setResetOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const load = useCallback(async () => {
     const result = await fetchMessageIdentity({
       apiBase: getApiBaseUrl(),
       cookie: (await authClient.getCookie()) ?? "",
     });
+    // An unreachable identity endpoint reads as "not set up", like web: the
+    // card never claims a state it could not verify.
     setState(result?.identityExists ? "enabled" : "not-set-up");
   }, []);
 
@@ -1137,6 +1143,7 @@ function MessageRecoveryCard({
   }, [load]);
 
   const confirmReset = async () => {
+    setResetting(true);
     const result = await runWithInstallToken(
       async () =>
         resetMessageIdentity({
@@ -1145,20 +1152,23 @@ function MessageRecoveryCard({
         }),
       (value) => value.kind === "install-token-required"
     );
-    if (result === null) {
+    if (result === null || result.kind !== "success") {
+      setResetting(false);
+      if (result?.kind === "error") {
+        toast({
+          description: result.message,
+          title: "Reset failed",
+          variant: "destructive",
+        });
+      }
       return;
     }
-    if (result.kind === "error") {
-      toast({
-        description: result.message,
-        title: "Couldn't reset",
-        variant: "destructive",
-      });
-      return;
+    // Drop the stale device-local key so the next Messages visit provisions a
+    // fresh identity, as web's card does after the server reset.
+    if (userId) {
+      await clearStoredPrivateKey(userId).catch(() => null);
     }
-    if (result.kind !== "success") {
-      return;
-    }
+    setResetting(false);
     setResetOpen(false);
     await load();
     toast({
@@ -1183,7 +1193,11 @@ function MessageRecoveryCard({
           />
         )}
       </View>
-      {state === "loading" ? <SettingsRowsSkeleton rows={1} /> : null}
+      {state === "loading" ? (
+        <Text style={[styles.note, { color: theme.dividerText }]}>
+          Checking…
+        </Text>
+      ) : null}
       {state === "not-set-up" ? (
         <Text style={[styles.note, { color: theme.dividerText }]}>
           Messages haven&apos;t been set up on this account yet. Open Messages
@@ -1202,7 +1216,7 @@ function MessageRecoveryCard({
               ]}
             >
               Your messages are encrypted, and a new device restores access
-              automatically: there is nothing to save or remember.
+              automatically — there is nothing to save or remember.
             </Text>
           </View>
           <SettingsButton
@@ -1214,22 +1228,29 @@ function MessageRecoveryCard({
         </>
       ) : null}
 
+      {/* Web's ResetIdentityDialog copy, shared with the messages screen. */}
       <SecurityDialog
-        description="This drops this account's server-side messages identity. Your pre-reset history becomes unreadable to you; the peer's wraps remain."
+        description="You'll get a new messages key. Messages sent or received before this point can no longer be read on your account — they stay on the other person's device and are not deleted. This can't be undone."
         icon={ShieldAlert}
-        onClose={() => setResetOpen(false)}
+        onClose={() => {
+          if (!resetting) {
+            setResetOpen(false);
+          }
+        }}
         open={resetOpen}
-        title="Start over with a new key?"
+        title="Start messages over?"
       >
         <View style={styles.dialogActions}>
           <SettingsButton
+            disabled={resetting}
             label="Cancel"
             onPress={() => setResetOpen(false)}
             size="sm"
             tone="gray"
           />
           <SettingsButton
-            label="Reset messages key"
+            disabled={resetting}
+            label={resetting ? "Resetting…" : "Reset messages"}
             onPress={() => {
               void confirmReset();
             }}

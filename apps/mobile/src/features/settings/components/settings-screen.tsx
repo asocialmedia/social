@@ -177,7 +177,18 @@ export function SettingsScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-      <MobileHeader user={userForHeader} />
+      {/* Web: MobileTopBar onBack. Settings has no parent route, so back
+          returns through history, or home when opened directly. */}
+      <MobileHeader
+        onBack={() => {
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace("/");
+          }
+        }}
+        user={userForHeader}
+      />
       <View style={styles.chrome}>
         <FeedTabs
           active={tab}
@@ -243,13 +254,14 @@ export default SettingsScreen;
 const styles = StyleSheet.create({
   chrome: { zIndex: 20 },
   root: { flex: 1 },
-  // Web's mobile search row: the same 16px horizontal gutter as the tab strip
-  // content and tab bodies, with a bottom hairline matching the strip above.
+  // Web's mobile search row: `flex items-center gap-2 border-b px-3 py-2`.
   searchRow: {
+    alignItems: "center",
     borderBottomWidth: 1,
-    paddingBottom: 8,
-    paddingHorizontal: 16,
-    paddingTop: 8,
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     zIndex: 50,
   },
   securitySkeleton: { gap: 18, padding: 16, paddingBottom: 96 },
