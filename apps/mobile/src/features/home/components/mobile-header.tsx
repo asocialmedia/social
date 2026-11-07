@@ -53,6 +53,7 @@ import {
   useAppTheme,
 } from "@/theme";
 
+import { NAV_ACTIVE_DARK, NAV_ACTIVE_LIGHT } from "./mobile-bottom-nav";
 import { resolveProfileImageUrl } from "./profile-utils";
 import { usePopupProfile } from "./use-popup-profile";
 import { UserProfilePopup } from "./user-profile-popup";
@@ -260,31 +261,26 @@ export function MobileHeader({
                   hitSlop={6}
                   onPress={() => router.push("/notifications")}
                 >
-                  {({ pressed }) => (
-                    <View
-                      style={[
-                        styles.iconBtn,
-                        {
-                          backgroundColor: theme.passkeyBg,
-                          boxShadow: iconShadows,
-                        },
-                        pressed && styles.pressedShift,
-                      ]}
-                    >
+                  {({ pressed }) => {
+                    // Web adds `.pill-nav-active` to the bell on /notifications:
+                    // the dock's tonal tint, hairline and lip, plus a filled
+                    // primary glyph.
+                    const onNotifications =
+                      pathname.startsWith("/notifications");
+                    const activeTone = isDark
+                      ? NAV_ACTIVE_DARK
+                      : NAV_ACTIVE_LIGHT;
+                    const bell = (
                       <Bell
                         color={
-                          pathname.startsWith("/notifications")
-                            ? "#ff9500"
-                            : theme.passkeyIcon
+                          onNotifications ? activeTone.color : theme.passkeyIcon
                         }
-                        fill={
-                          pathname.startsWith("/notifications")
-                            ? "#ff9500"
-                            : "none"
-                        }
+                        fill={onNotifications ? activeTone.color : "none"}
                         size={20}
                       />
-                      {unreadCount > 0 ? (
+                    );
+                    const badge =
+                      unreadCount > 0 ? (
                         <View
                           style={[
                             styles.badge,
@@ -302,9 +298,38 @@ export function MobileHeader({
                             </Text>
                           </LinearGradient>
                         </View>
-                      ) : null}
-                    </View>
-                  )}
+                      ) : null;
+                    if (onNotifications) {
+                      return (
+                        <Gradient3D
+                          colors={activeTone.tint}
+                          shadows={activeTone.shadows}
+                          style={[
+                            styles.iconBtn,
+                            pressed && styles.pressedShift,
+                          ]}
+                        >
+                          {bell}
+                          {badge}
+                        </Gradient3D>
+                      );
+                    }
+                    return (
+                      <View
+                        style={[
+                          styles.iconBtn,
+                          {
+                            backgroundColor: theme.passkeyBg,
+                            boxShadow: iconShadows,
+                          },
+                          pressed && styles.pressedShift,
+                        ]}
+                      >
+                        {bell}
+                        {badge}
+                      </View>
+                    );
+                  }}
                 </Pressable>
                 <Pressable
                   accessibilityLabel={searchOpen ? "Close search" : searchLabel}

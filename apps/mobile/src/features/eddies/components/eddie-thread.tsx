@@ -15,7 +15,7 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { CornerDownRight } from "lucide-react-native";
+import { CornerDownRight, MessageCircleX } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { LayoutChangeEvent } from "react-native";
@@ -30,6 +30,7 @@ import { Gradient3D } from "@/components/surface/gradient-3d";
 import { ORANGE_GRADIENT } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { deleteEddie } from "@/features/composer/lib/publish-api";
+import { FeedErrorState } from "@/features/feed/components/feed-error-state";
 import { ACTION_ICONS, MoreMenu } from "@/features/feed/components/more-menu";
 import type {
   MenuAnchor,
@@ -71,6 +72,7 @@ import type { EddieNode } from "../lib/eddie-tree";
 import { useEddieComposerStore } from "../state/eddie-composer-store";
 import { DeleteEddieDialog } from "./delete-eddie-dialog";
 import { EddieComposer } from "./eddie-composer";
+import { EddieLinkEmbeds } from "./eddie-link-previews";
 
 const POLL_MS = 8000;
 
@@ -196,13 +198,13 @@ export interface RowHandlers {
   onDelete: (commentId: string) => void;
   onLayoutRow: (commentId: string, yWithinParent: number) => void;
   onMore: (commentId: string, anchor: MenuAnchor) => void;
-  /** Opens the given author's profile, as web's linked name and avatar do. */
+  // Opens the given author's profile, as web's linked name and avatar do.
   onOpenAuthor: (username: string) => void;
   onReply: (node: EddieNode) => void;
   onRequireLogin: () => void;
 }
 
-/** Summed y from `node` down to `targetId`, or null when it is not below. */
+// Summed y from `node` down to `targetId`, or null when it is not below.
 function offsetWithin(
   nodes: readonly EddieNode[],
   targetId: string,
@@ -396,6 +398,9 @@ export function EddieRow({
                 <EddieImage apiBase={apiBase} key={media.id} media={media} />
               ))}
           {isDeleted ? null : (
+            <EddieLinkEmbeds apiBase={apiBase} content={comment.content} />
+          )}
+          {isDeleted ? null : (
             <View style={styles.commentActions}>
               {isExternal ? null : (
                 <VoteCluster
@@ -488,7 +493,7 @@ function EddieSkeleton() {
 }
 
 export interface EddieThreadProps {
-  /** Fires once the deep-scroll target's offset inside this thread is known. */
+  // Fires once the deep-scroll target's offset inside this thread is known.
   onCommentOffset?: (commentId: string, yInThread: number) => void;
   postId: string;
   // Threaded cards carry tighter card padding, so the gap above the
@@ -499,7 +504,7 @@ export interface EddieThreadProps {
   // refetch while the drawer is open.
   variant?: "card" | "page" | "reels";
   viewerId: string | undefined;
-  /** Web's ?comment= deep scroll: the eddie to bring into view. */
+  // Web's ?comment= deep scroll: the eddie to bring into view.
   scrollToCommentId?: string | null;
 }
 
@@ -744,6 +749,12 @@ export function EddieThread({
       await deleteEddie(deleteTarget, postId);
       setComments((current) => withDeletedEddie(current, deleteTarget));
       setDeleteTarget(null);
+      // Web's useDeleteCommentMutation success toast.
+      toast({
+        description: "Your eddie is gone",
+        icon: <MessageCircleX color={theme.inputText} />,
+        title: "Eddie Deleted",
+      });
     } catch (error) {
       logError("eddies.delete_failed", error);
       toast({
@@ -817,26 +828,12 @@ export function EddieThread({
         </View>
       ) : null}
       {status === "error" ? (
-        <View style={styles.stateWrap}>
-          <Image
-            contentFit="contain"
-            source={noMediaImage}
-            style={styles.errorArt}
-          />
-          <Text style={[styles.stateText, { color: theme.dividerText }]}>
-            Eddies hit a snag. Try reloading this post.
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              void retryLoad();
-            }}
-          >
-            <Text style={[styles.retryText, { color: theme.dividerText }]}>
-              Try again
-            </Text>
-          </Pressable>
-        </View>
+        <FeedErrorState
+          message="Couldn't load eddies. Please try again."
+          onRetry={() => {
+            void retryLoad();
+          }}
+        />
       ) : null}
       {status === "ready" && tree.length === 0 ? (
         <View style={styles.stateWrap}>
@@ -1001,6 +998,7 @@ const styles = StyleSheet.create({
     height: 160,
     width: "100%",
   },
+  // Shared with external-discussion.tsx through eddieThreadStyles.
   errorArt: {
     height: 80,
     opacity: 0.7,

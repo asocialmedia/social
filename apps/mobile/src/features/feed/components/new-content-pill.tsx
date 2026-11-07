@@ -11,6 +11,7 @@ import { getApiBaseUrl } from "@/lib/network/api-env";
 import { SURFACE_SHADOWS, SURFACE_SHADOWS_DARK, useAppTheme } from "@/theme";
 
 import { resolveProfileImageUrl } from "../../home/components/profile-utils";
+import { newContentLabel } from "../lib/new-content-label";
 
 export interface PillAuthor {
   avatarUrl?: string | null;
@@ -38,7 +39,7 @@ export function NewContentPill({
     return null;
   }
   const apiBase = getApiBaseUrl();
-  const label = count === 1 ? "1 new post" : `${count} new posts`;
+  const label = newContentLabel(count);
   return (
     <View
       pointerEvents="box-none"

@@ -127,3 +127,18 @@ test("the shared gallery receives original remote images and HLS videos with the
     video && mediaPosterUrl("https://asm.example", video.id, video.thumbnailKey)
   ).toBe("https://video.bsky.app/thumbnail.jpg");
 });
+
+test("a Bluesky ai-generated label marks media with its declaration source", () => {
+  const media = [
+    { type: "image" as const, url: "https://cdn.example/a.jpg" },
+  ] as ExternalPost["media"];
+  const labelled = externalPostView({
+    ...post,
+    labels: ["ai-generated"],
+    media,
+  });
+  expect(labelled.attachments?.[0]?.aiGenerated).toBe(true);
+  expect(labelled.attachments?.[0]?.aiGeneratedSource).toBe("bluesky-label");
+  const plain = externalPostView({ ...post, media });
+  expect(plain.attachments?.[0]?.aiGenerated).toBeUndefined();
+});

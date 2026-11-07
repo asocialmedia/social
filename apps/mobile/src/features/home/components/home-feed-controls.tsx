@@ -152,10 +152,23 @@ export function HomeFeedControls({
   const discoveryText = discoveryTextLayouts[discovery];
   const tabs = homeFeedTabs(discovery);
   return (
-    <View style={{ alignItems: "center", flexDirection: "row" }}>
-      <View style={{ flex: 1 }}>
+    // Web's phone header: `grid-cols-[2.75rem_minmax(0,1fr)_2.75rem]`, an empty
+    // 44px column balancing the settings button, so the tabs stay centred on
+    // the screen rather than on the space the button leaves.
+    <View
+      style={[
+        styles.row,
+        {
+          backgroundColor: theme.containerBg,
+          borderBottomColor: theme.cardBorder,
+        },
+      ]}
+    >
+      <View style={styles.side} />
+      <View style={{ flex: 1, minWidth: 0 }}>
         <FeedTabs<HomeTab>
           active={active}
+          bordered={false}
           tabs={tabs}
           onPressActive
           indicatorLabelLayout={(tab) => {
@@ -237,7 +250,9 @@ export function HomeFeedControls({
           )}
         />
       </View>
-      <FeedSourceMenu following={active === "following"} />
+      <View style={styles.side}>
+        <FeedSourceMenu following={active === "following"} />
+      </View>
       <MoreMenu<{ type: "personalized" | "trending" }>
         align="start"
         anchor={anchor}
@@ -260,5 +275,15 @@ export function HomeFeedControls({
 
 const styles = StyleSheet.create({
   label: { alignItems: "center", flexDirection: "row", gap: 5 },
+  // The home composer slides under this row, so it is lifted and filled like
+  // FeedTabs' strip (zIndex only; elevation would draw a shadow on Android).
+  row: {
+    alignItems: "center",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    position: "relative",
+    zIndex: 10,
+  },
+  side: { alignItems: "center", justifyContent: "center", width: 44 },
   stack: { flexDirection: "row", marginLeft: 3 },
 });

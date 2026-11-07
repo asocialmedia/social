@@ -32,7 +32,11 @@ import { PROD_API_URL } from "@/lib/network/api-base";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
-import { fetchShareStats, submitShare } from "../lib/feed-api";
+import {
+  fetchShareStats,
+  submitShare,
+  submitShareClick,
+} from "../lib/feed-api";
 import type { ShareStats } from "../lib/feed-api";
 import type { FeedPost } from "../lib/feed-types";
 import { socialShareTargets } from "../lib/share-targets";
@@ -142,6 +146,21 @@ function ShareDialog({
       });
     }
   };
+  const recordClick = async (platform: string) => {
+    if (post.external) {
+      return;
+    }
+    try {
+      await submitShareClick(post.id, platform, {
+        apiBase: getApiBaseUrl(),
+        cookie: await authClient.getCookie(),
+      });
+    } catch (error) {
+      logWarn("feed.share_click_failed", {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
   const copy = async () => {
     await Clipboard.setStringAsync(url);
     setCopied(true);
@@ -159,8 +178,9 @@ function ShareDialog({
   };
   const shareToPlatform = async (target: { platform: string; url: string }) => {
     try {
-      await Linking.openURL(target.url);
       await recordShare(target.platform);
+      await Linking.openURL(target.url);
+      await recordClick(target.platform);
     } catch {
       toast({
         description: "Try copying the link.",
@@ -322,7 +342,7 @@ function ShareDialog({
                     </Pressable>
                   ))}
               </ScrollView>
-              {loading ? <Spinner3D variant="general" size={24} /> : null}
+              {loading ? <Spinner3D size={24} /> : null}
               {loadError ? (
                 <Text style={{ color: theme.dividerText }}>{loadError}</Text>
               ) : null}

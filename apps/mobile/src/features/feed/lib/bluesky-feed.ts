@@ -236,6 +236,14 @@ export function createBlueskyFeed(
       cancel();
       return load(null, true);
     },
+    // A manual retry of whatever read failed, ignoring the background backoff:
+    // a failed later page re-reads its cursor and keeps the loaded pages.
+    retry: () => {
+      if (failedRead) {
+        return load(failedRead.cursor, failedRead.replace);
+      }
+      return load(null, true);
+    },
     snapshot: () => state,
     subscribe: (listener: () => void) => {
       listeners.add(listener);

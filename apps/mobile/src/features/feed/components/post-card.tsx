@@ -566,6 +566,7 @@ export const PostCard = memo(
                   <ExternalPostActions
                     post={post.external}
                     onDiscussion={openDetail}
+                    onShare={() => onShare(post)}
                   />
                 ) : (
                   <View style={styles.actions}>

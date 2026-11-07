@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { IconButton3D } from "@/components/surface/icon-button-3d";
+import { PostLinkEmbeds } from "@/features/feed/components/post-link-embeds";
 import { extractPostUrls } from "@/features/feed/lib/link-preview-resolver";
 import { useLinkPreviews } from "@/features/feed/lib/use-link-previews";
 import { SettingsSubcard } from "@/features/settings/components/settings-ui";
@@ -55,9 +56,31 @@ export function EddieLinkPreviews({ content }: { content: string }) {
     </View>
   );
 }
+// Web's CommentLinkEmbeds: a posted eddie renders its links as the same
+// YouTube and OG cards a post uses, capped at five, under the body. The
+// resolver is shared and cached, so a thread of eddies reads each URL once.
+export function EddieLinkEmbeds({
+  apiBase,
+  content,
+}: {
+  apiBase: string;
+  content: string | null | undefined;
+}) {
+  const { embeds } = useLinkPreviews(content);
+  if (embeds.length === 0) {
+    return null;
+  }
+  return (
+    <View style={styles.embeds}>
+      <PostLinkEmbeds apiBase={apiBase} embeds={embeds} />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   card: { alignItems: "center", flexDirection: "row", gap: 8, padding: 10 },
   copy: { flex: 1, minWidth: 0 },
+  embeds: { marginTop: 8 },
   list: { gap: 8, marginTop: 8 },
   title: { fontFamily: "SofiaProMed", fontSize: 12 },
   url: { fontFamily: "SofiaProReg", fontSize: 11, marginTop: 3 },

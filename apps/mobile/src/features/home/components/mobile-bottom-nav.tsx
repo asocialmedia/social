@@ -45,6 +45,7 @@ import { useSessionContext } from "@/features/auth/state/session";
 import { activeCommunityStore } from "@/features/communities/state/active-community";
 import { useComposerStore } from "@/features/composer/state/composer-store";
 import { subscribeHeaderVisibility } from "@/features/feed/lib/header-visibility";
+import { requestFeedTop } from "@/features/feed/state/feed-store";
 import { dockTabState } from "@/features/home/lib/dock-navigation";
 import { useUnreadMessageCount } from "@/features/messages/state/use-unread-message-count";
 import { haptic } from "@/lib/interaction/haptics";
@@ -107,13 +108,13 @@ const LIVE_ROUTES = new Set<Href>([
 // primary border and the inner lip, never a saturated fill. Light keys off
 // primary hsl(22.93 92.59% 52.35%) ~= #f66b15; `.dark .pill-nav-active`
 // swaps to the warmer #ffb054 glyph on an accent-orange tint.
-const NAV_ACTIVE_LIGHT = {
+export const NAV_ACTIVE_LIGHT = {
   color: "#f66b15",
   shadows:
     "inset 0 0 0 1px rgba(255, 255, 255, 0.45), inset 0 1px 2px rgba(255, 255, 255, 0.5), inset 0 -1px 2px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(246, 107, 21, 0.25), 0 1px 2px rgba(0, 0, 0, 0.06)",
   tint: ["rgba(246, 107, 21, 0.14)", "rgba(246, 107, 21, 0.08)"],
 } as const;
-const NAV_ACTIVE_DARK = {
+export const NAV_ACTIVE_DARK = {
   color: "#ffb054",
   shadows:
     "inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 2px rgba(255, 255, 255, 0.06), inset 0 -2px 4px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 149, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.2)",
@@ -382,6 +383,14 @@ export function MobileBottomNav({
             } else {
               router.navigate(item.href);
             }
+            return;
+          }
+          // Web's reselectFeedNavigation: tapping the tab you are already on
+          // takes Home's visible feed back to the top. Only the feed roots
+          // react, so a thread under Messages stays put.
+          if (pathname === "/" && item.href === "/") {
+            haptic();
+            requestFeedTop("home");
           }
         }}
       />
@@ -395,13 +404,7 @@ export function MobileBottomNav({
       goToLogin();
       return;
     }
-    const activeCommunity = activeCommunityStore.getState().active;
-    if (activeCommunity?.canPost) {
-      useComposerStore
-        .getState()
-        .openWithContext({ community: activeCommunity, kind: "community" });
-      return;
-    }
+    // Web: tap always opens the camera; only the hold is community-aware.
     haptic();
     router.navigate("/camera");
   };

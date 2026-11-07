@@ -12,7 +12,9 @@ import {
   externalLibrarySchema,
   externalRequest,
 } from "../lib/external-interactions";
+import type { FeedPost } from "../lib/feed-types";
 import { BlueskyPostCard } from "./bluesky-post-card";
+import { ShareSheet } from "./share-sheet";
 
 export function ExternalLibraryScreen() {
   const { theme } = useAppTheme();
@@ -20,6 +22,7 @@ export function ExternalLibraryScreen() {
   const router = useRouter();
   const [kind, setKind] = useState<"bookmarks" | "amplified">("bookmarks");
   const { user } = useSessionContext();
+  const [sharePost, setSharePost] = useState<FeedPost | null>(null);
   const pages = useProtocolPages(
     `external-library:${user?.id ?? "guest"}:${kind}`,
     async (
@@ -95,7 +98,7 @@ export function ExternalLibraryScreen() {
         contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
         renderItem={({ item }) =>
           item.post ? (
-            <BlueskyPostCard post={item.post} />
+            <BlueskyPostCard onShare={setSharePost} post={item.post} />
           ) : (
             <Pressable
               onPress={() =>
@@ -137,6 +140,7 @@ export function ExternalLibraryScreen() {
           ) : undefined
         }
       />
+      <ShareSheet onClose={() => setSharePost(null)} post={sharePost} />
     </View>
   );
 }

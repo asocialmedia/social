@@ -3,7 +3,8 @@
 // Split out of more-menu.tsx so it can be unit tested: that file imports
 // react-native, which Bun cannot parse, and this logic is the part worth
 // asserting on. The rules mirror web's PostMoreButton exactly - a reader gets
-// Not interested, the author and staff get moderation, edit tags and delete,
+// Not interested, the author and the app admin get Moderation, only the author
+// gets Edit tags & mentions and Delete (their server routes check ownership),
 // and Share to feed appears only for a signed-in reader on a community post
 // that is not moderated.
 //
@@ -31,7 +32,8 @@ export interface MoreMenuEntry {
   label: string;
 }
 
-// Web's entry list for a post, in web's order.
+// Web's entry list for a post, in web's order: Share to feed, Not interested,
+// Moderation, alt, captions, Edit tags & mentions, Delete.
 export function buildMoreEntries(options: {
   post: FeedPost;
   showCaptions: boolean;
@@ -40,21 +42,25 @@ export function buildMoreEntries(options: {
   viewerRole?: string | null;
 }): MoreMenuEntry[] {
   const { post, showCaptions, showingAlt, viewerId, viewerRole } = options;
-  // Same rule as web's canModeratePost: the author always may, staff always
-  // may, and a signed-in reader may not touch someone else's post.
-  const mayModerate = Boolean(
-    viewerId &&
-    (viewerId === post.user?.id ||
-      viewerRole === "admin" ||
-      viewerRole === "moderator")
-  );
+  const isOwner = Boolean(viewerId && viewerId === post.user?.id);
+  // Web's canModeratePost: the app admin or the post's author.
+  const mayModerate = Boolean(viewerId && (isOwner || viewerRole === "admin"));
   const attachments = post.attachments ?? [];
   const entries: MoreMenuEntry[] = [];
-  if (viewerId && viewerId !== post.user?.id) {
+  if (viewerId && post.community && !post.moderated) {
+    entries.push({
+      action: { type: "share-to-feed" },
+      label: "Share to feed",
+    });
+  }
+  if (viewerId && !isOwner) {
     entries.push({
       action: { type: "hide" },
       label: "Not interested",
     });
+  }
+  if (mayModerate) {
+    entries.push({ action: { type: "moderate" }, label: "Moderation" });
   }
   if (attachments.some((media) => media?.altText)) {
     entries.push({
@@ -68,16 +74,9 @@ export function buildMoreEntries(options: {
       label: showCaptions ? "Hide captions" : "Show captions",
     });
   }
-  if (viewerId && post.community && !post.moderated) {
-    entries.push({
-      action: { type: "share-to-feed" },
-      label: "Share to feed",
-    });
-  }
-  if (mayModerate) {
+  if (isOwner) {
     entries.push(
-      { action: { type: "moderate" }, label: "Moderation" },
-      { action: { type: "edit-tags" }, label: "Edit tags" },
+      { action: { type: "edit-tags" }, label: "Edit tags & mentions" },
       {
         action: { type: "delete" },
         destructive: true,

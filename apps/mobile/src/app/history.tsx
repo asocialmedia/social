@@ -1,11 +1,13 @@
 import { networkPostAllowed } from "@asm/protocols/discovery";
 import { useRouter } from "expo-router";
+import { useState } from "react";
 import { FlatList, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { z } from "zod";
 
 import { BlueskyPostCard } from "@/features/feed/components/bluesky-post-card";
 import { ManagedPostCard } from "@/features/feed/components/managed-post-card";
+import { ShareSheet } from "@/features/feed/components/share-sheet";
 import { normalizePostsData } from "@/features/feed/lib/feed-types";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { networkRequest } from "@/features/network/lib/network-api";
@@ -31,6 +33,7 @@ export default function HistoryRoute() {
   const { theme } = useAppTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [sharePost, setSharePost] = useState<FeedPost | null>(null);
   const query = useProtocolResource(
     `post-history:${network.viewer}:${network.scope}`,
     async (signal) =>
@@ -91,7 +94,7 @@ export default function HistoryRoute() {
         contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
         renderItem={({ item }) =>
           item.external ? (
-            <BlueskyPostCard post={item.external} />
+            <BlueskyPostCard onShare={setSharePost} post={item.external} />
           ) : (
             <ManagedPostCard
               post={item}
@@ -107,6 +110,7 @@ export default function HistoryRoute() {
           </Text>
         }
       />
+      <ShareSheet onClose={() => setSharePost(null)} post={sharePost} />
     </View>
   );
 }

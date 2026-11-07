@@ -45,6 +45,7 @@ import {
   formatNumber,
   getAuraFlameStyle,
 } from "../../home/components/profile-utils";
+import { FeedApiError } from "../lib/feed-api";
 import type { FeedPost } from "../lib/feed-types";
 import { usePostEngagement } from "../state/use-post-engagement";
 import { usePostViews } from "../state/use-post-views";
@@ -182,10 +183,18 @@ export function VoteCluster({
           title: "Mute Removed",
         });
       }
-    } catch {
+    } catch (error) {
       // The hook already rolled the optimistic value back and logged why. Web
       // still says so out loud, because a vote that silently reverts reads as the
-      // app ignoring the tap.
+      // app ignoring the tap. A 404 means the target is gone, and web says so
+      // instead of inviting a retry that can never succeed.
+      if (error instanceof FeedApiError && error.status === 404) {
+        toast({
+          description: `This ${noun} is no longer available.`,
+          variant: "destructive",
+        });
+        return;
+      }
       toast({
         description: "That didn't go through, give it another try?",
         variant: "destructive",
@@ -361,21 +370,22 @@ export function BookmarkToggle({
       onRequireLogin();
       return;
     }
+    // Web's `onMutate` (`apps/web/src/components/posts/actions/bookmark-button.tsx`)
+    // announces both directions as the tap lands, before the request, with
+    // the icon matching the outcome.
+    toast({
+      description: bookmarked
+        ? "Removed from your bookmarks"
+        : "Post saved, find it anytime in your bookmarks",
+      icon: bookmarked ? (
+        <BookmarkX color="#fbbf24" fill="#fbbf24" />
+      ) : (
+        <BookmarkCheck color="#fbbf24" fill="#fbbf24" />
+      ),
+      title: bookmarked ? "Bookmark Removed" : "Bookmarked",
+    });
     try {
       await toggleBookmark();
-      // Web's `onMutate` (`apps/web/src/components/posts/actions/bookmark-button.tsx`)
-      // announces both directions, with the icon matching the outcome.
-      toast({
-        description: bookmarked
-          ? "Removed from your bookmarks"
-          : "Post saved, find it anytime in your bookmarks",
-        icon: bookmarked ? (
-          <BookmarkX color="#fbbf24" fill="#fbbf24" />
-        ) : (
-          <BookmarkCheck color="#fbbf24" fill="#fbbf24" />
-        ),
-        title: bookmarked ? "Bookmark Removed" : "Bookmarked",
-      });
     } catch {
       // Rolled back and logged by the hook, but web still tells the reader: the
       // bookmark icon springs back with no explanation otherwise.

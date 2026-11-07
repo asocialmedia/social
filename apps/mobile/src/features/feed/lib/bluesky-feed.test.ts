@@ -177,3 +177,35 @@ test("Following uses its authenticated endpoint for initial, continuation, and e
   expect(urls.every((url) => url.includes("/bluesky/following?"))).toBe(true);
   store.dispose();
 });
+
+test("retry re-reads the failed page and keeps the loaded pages", async () => {
+  const urls: string[] = [];
+  const store = createBlueskyFeed("https://asm.example", "latest", (url) => {
+    urls.push(url);
+    if (urls.length === 1) {
+      return Promise.resolve(
+        Response.json({ ...page, items: [external("first")] })
+      );
+    }
+    if (urls.length === 2) {
+      return Promise.resolve(Response.json({ error: "bad" }, { status: 400 }));
+    }
+    return Promise.resolve(
+      Response.json({
+        cursor: null,
+        items: [external("second")],
+        partial: false,
+      })
+    );
+  });
+  await store.refresh();
+  await store.fetchNext();
+  expect(store.snapshot().status).toBe("error");
+  expect(store.snapshot().pages).toHaveLength(1);
+  await store.retry();
+  expect(store.snapshot().status).toBe("success");
+  expect(store.snapshot().error).toBeNull();
+  expect(store.snapshot().pages).toHaveLength(2);
+  expect(urls.at(-1)).toContain("cursor=next");
+  store.dispose();
+});

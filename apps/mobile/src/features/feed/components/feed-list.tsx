@@ -1,4 +1,5 @@
 import {
+  activeNetworkInterests,
   discoveryMode,
   feedAvailability,
   filterExternalRecommendations,
@@ -31,13 +32,24 @@ import Reanimated, {
 import type { SharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 
-import errorImage from "@/assets/images/error.png";
 import noFeedImage from "@/assets/images/nofeed.png";
 import notFoundImage from "@/assets/images/notfound.png";
 import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
 import { usePullToRefresh } from "@/components/feedback/use-pull-to-refresh";
+import { Gradient3D } from "@/components/surface/gradient-3d";
+import {
+  ORANGE_BUTTON_SHADOWS,
+  ORANGE_GRADIENT,
+  ORANGE_PRESSED_GRADIENT,
+} from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
+import { FeedErrorState } from "@/features/feed/components/feed-error-state";
+import {
+  DEFAULT_SOURCE_WAIT_MS,
+  FOLLOWING_INITIAL_SOURCE_WAIT_MS,
+  useBoundedSourcePending,
+} from "@/features/feed/state/use-bounded-source-pending";
 import { useFeedExposures } from "@/features/network/state/feed-exposures";
 import { useNetworkSettings } from "@/features/network/state/use-network-settings";
 import { haptic } from "@/lib/interaction/haptics";
@@ -72,7 +84,11 @@ import {
   useFeedSourceStore,
   useExternalExclusions,
 } from "../state/feed-source-store";
-import { consumeFeedTop, feedCache } from "../state/feed-store";
+import {
+  consumeFeedTop,
+  feedCache,
+  subscribeFeedTopRequests,
+} from "../state/feed-store";
 import { useBlueskyFeed } from "../state/use-bluesky-feed";
 import { useFeedTab } from "../state/use-feed";
 import { useFeedImpressions } from "../state/use-feed-impressions";
@@ -114,12 +130,17 @@ function feedRowKey(row: TimelineRow): string {
   return row.id;
 }
 
+// Guest prompt copy (web client-home AuthPromptCard) and empty-feed copy
+// (web home-feed / following). Following's empty state is one line on web.
+const GUEST_FOLLOWING_DESCRIPTION =
+  "Follow people you love and their fleets will land right here.";
+
 const EMPTY_COPY: Record<FeedVariant, { description: string; title: string }> =
   {
     following: {
-      description:
-        "Follow people you love and their fleets will land right here.",
-      title: "No following fleets yet.",
+      description: "",
+      title:
+        "No Fleets found. Start following people to see their Fleets here!",
     },
     latest: {
       description: "The latest Fleets will appear here.",
@@ -135,6 +156,33 @@ const EMPTY_COPY: Record<FeedVariant, { description: string; title: string }> =
       title: "No trending fleets yet.",
     },
   };
+
+// Web's manual "Load more posts" premium button, offered after a source fails.
+function LoadMoreButton({ onPress }: { onPress: () => void }) {
+  return (
+    <View style={styles.loadMore}>
+      <Pressable
+        accessibilityLabel="Load more posts"
+        accessibilityRole="button"
+        onPress={() => {
+          haptic();
+          onPress();
+        }}
+      >
+        {({ pressed }) => (
+          <Gradient3D
+            colors={pressed ? ORANGE_PRESSED_GRADIENT : ORANGE_GRADIENT}
+            radius={9999}
+            shadows={ORANGE_BUTTON_SHADOWS}
+            style={[styles.loadMorePill, pressed && styles.loadMorePressed]}
+          >
+            <Text style={styles.loadMoreText}>Load more posts</Text>
+          </Gradient3D>
+        )}
+      </Pressable>
+    </View>
+  );
+}
 
 // The non-list states (loading skeleton, error, empty) fill the space the
 // list would. The child keeps the flex it needs to fill the remaining space.
@@ -226,9 +274,9 @@ export const FeedList = memo(
       }
     }, [source]);
     const scrollOffset = useSharedValue(
-      scrollMemory.get(
-        `home:${variant}:${userId ?? "guest"}:${network.scope}:${network.locale}`
-      ) ?? 0
+      // Same key the scroll handlers write (memoryKey below); the old read
+      // added scope and locale, so the seed never hit.
+      scrollMemory.get(`home:${variant}:${userId ?? "guest"}`) ?? 0
     );
     const scrollActive = useSharedValue(false);
     const userScrolling = useSharedValue(false);
@@ -255,7 +303,6 @@ export const FeedList = memo(
     const [altVisibleIds, setAltVisibleIds] = useState<ReadonlySet<string>>(
       () => new Set()
     );
-    const [lastDismissed, setLastDismissed] = useState<string | null>(null);
     const {
       clearNewItems,
       incomingIds,
@@ -309,7 +356,6 @@ export const FeedList = memo(
       },
       onHide: (post) => {
         dismissPost(post.id);
-        setLastDismissed(post.id);
       },
       onModerated: (postId, next) => {
         feedCache.updatePostEverywhere(postId, next);
@@ -332,6 +378,9 @@ export const FeedList = memo(
       },
       onToggleCaptions: () => {
         toggleCaptions();
+      },
+      onUndoHide: (post) => {
+        undoDismiss(post.id);
       },
       viewerId: user?.id ?? null,
     });
@@ -383,6 +432,24 @@ export const FeedList = memo(
       listRef.current?.scrollToOffset({ animated: false, offset: 0 });
     }, [isActive, memoryKey, variant, scrollOffset, headerScrollOffset]);
 
+    // Requests that arrive while this feed is already on screen: the variant's
+    // own (a publish landing in Latest) or the dock's "home" reselect, which
+    // web's reselectFeedNavigation answers by taking the visible feed to the top.
+    useEffect(() => {
+      if (!isActive) {
+        return;
+      }
+      return subscribeFeedTopRequests(() => {
+        if (!consumeFeedTop(variant) && !consumeFeedTop("home")) {
+          return;
+        }
+        scrollMemory.delete(memoryKey);
+        scrollOffset.set(0);
+        headerScrollOffset?.set(0);
+        listRef.current?.scrollToOffset({ animated: true, offset: 0 });
+      });
+    }, [isActive, memoryKey, variant, scrollOffset, headerScrollOffset]);
+
     useEffect(() => {
       const hasVisiblePosts =
         (source !== "bluesky" && posts.length > 0) ||
@@ -420,14 +487,6 @@ export const FeedList = memo(
       scrollVisibility,
       scrollOffset,
     ]);
-
-    // The undo banner auto-dismisses like web's toast.
-    useEffect(() => {
-      if (lastDismissed) {
-        const timer = setTimeout(() => setLastDismissed(null), 6000);
-        return () => clearTimeout(timer);
-      }
-    }, [lastDismissed]);
 
     // A freshly shown tab starts with the header visible; its own scroll
     // takes over hiding from there. Becoming active always publishes the
@@ -590,7 +649,7 @@ export const FeedList = memo(
     const renderRow = useCallback(
       ({ item }: { item: TimelineRow }) => {
         if (item.kind === "bluesky") {
-          return <BlueskyPostCard post={item.value} />;
+          return <BlueskyPostCard onShare={handleShare} post={item.value} />;
         }
         const row = item.value;
         return (
@@ -649,7 +708,10 @@ export const FeedList = memo(
           incomingFeedRows(posts, incomingIds),
           externalPosts,
           source,
-          variant === "latest" || variant === "following"
+          // Web's Following passes sortBy="server" (ec04294a), so its two
+          // sources interleave instead of merging by timestamp. Only Latest
+          // is chronological.
+          variant === "latest"
         ),
       [externalPosts, incomingIds, posts, source, variant]
     );
@@ -669,6 +731,47 @@ export const FeedList = memo(
     const combinedHasMore =
       (source !== "bluesky" && hasMore) ||
       (source !== "asm" && external.hasMore);
+    // Web's useBoundedSourcePending: while one source's first page is still
+    // in flight, hold the list at its first row so a page-sized batch from
+    // the faster source is not locked in ahead of its peer. Following waits
+    // up to the remote read deadline (18s), every other feed 600ms.
+    const nativeInitialLoading =
+      source !== "bluesky" &&
+      (status === "loading" || (status === "idle" && enabled));
+    const externalInitialLoading = externalPending;
+    const initialSourceLoading = nativeInitialLoading || externalInitialLoading;
+    const sourcesPending = useBoundedSourcePending(
+      source === "all" && initialSourceLoading,
+      variant === "following"
+        ? FOLLOWING_INITIAL_SOURCE_WAIT_MS
+        : DEFAULT_SOURCE_WAIT_MS
+    );
+    const visibleRows = sourcesPending ? rows.slice(0, 1) : rows;
+    const nativeFailed = source !== "bluesky" && status === "error";
+    const externalFailed = source !== "asm" && external.status === "error";
+    const sourceFailed = nativeFailed || externalFailed;
+    const sourceFetching =
+      (source !== "bluesky" &&
+        (status === "loading-more" || status === "refreshing")) ||
+      (source !== "asm" && external.loadingMore);
+    const retryNative = () => {
+      if (hasMore && posts.length > 0) {
+        fetchNext();
+      } else {
+        refresh();
+      }
+    };
+    const retryExternal = () => {
+      void external.retry();
+    };
+    const retryFailedSources = () => {
+      if (nativeFailed) {
+        retryNative();
+      }
+      if (externalFailed) {
+        retryExternal();
+      }
+    };
 
     // Account-only tabs. For you is ranked from the viewer's own signals and
     // Following is their people, so neither means anything without an account;
@@ -684,7 +787,11 @@ export const FeedList = memo(
           ]}
         >
           <AuthPromptCard
-            description={copy.description}
+            description={
+              variant === "following"
+                ? GUEST_FOLLOWING_DESCRIPTION
+                : copy.description
+            }
             imageSize={128}
             title={
               variant === "personalized"
@@ -707,51 +814,30 @@ export const FeedList = memo(
     }
 
     if (availability === "error") {
+      let message =
+        "We couldn’t load your feed right now. Please try again in a moment.";
+      if (preferencesFailed) {
+        message = "We couldn’t load your feed preferences. Please try again.";
+      } else if (variant === "following") {
+        message =
+          "We couldn’t load posts from the people you follow. Please try again.";
+      }
       return (
         <FeedState>
           {listHeader}
           <View
-            style={[
-              styles.centerWrap,
-              { paddingBottom: bottomInset + HEADER_BAR_HEIGHT },
-            ]}
+            style={{ flex: 1, paddingBottom: bottomInset + HEADER_BAR_HEIGHT }}
           >
-            <View style={styles.errorWrap}>
-              <Image
-                contentFit="contain"
-                source={errorImage}
-                style={styles.errorArt}
-              />
-              <Text
-                selectable
-                style={[styles.errorTitle, { color: theme.errorBannerText }]}
-              >
-                Couldn't load your feed.
-              </Text>
-              <Text
-                selectable
-                style={[styles.errorBody, { color: theme.dividerText }]}
-              >
-                {preferencesFailed
-                  ? "We couldn’t load your feed preferences. Please try again."
-                  : "Your feed is temporarily unavailable."}
-              </Text>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  if (preferencesFailed) {
-                    void network.refetch();
-                  } else {
-                    void refresh();
-                    void external.refresh();
-                  }
-                }}
-              >
-                <Text style={{ color: theme.inputText, padding: 12 }}>
-                  Try again
-                </Text>
-              </Pressable>
-            </View>
+            <FeedErrorState
+              message={message}
+              onRetry={() => {
+                if (preferencesFailed) {
+                  void network.refetch();
+                } else {
+                  retryFailedSources();
+                }
+              }}
+            />
           </View>
         </FeedState>
       );
@@ -759,6 +845,17 @@ export const FeedList = memo(
 
     if (availability === "empty" && !combinedHasMore && !externalPending) {
       const copy = EMPTY_COPY[variant];
+      // Web's home feed swaps to an interest-profile message whenever the
+      // reader's network settings narrow the ranked feeds.
+      const interestScoped =
+        variant !== "following" &&
+        activeNetworkInterests(network.settings.preferences).length > 0;
+      const title = interestScoped
+        ? "No Fleets match this profile yet."
+        : copy.title;
+      const description = interestScoped
+        ? "Try another profile or add interests in Network settings."
+        : copy.description;
       return (
         <FeedState>
           {listHeader}
@@ -774,16 +871,17 @@ export const FeedList = memo(
               style={styles.emptyArt}
             />
             <Text style={[styles.emptyTitle, { color: theme.dividerText }]}>
-              {copy.title}
+              {title}
             </Text>
-            <Text style={[styles.emptyBody, { color: theme.dividerText }]}>
-              {copy.description}
-            </Text>
+            {description ? (
+              <Text style={[styles.emptyBody, { color: theme.dividerText }]}>
+                {description}
+              </Text>
+            ) : null}
           </View>
         </FeedState>
       );
     }
-
     const authors: PillAuthor[] = [
       ...new Map(
         [...newItems, ...external.newItems.map(externalPostView)].map(
@@ -799,8 +897,57 @@ export const FeedList = memo(
       ).values(),
     ];
 
-    const showLoader = status === "loading-more" || external.loadingMore;
-    const showEnd = status === "success" && !combinedHasMore && rows.length > 0;
+    const showLoader =
+      (source !== "bluesky" && status === "loading-more") ||
+      (source !== "asm" && external.loadingMore) ||
+      sourcesPending ||
+      (initialSourceLoading && rows.length > 0);
+    // Web's feedComplete: no more pages, nothing loading or fetching, and
+    // no source failed. A failed Bluesky read never claims "caught up".
+    const feedComplete =
+      !combinedHasMore &&
+      !initialSourceLoading &&
+      !showLoader &&
+      !sourceFetching &&
+      !sourceFailed &&
+      rows.length > 0;
+    // Web's manual continuation: offered only after a source failed, when
+    // nothing is in flight. Healthy paging stays automatic.
+    const manualContinuation =
+      combinedHasMore && sourceFailed && !sourceFetching && !showLoader;
+    const partialErrors: ReactNode[] = [];
+    if (variant === "following") {
+      if (externalFailed) {
+        partialErrors.push(
+          <FeedErrorState
+            compact
+            key="bluesky"
+            isRetrying={external.loadingMore}
+            message="Bluesky posts couldn’t load right now. Please try again in a moment."
+            onRetry={retryExternal}
+          />
+        );
+      }
+      if (nativeFailed) {
+        partialErrors.push(
+          <FeedErrorState
+            compact
+            key="asm"
+            message="Some posts couldn’t load right now. Please try again."
+            onRetry={retryNative}
+          />
+        );
+      }
+    }
+    const header =
+      partialErrors.length > 0 ? (
+        <View>
+          {listHeader}
+          {partialErrors}
+        </View>
+      ) : (
+        listHeader
+      );
     let footer: ReactNode = null;
     if (showLoader) {
       // Post skeletons while paginating, like web's LoadMoreSkeleton (two
@@ -817,7 +964,22 @@ export const FeedList = memo(
           ))}
         </View>
       );
-    } else if (showEnd) {
+    } else if (sourceFailed && variant !== "following") {
+      footer = (
+        <View>
+          <FeedErrorState
+            compact
+            message="Some posts couldn’t load. Your loaded posts are still here—please try again."
+            onRetry={retryFailedSources}
+          />
+          {manualContinuation ? (
+            <LoadMoreButton onPress={retryFailedSources} />
+          ) : null}
+        </View>
+      );
+    } else if (manualContinuation) {
+      footer = <LoadMoreButton onPress={retryFailedSources} />;
+    } else if (feedComplete) {
       footer = (
         <View style={styles.endWrap}>
           <Image
@@ -831,31 +993,6 @@ export const FeedList = memo(
         </View>
       );
     }
-
-    if (!showLoader && combinedHasMore) {
-      footer = (
-        <Pressable
-          accessibilityRole="button"
-          className="items-center py-5"
-          onPress={() => {
-            if (source !== "bluesky") {
-              fetchNext();
-            }
-            if (source !== "asm") {
-              void external.fetchNext();
-            }
-          }}
-        >
-          <Text
-            className="text-sm font-semibold"
-            style={{ color: theme.dividerText }}
-          >
-            Load more posts
-          </Text>
-        </Pressable>
-      );
-    }
-
     return (
       <FeedMediaScope.Provider value={memoryKey}>
         <GestureDetector gesture={pull.gesture}>
@@ -871,16 +1008,21 @@ export const FeedList = memo(
                   contentContainerStyle={{
                     paddingBottom: HEADER_BAR_HEIGHT + bottomInset,
                   }}
-                  data={rows}
+                  data={visibleRows}
                   maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
                   keyExtractor={feedRowKey}
                   {...LIST_VIRTUALIZATION_PROPS}
                   onEndReached={() => {
-                    if (source !== "bluesky") {
+                    // A failed source waits for the reader's retry instead of
+                    // re-firing on every end-reached, like web's manual gate.
+                    if (sourcesPending) {
+                      return;
+                    }
+                    if (source !== "bluesky" && status !== "error") {
                       fetchNext();
                     }
-                    if (source !== "asm") {
-                      external.fetchNext();
+                    if (source !== "asm" && external.status !== "error") {
+                      void external.fetchNext();
                     }
                   }}
                   onEndReachedThreshold={0.5}
@@ -897,7 +1039,7 @@ export const FeedList = memo(
                   ListFooterComponent={footer ?? undefined}
                   // The spacer and editor move together; preserving the visible
                   // spacer prevents typing from scrolling the editor out of view.
-                  ListHeaderComponent={listHeader ?? undefined}
+                  ListHeaderComponent={header ?? undefined}
                 />
               </GestureDetector>
             </Animated.View>
@@ -915,42 +1057,19 @@ export const FeedList = memo(
                   haptic();
                   showNewPosts();
                   external.acceptNew();
-                  listRef.current?.scrollToOffset({
-                    animated: true,
-                    offset: 0,
+                  // Web's revealFeedHead (83655878): commit the new head
+                  // first, then scroll, so maintainVisibleContentPosition
+                  // cannot re-anchor and cancel the jump.
+                  requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                      listRef.current?.scrollToOffset({
+                        animated: true,
+                        offset: 0,
+                      });
+                    });
                   });
                 }}
               />
-            ) : null}
-            {lastDismissed ? (
-              <View style={[styles.undoWrap, { pointerEvents: "box-none" }]}>
-                <View
-                  style={[
-                    styles.undoBar,
-                    {
-                      backgroundColor: theme.cardBg,
-                      borderColor: theme.cardBorder,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.undoText, { color: theme.dividerText }]}>
-                    Post hidden
-                  </Text>
-                  <Pressable
-                    hitSlop={8}
-                    onPress={() => {
-                      if (lastDismissed) {
-                        undoDismiss(lastDismissed);
-                      }
-                      setLastDismissed(null);
-                    }}
-                  >
-                    <Text style={[styles.undoAction, { color: theme.auxLink }]}>
-                      Undo
-                    </Text>
-                  </Pressable>
-                </View>
-              </View>
             ) : null}
             <ShareSheet onClose={handleCloseShare} post={sharePost} />
             <MoreMenu
@@ -1023,33 +1142,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 56,
   },
-  errorArt: {
-    height: 176,
-    opacity: 0.85,
-    width: 176,
-  },
-  errorBody: {
-    alignSelf: "stretch",
-    fontFamily: "SofiaProReg",
-    fontSize: 12,
-    fontWeight: "normal",
-    marginTop: 8,
-    maxWidth: 420,
-    textAlign: "center",
-  },
-  errorTitle: {
-    fontFamily: "SofiaProMed",
-    fontSize: 14,
-    fontWeight: "normal",
-    textAlign: "center",
-  },
-  errorWrap: {
-    alignItems: "center",
-    gap: 16,
-    maxWidth: 520,
-    paddingHorizontal: 16,
-    width: "100%",
-  },
   footer: {
     paddingVertical: 20,
   },
@@ -1063,33 +1155,11 @@ const styles = StyleSheet.create({
     flex: 1,
     position: "relative",
   },
+  loadMore: { alignItems: "center", padding: 16 },
+  loadMorePill: { height: 36, paddingHorizontal: 16 },
+  loadMorePressed: { transform: [{ translateY: 1 }] },
+  loadMoreText: { color: "#ffffff", fontFamily: "SofiaProMed", fontSize: 14 },
   stateWrap: {
     flex: 1,
-  },
-  undoAction: {
-    fontFamily: "SofiaProBold",
-    fontSize: 14,
-    fontWeight: "normal",
-  },
-  undoBar: {
-    alignItems: "center",
-    borderRadius: 9999,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  undoText: {
-    fontFamily: "SofiaProReg",
-    fontSize: 13,
-    fontWeight: "normal",
-  },
-  undoWrap: {
-    alignItems: "center",
-    bottom: 24,
-    left: 0,
-    position: "absolute",
-    right: 0,
   },
 });

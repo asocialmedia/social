@@ -12,6 +12,8 @@ import type { ExternalPost } from "@asm/protocols/contracts";
 export interface FeedMedia {
   attributionPublic?: boolean;
   aiGenerated?: boolean | null;
+  // Set when the flag is an external declaration rather than C2PA provenance.
+  aiGeneratedSource?: "bluesky-label";
   altText?: string | null;
   blurDataUrl?: string | null;
   generatedAltText?: string | null;
@@ -60,6 +62,7 @@ export interface FeedCounts {
 export interface FeedUser {
   _count?: { followers?: number };
   avatarUrl: string | null;
+  bannerUrl?: string | null;
   badge?: string | null;
   badges?: string[] | null;
   communityMemberships?: {
