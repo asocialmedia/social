@@ -1,6 +1,7 @@
 @layer components {
   .legal-document {
     --background: 0 0% 100%;
+    --background-alt: 30 15% 95%;
     --foreground: 0 0% 4%;
     --muted-foreground: 0 0% 34%;
     --muted: 30 15% 95%;
@@ -8,6 +9,10 @@
     --primary: 16 85% 35%;
     --card: 0 0% 100%;
     --card-foreground: 0 0% 4%;
+    --color-foreground: hsl(var(--foreground));
+    --color-muted-foreground: hsl(var(--muted-foreground));
+    --color-primary: hsl(var(--primary));
+    --color-border: hsl(var(--border));
   }
 
   .about-page .legal-document .doc-body {
