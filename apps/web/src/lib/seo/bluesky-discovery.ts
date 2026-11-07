@@ -1,5 +1,9 @@
 import { and, or, filterExternalMediaSafety, prisma } from "@asm/db";
-import { externalPostSchema } from "@asm/protocols/discovery";
+import {
+  blueskyMediaIsExplicit,
+  externalPostSchema,
+  hasRestrictedDiscoveryLabels,
+} from "@asm/protocols/discovery";
 import { cacheLife } from "next/cache";
 
 // Only public participation makes a remote post discoverable here; visits and bookmarks do not.
@@ -32,7 +36,21 @@ export async function getPublicBlueskyDiscovery() {
     .all();
   const posts = rows.flatMap((row) => {
     const parsed = externalPostSchema.safeParse(row.snapshot);
-    return parsed.success && parsed.data.id === row.uri ? [parsed.data] : [];
+    if (
+      !parsed.success ||
+      parsed.data.id !== row.uri ||
+      blueskyMediaIsExplicit(parsed.data)
+    ) {
+      return [];
+    }
+    let current: typeof parsed.data | undefined = parsed.data;
+    while (current) {
+      if (hasRestrictedDiscoveryLabels(current)) {
+        return [];
+      }
+      current = current.quote;
+    }
+    return [parsed.data];
   });
   return await filterExternalMediaSafety(posts);
 }
