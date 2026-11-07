@@ -4,11 +4,14 @@ import {
   buildExploreGustsPath,
   buildExplorePostsPath,
   buildExploreSearchPath,
+  buildExploreTopGustsPath,
   fetchExploreHeadPosts,
   fetchExplorePage,
   fetchExplorePeople,
+  fetchExploreTopGusts,
   mutateExploreFollow,
   parseExplorePage,
+  reasonIcon,
 } from "./explore-api";
 
 const API = "https://api.test";
@@ -30,7 +33,7 @@ describe("explore paths", () => {
       "/api/posts/trending?excludeModerated=1&take=20&cursor=next%20cursor"
     );
     expect(buildExploreGustsPath("c")).toBe(
-      "/api/gusts?excludeModerated=1&take=20&cursor=c"
+      "/api/gusts?excludeModerated=1&mode=personalized&take=12&cursor=c"
     );
   });
 });
@@ -97,9 +100,9 @@ describe("explore requests", () => {
     expect(
       requests.some((request) => request.includes("/api/posts/trending"))
     ).toBe(true);
-    expect(
-      requests.some((request) => request.includes("/api/users/trending"))
-    ).toBe(true);
+    // Web's first page is posts only; people come from suggestion cards.
+    expect(requests).toHaveLength(1);
+    expect(page.users).toEqual([]);
     expect(page.posts[0]?.id).toBe("post-1");
   });
 
@@ -118,6 +121,45 @@ describe("explore requests", () => {
       "/api/posts/for-you?excludeModerated=1&take=20"
     );
     expect(posts[0]?.id).toBe("post-1");
+  });
+
+  test("top gusts match web's trending rail params", async () => {
+    let requested = "";
+    const posts = await fetchExploreTopGusts({
+      apiBase: API,
+      baseFetch: ((input: RequestInfo | URL) => {
+        requested = String(input);
+        return Promise.resolve(Response.json({ posts: [post] }));
+      }) as unknown as typeof fetch,
+      network: {
+        locale: "en",
+        profile: "profile-1",
+        scope: "scope-1",
+        surface: "explore",
+      },
+    });
+    const url = new URL(requested);
+    expect(url.pathname).toBe("/api/gusts");
+    expect(url.searchParams.get("excludeModerated")).toBe("1");
+    expect(url.searchParams.get("mode")).toBe("trending");
+    expect(url.searchParams.get("take")).toBe("24");
+    expect(url.searchParams.get("profile")).toBe("profile-1");
+    expect(url.searchParams.has("network")).toBe(true);
+    expect(url.searchParams.has("surface")).toBe(false);
+    expect(posts[0]?.id).toBe("post-1");
+  });
+
+  test("top gusts keep network=1 without a network context", async () => {
+    let requested = "";
+    await fetchExploreTopGusts({
+      apiBase: API,
+      baseFetch: ((input: RequestInfo | URL) => {
+        requested = String(input);
+        return Promise.resolve(Response.json({ posts: [] }));
+      }) as unknown as typeof fetch,
+    });
+    expect(requested).toBe(`${API}${buildExploreTopGustsPath()}`);
+    expect(new URL(requested).searchParams.get("network")).toBe("1");
   });
 
   test("uses suggested people for signed-in viewers", async () => {
@@ -181,5 +223,35 @@ describe("explore requests", () => {
           )) as unknown as typeof fetch,
       })
     ).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+describe("explore user reasons", () => {
+  test("parses mutual followers and drops malformed entries", () => {
+    const page = parseExplorePage(
+      {
+        users: [
+          {
+            id: "u1",
+            mutualFollowers: [
+              { avatarUrl: "/a.png", displayName: "Bo", username: "bo" },
+              { displayName: "missing username" },
+            ],
+            username: "alice",
+          },
+        ],
+      },
+      "posts"
+    );
+    expect(page.users[0]?.mutualFollowers).toEqual([
+      { avatarUrl: "/a.png", displayName: "Bo", username: "bo" },
+    ]);
+  });
+
+  test("picks web's reason glyph by keyword", () => {
+    expect(reasonIcon("Active this week")).toBe("active");
+    expect(reasonIcon("Popular on asocialmedia")).toBe("popular");
+    expect(reasonIcon("Shares your interests")).toBe("interest");
+    expect(reasonIcon("Suggested for you")).toBeNull();
   });
 });

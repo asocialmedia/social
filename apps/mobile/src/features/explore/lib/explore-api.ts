@@ -33,8 +33,16 @@ export interface ExploreUser extends FeedUser {
   bannerUrl?: string | null;
   bio?: string | null;
   isFollowing: boolean;
+  // Web's UserReasonLine mutual-follower avatars (first three shown).
+  mutualFollowers?: ExploreMutualFollower[];
   reason?: string;
   reasons?: string[];
+  username: string;
+}
+
+export interface ExploreMutualFollower {
+  avatarUrl: string | null;
+  displayName: string;
   username: string;
 }
 
@@ -102,8 +110,43 @@ function parseUser(value: unknown): ExploreUser | null {
       typeof user.isFollowing === "boolean"
         ? user.isFollowing
         : followers.some((entry) => objectOf(entry)?.followerId === id),
+    mutualFollowers: parseMutualFollowers(user.mutualFollowers),
     username,
   };
+}
+
+function parseMutualFollowers(value: unknown): ExploreMutualFollower[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    const follower = objectOf(entry);
+    const username = textOf(follower?.username);
+    if (!follower || !username) {
+      return [];
+    }
+    return [
+      {
+        avatarUrl: textOf(follower.avatarUrl),
+        displayName: textOf(follower.displayName) ?? username,
+        username,
+      },
+    ];
+  });
+}
+
+// Web's UserReasonLine icon: with no mutual followers to show, the reason
+// text picks a glyph by keyword.
+export function reasonIcon(
+  reason: string
+): "active" | "popular" | "interest" | null {
+  if (reason.includes("Active")) {
+    return "active";
+  }
+  if (reason.includes("Popular")) {
+    return "popular";
+  }
+  return reason.includes("interest") ? "interest" : null;
 }
 
 function parseCommunity(value: unknown): ExploreCommunityResult | null {
@@ -139,8 +182,10 @@ export function buildExplorePostsPath(
   return cursor ? `${path}&cursor=${encodeURIComponent(cursor)}` : path;
 }
 
+// Web's ExploreGustsGrid: the personalized gust mix, twelve a page. The
+// network context adds network, profile and surface=explore.
 export function buildExploreGustsPath(cursor: string | null): string {
-  const path = "/api/gusts?excludeModerated=1&take=20";
+  const path = "/api/gusts?excludeModerated=1&mode=personalized&take=12";
   return cursor ? `${path}&cursor=${encodeURIComponent(cursor)}` : path;
 }
 
@@ -231,28 +276,12 @@ export async function fetchExplorePage(
     return parseExplorePage(await readJson(response), "posts");
   }
 
-  if (cursor) {
-    const response = await get(buildExplorePostsPath(tab, cursor), options);
-    requireOk(response, "Explore posts");
-    return parseExplorePage(await readJson(response), "posts");
-  }
-
-  const [postsResponse, usersResponse] = await Promise.all([
-    get(buildExplorePostsPath(tab, cursor), options),
-    get(`/api/users/${tab === "for-you" ? "suggested" : "trending"}`, options),
-  ]);
-  requireOk(postsResponse, "Explore posts");
-  requireOk(usersResponse, "Explore people");
-  const [postsPayload, usersPayload] = await Promise.all([
-    readJson(postsResponse),
-    readJson(usersResponse),
-  ]);
-  const postsPage = parseExplorePage(postsPayload, "posts");
-  const usersPage = parseExplorePage(
-    Array.isArray(usersPayload) ? { users: usersPayload } : usersPayload,
-    "posts"
-  );
-  return { ...postsPage, users: usersPage.users };
+  // Web's For you and Trending pages carry posts only (users: []): people
+  // appear through the recommended-account cards woven into the stream, so
+  // the extra /api/users request is not made.
+  const response = await get(buildExplorePostsPath(tab, cursor), options);
+  requireOk(response, "Explore posts");
+  return { ...parseExplorePage(await readJson(response), "posts"), users: [] };
 }
 
 // Head-only probe for explore posts feeds ("for-you" and "trending").
@@ -300,10 +329,23 @@ export async function fetchExplorePeople(
   );
 }
 
+// Web explore-client's trending rail: mode=trending, network=1 and take=24,
+// plus the active profile. The network context replaces network=1 with the
+// viewer's scope (the route only checks that the key is present) and adds
+// profile and locale. Web sends no surface for this rail, so it is dropped.
+export function buildExploreTopGustsPath(): string {
+  return "/api/gusts?excludeModerated=1&mode=trending&network=1&take=24";
+}
+
 export async function fetchExploreTopGusts(
   options: ApiCallOptions
 ): Promise<FeedPost[]> {
-  const response = await get("/api/gusts?excludeModerated=1&take=8", options);
+  const response = await get(buildExploreTopGustsPath(), {
+    ...options,
+    network: options.network
+      ? { ...options.network, surface: undefined }
+      : undefined,
+  });
   requireOk(response, "Explore Gusts");
   return parseExplorePage(await readJson(response), "gusts").posts;
 }

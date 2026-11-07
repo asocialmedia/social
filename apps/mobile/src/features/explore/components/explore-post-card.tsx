@@ -3,6 +3,7 @@ import { Image } from "expo-image";
 import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import noMediaImage from "@/assets/images/nomedia.png";
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import {
   ConcealedImageCover,
@@ -16,7 +17,6 @@ import type { FeedMedia, FeedPost } from "@/features/feed/lib/feed-types";
 import {
   embedImageUrl,
   parseStoredEmbeds,
-  youtubeEmbedThumbnail,
 } from "@/features/feed/lib/link-embeds";
 import type { LinkEmbed } from "@/features/feed/lib/link-embeds";
 import { mediaGridImageUrl } from "@/features/feed/lib/media-url";
@@ -30,17 +30,12 @@ import { UserBadge } from "@/features/home/components/user-badge";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { SURFACE_SHADOWS, SURFACE_SHADOWS_DARK, useAppTheme } from "@/theme";
 
+import {
+  embedPreview,
+  embedSiteLabel,
+  selectPreviewEmbed,
+} from "../lib/explore-embed";
 import { ExploreBadge } from "./explore-badge";
-
-function embedPreview(embed: LinkEmbed | undefined): string | null {
-  if (!embed) {
-    return null;
-  }
-  if (embed.type === "youtube") {
-    return youtubeEmbedThumbnail(embed.videoId);
-  }
-  return embed.imageUrl ?? null;
-}
 
 function previewUrl(
   apiBase: string,
@@ -88,8 +83,13 @@ export function ExplorePostCard({
   const media = post.attachments?.find(
     (attachment) => attachment.type === "IMAGE" || attachment.type === "VIDEO"
   );
-  const embed = useMemo(() => parseStoredEmbeds(post.embeds)[0], [post.embeds]);
+  const embed = useMemo(
+    () => selectPreviewEmbed(parseStoredEmbeds(post.embeds)),
+    [post.embeds]
+  );
   const imageUrl = previewUrl(apiBase, media, embed);
+  const embedTextRow =
+    !media && embed && (!imageUrl || imageFailed) ? embed : null;
   const aspectRatio = previewAspect(post, media, embed);
   const inline = useMemo(
     () => extractInlineMeta(post.content ?? ""),
@@ -169,19 +169,58 @@ export function ExplorePostCard({
         </View>
       ) : (
         <>
-          {imageUrl ? (
+          {/* Web's visual frame shows for native media or any link embed. A
+              plain link, or an embed image that fails, becomes the text row;
+              failed media shows the nomedia art. */}
+          {media || embed ? (
             <View style={[styles.visual, { aspectRatio }]}>
-              {visual}
+              {embedTextRow ? (
+                <View style={styles.embedRow}>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.embedSite, { color: theme.dividerText }]}
+                  >
+                    {embedSiteLabel(embedTextRow)}
+                  </Text>
+                  <Text
+                    numberOfLines={3}
+                    style={[styles.embedTitle, { color: theme.inputText }]}
+                  >
+                    {embedTextRow.title}
+                  </Text>
+                </View>
+              ) : (
+                visual
+              )}
               {post.isGust ? (
                 <ExploreBadge kind="gust" style={styles.gustBadge} />
               ) : null}
-              {imageFailed ? (
+              {!media && embed && !embedTextRow ? (
+                <View style={styles.siteChip}>
+                  <Text numberOfLines={1} style={styles.siteChipText}>
+                    {embedSiteLabel(embed)}
+                  </Text>
+                </View>
+              ) : null}
+              {media && imageFailed ? (
                 <View
                   style={[
                     styles.imageFallback,
+                    styles.imageFallbackArt,
                     { backgroundColor: theme.dividerLine },
                   ]}
-                />
+                >
+                  <Image
+                    accessibilityLabel={
+                      media.type === "VIDEO"
+                        ? "Post video unavailable"
+                        : "Post media unavailable"
+                    }
+                    contentFit="contain"
+                    source={noMediaImage}
+                    style={styles.fallbackImage}
+                  />
+                </View>
               ) : null}
             </View>
           ) : null}
@@ -294,6 +333,15 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   content: { fontFamily: "SofiaProReg", fontSize: 13, lineHeight: 18 },
+  embedRow: {
+    flex: 1,
+    gap: 4,
+    justifyContent: "flex-end",
+    padding: 12,
+  },
+  embedSite: { fontFamily: "SofiaProReg", fontSize: 11 },
+  embedTitle: { fontFamily: "SofiaProMed", fontSize: 14, lineHeight: 18 },
+  fallbackImage: { height: "60%", opacity: 0.6, width: "60%" },
   footer: {
     alignItems: "center",
     flexDirection: "row",
@@ -304,6 +352,7 @@ const styles = StyleSheet.create({
   gustBadge: { left: 8, position: "absolute", top: 8 },
   image: { height: "100%", width: "100%" },
   imageFallback: { bottom: 0, left: 0, position: "absolute", right: 0, top: 0 },
+  imageFallbackArt: { alignItems: "center", justifyContent: "center" },
   meta: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
   muted: {
     alignItems: "center",
@@ -312,6 +361,20 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   mutedText: { fontFamily: "SofiaProReg", fontSize: 13, textAlign: "center" },
+  // Web's `chip-3d explore-gust-chip`: the site mark on a link preview.
+  siteChip: {
+    backgroundColor: "rgba(0, 0, 0, 0.55)",
+    borderRadius: 9999,
+    boxShadow:
+      "inset 0 0 0 1px rgba(255, 255, 255, 0.18), 0 1px 2px rgba(0, 0, 0, 0.25)",
+    left: 8,
+    maxWidth: "70%",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    position: "absolute",
+    top: 8,
+  },
+  siteChipText: { color: "#ffffff", fontFamily: "SofiaProBold", fontSize: 10 },
   username: { fontFamily: "SofiaProReg", fontSize: 11, marginTop: 2 },
   visual: {
     backgroundColor: "rgba(128,128,128,0.15)",

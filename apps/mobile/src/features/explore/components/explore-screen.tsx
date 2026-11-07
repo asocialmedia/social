@@ -1,5 +1,6 @@
 import type { ExternalAuthor } from "@asm/protocols/contracts";
 import { networkPostRecommended } from "@asm/protocols/discovery";
+import type { RecommendedAccount } from "@asm/protocols/discovery";
 import { FlashList } from "@shopify/flash-list";
 import type { FlashListRef, ViewToken } from "@shopify/flash-list";
 import { Image } from "expo-image";
@@ -29,7 +30,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
@@ -47,6 +47,7 @@ import { UserAvatar } from "@/components/avatar/user-avatar";
 import { usePullToRefresh } from "@/components/feedback/use-pull-to-refresh";
 import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { Gradient3D } from "@/components/surface/gradient-3d";
+import { iconButton } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
@@ -80,6 +81,7 @@ import { useExternalFollow } from "@/features/feed/state/use-external-follow";
 import { GuestAuthBar } from "@/features/home/components/guest-auth-bar";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { MobileHeader } from "@/features/home/components/mobile-header";
+import { getAuraFlameStyle } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { DiscoverySuggestions } from "@/features/network/components/discovery-suggestions";
 import { DiscoverySafetyControl } from "@/features/network/components/network-tab";
@@ -87,9 +89,11 @@ import {
   EMPTY_EXPOSURES,
   useFeedExposures,
 } from "@/features/network/state/feed-exposures";
+import { useDiscoverySuggestions } from "@/features/network/state/use-discovery-suggestions";
 import { useNetworkSettings } from "@/features/network/state/use-network-settings";
 import { useNetworkSearch } from "@/features/search/state/use-network-search";
 import { SettingsButton } from "@/features/settings/components/settings-ui";
+import { formatNumber } from "@/lib/format/format-number";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
 import { getApiBaseUrl } from "@/lib/network/api-env";
@@ -115,17 +119,21 @@ import { exploreCache, exploreCacheKey } from "../lib/explore-cache";
 import type { ExploreData } from "../lib/explore-cache";
 import { hydrateExploreCache } from "../lib/explore-cache-native";
 import { exploreDisplayStatus } from "../lib/explore-display-status";
+import { interleaveExploreStream } from "../lib/explore-interleave";
 import { exploreFeedTabs, explorePageIndex } from "../lib/explore-navigation";
 import { ExploreBadge } from "./explore-badge";
 import { ExploreFeedControls } from "./explore-feed-controls";
 import { ExploreGuestSearch } from "./explore-guest-search";
+import { ExploreNetworkAccount } from "./explore-network-account";
 import { ExplorePostCard } from "./explore-post-card";
+import { ExploreCommunities, ExploreSearchField } from "./explore-search-parts";
 import { ExploreLoadingSkeleton } from "./explore-skeleton";
 import { ExploreUserCard } from "./explore-user-card";
 
 type ExploreItem =
   | { kind: "post"; post: FeedPost }
   | { kind: "user"; user: ExploreUser }
+  | { kind: "account"; account: RecommendedAccount }
   | { kind: "external-user"; user: ExternalAuthor };
 
 const AnimatedExploreList = createAnimatedComponent(FlashList<ExploreItem>);
@@ -140,7 +148,13 @@ function itemType(item: ExploreItem): ExploreItem["kind"] {
 }
 
 function itemKey(item: ExploreItem): string {
-  return `${item.kind}-${item.kind === "post" ? item.post.id : item.user.id}`;
+  if (item.kind === "post") {
+    return `post-${item.post.id}`;
+  }
+  if (item.kind === "account") {
+    return `account-${item.account.source}-${item.account.id}`;
+  }
+  return `${item.kind}-${item.user.id}`;
 }
 
 export function ExploreScreen() {
@@ -281,6 +295,8 @@ export function ExploreScreen() {
   );
 }
 
+const EMPTY_ACCOUNTS: RecommendedAccount[] = [];
+
 const EMPTY_DATA: ExploreData = {
   communities: [],
   gusts: [],
@@ -320,7 +336,7 @@ const ExploreTabContent = memo(
     const { isPending, user } = useSessionContext();
     const viewerId = user?.id;
     const { runWithInstallToken } = useInstall();
-    const { theme } = useAppTheme();
+    const { isDark, theme } = useAppTheme();
     const network = useNetworkSettings();
     const [search, setSearch] = useState("");
     const [deferredSearch, setDeferredSearch] = useState("");
@@ -352,6 +368,14 @@ const ExploreTabContent = memo(
       false,
       { content: "video", surface: "explore" }
     );
+    // Web's useDiscoverySuggestions feeds the account cards in the stream,
+    // for guests too (their Follow pill asks them to log in).
+    const suggestionAccounts = useDiscoverySuggestions(
+      enabled &&
+        isActive &&
+        (activeTab === "for-you" || activeTab === "trending") &&
+        !deferredSearch
+    ).data?.accounts;
     const exposures = useFeedExposures(
       (state) => state.seen[network.viewer] ?? EMPTY_EXPOSURES
     );
@@ -402,6 +426,7 @@ const ExploreTabContent = memo(
       exploreCache.read(cacheKey)
     );
     const {
+      communities,
       posts: asmPosts,
       users: asmUsers,
       gusts: asmGusts,
@@ -439,13 +464,23 @@ const ExploreTabContent = memo(
           activeTab !== "gusts" ||
           post.attachments?.some((media) => media.type === "VIDEO")
       );
+    // Web's ExploreGustsRail: moderated clips never show, and the rail stops
+    // at 32 tiles.
     const gusts = mixExplorePosts(
       asmGusts,
       remoteClips.posts.map((post) => ({
         ...externalPostView(post),
         isGust: true,
       }))
-    ).filter(eligible);
+    )
+      .filter((post) => eligible(post) && !post.moderated)
+      .slice(0, 32);
+    const hasGustRail =
+      gusts.length > 0 &&
+      activeTab !== "gusts" &&
+      activeTab !== "people" &&
+      !deferredSearch;
+    const railIcon = iconButton(isDark);
     let blueskyStatus: typeof remote.status | undefined;
     if (!deferredSearch && activeTab !== "people") {
       blueskyStatus = remote.status;
@@ -510,7 +545,10 @@ const ExploreTabContent = memo(
                     refresh
                   )
                 : fetchExplorePage(activeTab, deferredSearch, cursor, options),
-              !append && (activeTab === "for-you" || activeTab === "trending")
+              // Web hides the rail while searching, so a search skips it.
+              !append &&
+              !deferredSearch &&
+              (activeTab === "for-you" || activeTab === "trending")
                 ? fetchExploreTopGusts(options)
                 : Promise.resolve([]),
             ]);
@@ -708,44 +746,34 @@ const ExploreTabContent = memo(
       remote,
     ]);
 
+    const accounts = suggestionAccounts ?? EMPTY_ACCOUNTS;
     const items = useMemo<ExploreItem[]>(() => {
       const next: ExploreItem[] = [];
-      if (activeTab === "people" && deferredSearch) {
+      if (activeTab === "people") {
+        if (deferredSearch) {
+          next.push(
+            ...remoteSearch.bluesky.profiles.map((candidate) => ({
+              kind: "external-user" as const,
+              user: candidate,
+            }))
+          );
+        }
         next.push(
-          ...remoteSearch.bluesky.profiles.map((candidate) => ({
-            kind: "external-user" as const,
-            user: candidate,
-          }))
+          ...users.map((person) => ({ kind: "user" as const, user: person })),
+          ...posts.map((post) => ({ kind: "post" as const, post }))
         );
+        return next;
       }
-      let userIndex = 0;
-      for (let index = 0; index < posts.length; index += 1) {
-        if (
-          activeTab !== "people" &&
-          userIndex < users.length &&
-          index > 0 &&
-          index % 6 === 0
-        ) {
-          const candidate = users[userIndex];
-          if (candidate) {
-            next.push({ kind: "user", user: candidate });
-            userIndex += 1;
-          }
-        }
-        const post = posts[index];
-        if (post) {
-          next.push({ kind: "post", post });
-        }
-      }
-      while (userIndex < users.length) {
-        const candidate = users[userIndex];
-        if (candidate) {
-          next.push({ kind: "user", user: candidate });
-        }
-        userIndex += 1;
-      }
-      return next;
+      // Web's items memo: user cards in every sixth search slot, and the
+      // next recommended account after every sixth post outside search.
+      return interleaveExploreStream(
+        posts,
+        users,
+        activeTab === "gusts" ? EMPTY_ACCOUNTS : accounts,
+        Boolean(deferredSearch)
+      );
     }, [
+      accounts,
       activeTab,
       posts,
       deferredSearch,
@@ -811,6 +839,9 @@ const ExploreTabContent = memo(
       ({ item, index }: { index: number; item: ExploreItem }) => {
         if (item.kind === "external-user") {
           return <ExploreExternalUser user={item.user} />;
+        }
+        if (item.kind === "account") {
+          return <ExploreNetworkAccount account={item.account} />;
         }
         if (activeTab === "gusts") {
           if (item.kind !== "post") {
@@ -885,22 +916,15 @@ const ExploreTabContent = memo(
 
     const header = (
       <View style={{ marginHorizontal: activeTab === "people" ? -16 : -8 }}>
-        <TextInput
-          accessibilityLabel="Search Explore"
-          placeholder="Search Explore"
-          placeholderTextColor={theme.dividerText}
-          value={search}
-          onChangeText={setSearch}
-          style={{
-            backgroundColor: theme.cardBg,
-            borderColor: theme.cardBorder,
-            borderRadius: 12,
-            borderWidth: 1,
-            color: theme.inputText,
-            margin: 8,
-            padding: 12,
-          }}
-        />
+        {/* Web gives guests only the guest search bar and hides the field on
+            the Gusts tab; signed-in viewers search in place. */}
+        {viewerId && activeTab !== "gusts" ? (
+          <ExploreSearchField
+            fetching={Boolean(deferredSearch) && resource.pending !== null}
+            onChange={setSearch}
+            value={search}
+          />
+        ) : null}
         <DiscoverySafetyControl />
         {remote.error || remoteSearch.remoteError ? (
           <View className="gap-2 p-3">
@@ -940,26 +964,44 @@ const ExploreTabContent = memo(
             onRefresh={refresh}
           />
         ) : null}
-        {gusts.length > 0 && activeTab !== "gusts" && activeTab !== "people" ? (
-          <View style={styles.gustRail} testID="explore-gusts-rail">
+        {hasGustRail ? (
+          <View
+            accessibilityLabel="Trending Gusts"
+            style={styles.gustRail}
+            testID="explore-gusts-rail"
+          >
             <View style={styles.railHeading}>
-              <View style={styles.railTitleGroup}>
-                <View style={styles.railTitleRow}>
-                  <Clapperboard color="#f97316" size={16} />
+              <View style={styles.railTitleRow}>
+                {/* Web's `icon-btn-3d size-9 rounded-xl` icon well. */}
+                <View
+                  style={[
+                    styles.railIconWell,
+                    {
+                      backgroundColor: railIcon.background,
+                      boxShadow: railIcon.shadows,
+                    },
+                  ]}
+                >
+                  <Clapperboard color="#f97316" size={18} />
+                </View>
+                <View style={styles.railTitleGroup}>
                   <Text
                     style={[styles.sectionTitle, { color: theme.inputText }]}
                   >
                     Trending Gusts
                   </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.railSubtitle, { color: theme.dividerText }]}
+                  >
+                    Taking off across your networks
+                  </Text>
                 </View>
-                <Text
-                  style={[styles.railSubtitle, { color: theme.dividerText }]}
-                >
-                  Short-form clips taking off right now
-                </Text>
               </View>
               <Pressable
+                accessibilityLabel="See all Gusts"
                 accessibilityRole="button"
+                hitSlop={8}
                 onPress={() => selectTab("gusts")}
               >
                 <View style={styles.seeAllRow}>
@@ -988,6 +1030,17 @@ const ExploreTabContent = memo(
             </ScrollView>
           </View>
         ) : null}
+        {deferredSearch && communities.length > 0 && activeTab !== "people" ? (
+          <ExploreCommunities communities={communities} />
+        ) : null}
+        {hasGustRail && items.length > 0 ? (
+          <Text
+            accessibilityRole="header"
+            style={[styles.moreHeading, { color: theme.inputText }]}
+          >
+            More to explore
+          </Text>
+        ) : null}
       </View>
     );
 
@@ -995,6 +1048,25 @@ const ExploreTabContent = memo(
     if (activeTab === "for-you" && !viewerId && !isPending) {
       empty = (
         <ExploreAuthPrompt onLogin={() => router.push("/(auth)/login")} />
+      );
+    } else if (!network.ready && network.error) {
+      // Web's first branch: without feed preferences nothing can be ranked,
+      // so the reader retries the preferences rather than the feed.
+      empty = (
+        <View style={styles.errorState}>
+          <Text style={[styles.errorText, { color: theme.errorBannerText }]}>
+            We couldn’t load your feed preferences. Please try again.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              void network.refetch();
+            }}
+            style={styles.refreshButton}
+          >
+            <Text style={styles.refreshText}>Retry</Text>
+          </Pressable>
+        </View>
       );
     } else if (status === "loading") {
       empty = <ExploreLoadingSkeleton tab={activeTab} />;
@@ -1029,7 +1101,9 @@ const ExploreTabContent = memo(
       footer = (
         <View style={styles.errorState}>
           <Text style={[styles.errorText, { color: theme.errorBannerText }]}>
-            Some ASM results couldn't load. Available results are still shown.
+            {activeTab === "gusts"
+              ? "Some Gusts couldn’t load. Please try again in a moment."
+              : "Some recommendations couldn’t load. Please try again in a moment."}
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -1139,10 +1213,13 @@ function ExploreGustTile({
   const media = post.attachments?.find(
     (attachment) => attachment.type === "VIDEO"
   );
-  if (!media) {
+  // Web's grid and rail both drop a moderated gust entirely.
+  if (!media || post.moderated) {
     return null;
   }
   const imageUrl = mediaGridImageUrl(getApiBaseUrl(), media);
+  const aura = post.external?.asm?.amplifications ?? post.aura ?? 0;
+  const flame = getAuraFlameStyle(aura);
   return (
     <Pressable
       accessibilityLabel={`Open Gust by ${post.user?.displayName ?? post.user?.username ?? "user"}`}
@@ -1207,14 +1284,19 @@ function ExploreGustTile({
           ) : (
             <View style={styles.gustMetric}>
               <Eye color="rgba(255,255,255,0.7)" size={12} />
-              <Text style={styles.gustMetricText}>{post.viewCount ?? 0}</Text>
+              <Text style={styles.gustMetricText}>
+                {formatNumber(post.viewCount ?? 0)}
+              </Text>
             </View>
           )}
           <View style={styles.gustMetric}>
-            <Flame color="#ff9500" fill="#ff9500" size={12} />
-            <Text style={styles.gustMetricText}>
-              {post.external?.asm?.amplifications ?? post.aura ?? 0}
-            </Text>
+            {/* Web's getAuraFlameClass tier colour, not a fixed orange. */}
+            <Flame
+              color={flame.color}
+              fill={flame.filled ? flame.color : "transparent"}
+              size={12}
+            />
+            <Text style={styles.gustMetricText}>{formatNumber(aura)}</Text>
           </View>
         </View>
       </LinearGradient>
@@ -1369,9 +1451,9 @@ function errorMessageFor(tab: ExploreTab): string {
     return "An error occurred while loading people.";
   }
   if (tab === "gusts") {
-    return "Couldn't load Gusts right now. Please try again.";
+    return "Couldn’t load Gusts right now. Please try again.";
   }
-  return "An error occurred while loading content.";
+  return "We couldn’t load recommendations right now. Please try again in a moment.";
 }
 
 const styles = StyleSheet.create({
@@ -1504,6 +1586,12 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     position: "relative",
   },
+  moreHeading: {
+    fontFamily: "SofiaProBold",
+    fontSize: 16,
+    marginBottom: 16,
+    paddingHorizontal: 16,
+  },
   peopleHeader: { gap: 12, paddingHorizontal: 16, paddingTop: 16 },
   peopleHeading: {
     alignItems: "center",
@@ -1527,9 +1615,24 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 16,
   },
-  railSubtitle: { fontFamily: "SofiaProReg", fontSize: 11, marginTop: 2 },
+  railIconWell: {
+    alignItems: "center",
+    borderCurve: "continuous",
+    borderRadius: 12,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  railSubtitle: { fontFamily: "SofiaProReg", fontSize: 12, marginTop: 1 },
   railTitleGroup: { flex: 1, minWidth: 0 },
-  railTitleRow: { alignItems: "center", flexDirection: "row", gap: 8 },
+  railTitleRow: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: 10,
+    minWidth: 0,
+  },
+
   refreshButton: { paddingHorizontal: 8, paddingVertical: 4 },
   refreshText: { color: "#f97316", fontFamily: "SofiaProMed", fontSize: 12 },
   root: { flex: 1 },
@@ -1540,7 +1643,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     textTransform: "uppercase",
   },
-  sectionTitle: { fontFamily: "SofiaProBold", fontSize: 17 },
+  sectionTitle: { fontFamily: "SofiaProBold", fontSize: 14 },
   seeAll: { fontFamily: "SofiaProMed", fontSize: 12 },
   seeAllRow: { alignItems: "center", flexDirection: "row", gap: 2 },
 });

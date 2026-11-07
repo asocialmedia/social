@@ -214,7 +214,7 @@ export async function fetchSearchSuggestions(
 // write must never surface to the user or block the navigation that caused it,
 // so the callers await these without inspecting the result.
 
-/** Raw history page, entries still in their stored form. */
+// Raw history page, entries still in their stored form.
 export async function fetchSearchHistoryRaw(
   options: ApiCallOptions
 ): Promise<unknown[]> {

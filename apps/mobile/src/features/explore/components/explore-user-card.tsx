@@ -1,14 +1,17 @@
 import { useRecyclingState } from "@shopify/flash-list";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { Flame, Users } from "lucide-react-native";
+import { Clock, Flame, Sparkles, Users } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { useLayoutEffect, useRef } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { Gradient3D } from "@/components/surface/gradient-3d";
+import { btnGray, ORANGE_GRADIENT } from "@/components/surface/recipes";
+import { getAuraFlameStyle } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
+import { formatNumber } from "@/lib/format/format-number";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
   FOLLOW_BUTTON_SHADOWS,
@@ -20,7 +23,8 @@ import {
   useAppTheme,
 } from "@/theme";
 
-import type { ExploreUser } from "../lib/explore-api";
+import { reasonIcon } from "../lib/explore-api";
+import type { ExploreMutualFollower, ExploreUser } from "../lib/explore-api";
 import { ExploreBadge } from "./explore-badge";
 import {
   AVATAR_CORNER,
@@ -39,6 +43,50 @@ function bannerFor(
     return null;
   }
   return avatarUrl.startsWith("http") ? avatarUrl : `${apiBase}${avatarUrl}`;
+}
+
+// Web's UserReasonLine: up to three overlapping 16px mutual-follower
+// avatars, or a keyword glyph when there are none, before 11px reason text.
+function ReasonLine({
+  mutuals,
+  reason,
+}: {
+  mutuals: readonly ExploreMutualFollower[];
+  reason: string;
+}) {
+  const { theme } = useAppTheme();
+  const icon = mutuals.length ? null : reasonIcon(reason);
+  const color = theme.dividerText;
+  return (
+    <View style={styles.reasonRow}>
+      {mutuals.length ? (
+        <View style={styles.mutuals}>
+          {mutuals.slice(0, 3).map((mutual, index) => (
+            <View
+              key={mutual.username}
+              style={[
+                styles.mutual,
+                { borderColor: theme.containerBg },
+                index > 0 && styles.mutualOverlap,
+              ]}
+            >
+              <UserAvatar
+                size={16}
+                url={mutual.avatarUrl}
+                username={mutual.username}
+              />
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {icon === "active" ? <Clock color={color} size={12} /> : null}
+      {icon === "popular" ? (
+        <Sparkles color={color} fill={color} size={12} />
+      ) : null}
+      {icon === "interest" ? <Users color={color} size={12} /> : null}
+      <Text style={[styles.reason, { color }]}>{reason}</Text>
+    </View>
+  );
 }
 
 function followLabel(pending: boolean, following: boolean): string {
@@ -102,6 +150,8 @@ export function ExploreUserCard({
   const followShadows = isDark
     ? FOLLOW_BUTTON_SHADOWS
     : FOLLOW_BUTTON_SHADOWS_LIGHT;
+  const gray = btnGray(isDark);
+  const flame = getAuraFlameStyle(user.aura ?? 0);
   let bannerContent: ReactNode;
   if (hasBanner && bannerUrl) {
     bannerContent = (
@@ -158,7 +208,7 @@ export function ExploreUserCard({
 
   return (
     <Pressable
-      accessibilityLabel={`Open ${user.displayName ?? user.username}`}
+      accessibilityLabel={`View ${user.displayName || user.username}'s profile`}
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [
@@ -234,24 +284,29 @@ export function ExploreUserCard({
           </Text>
         ) : null}
         {resolvedReason ? (
-          <Text style={[styles.reason, { color: theme.dividerText }]}>
-            {resolvedReason}
-          </Text>
+          <ReasonLine
+            mutuals={user.mutualFollowers ?? []}
+            reason={resolvedReason}
+          />
         ) : null}
         <View style={styles.metrics}>
           <View style={styles.metric}>
             <Users color={theme.dividerText} size={14} />
             <Text style={[styles.metricStrong, { color: theme.inputText }]}>
-              {user._count.followers.toLocaleString()}
+              {formatNumber(user._count.followers)}
             </Text>
             <Text style={[styles.metricLabel, { color: theme.dividerText }]}>
               followers
             </Text>
           </View>
           <View style={styles.metric}>
-            <Flame color="#ff9500" fill="#ff9500" size={14} />
+            <Flame
+              color={flame.color}
+              fill={flame.filled ? flame.color : "transparent"}
+              size={14}
+            />
             <Text style={[styles.metricStrong, { color: theme.inputText }]}>
-              {(user.aura ?? 0).toLocaleString()}
+              {formatNumber(user.aura ?? 0)}
             </Text>
             <Text style={[styles.metricLabel, { color: theme.dividerText }]}>
               aura
@@ -276,16 +331,28 @@ export function ExploreUserCard({
               { opacity: pressed ? 0.88 : 1 },
             ]}
           >
-            <Gradient3D
-              colors={["#ff9500", "#e65500"]}
-              radius={9999}
-              shadows={followShadows}
-              style={styles.followSurface}
-            >
-              <Text style={styles.followText}>
-                {followLabel(pending, following)}
-              </Text>
-            </Gradient3D>
+            {({ pressed: down }) => {
+              // Web's follow button turns gray (`premium-neutral`) once
+              // following, so the call to action only shows when it acts.
+              const neutral = down ? gray.pressed : gray.resting;
+              return (
+                <Gradient3D
+                  colors={following ? neutral.colors : ORANGE_GRADIENT}
+                  radius={9999}
+                  shadows={following ? neutral.shadows : followShadows}
+                  style={styles.followSurface}
+                >
+                  <Text
+                    style={[
+                      styles.followText,
+                      following ? { color: neutral.text } : null,
+                    ]}
+                  >
+                    {followLabel(pending, following)}
+                  </Text>
+                </Gradient3D>
+              );
+            }}
           </Pressable>
         ) : null}
       </View>
@@ -352,6 +419,9 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 8,
   },
+  mutual: { borderRadius: 9999, borderWidth: 2, overflow: "hidden" },
+  mutualOverlap: { marginLeft: -6 },
+  mutuals: { flexDirection: "row", flexShrink: 0 },
   name: {
     flexShrink: 1,
     fontFamily: "SofiaProBold",
@@ -365,7 +435,19 @@ const styles = StyleSheet.create({
     marginTop: 8,
     maxWidth: "100%",
   },
-  reason: { fontFamily: "SofiaProReg", fontSize: 11, marginTop: 6 },
+  reason: {
+    flexShrink: 1,
+    fontFamily: "SofiaProReg",
+    fontSize: 11,
+    lineHeight: 14,
+    minWidth: 0,
+  },
+  reasonRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+    marginTop: 4,
+  },
   recommended: { left: 10, position: "absolute", top: 10 },
   username: { fontFamily: "SofiaProReg", fontSize: 12, marginTop: 2 },
 });

@@ -1,29 +1,28 @@
-// The hashtag screen, a port of web's `app/(main)/hashtag/[tag]/page.tsx`.
+// The hashtag screen, a port of web's `components/posts/views/hashtag-feed-page.tsx`.
 //
-// Web server-renders a header card and a JSON-LD ItemList, and permanently
-// redirects a non-canonical tag casing to the stored one. Neither the structured
-// data nor the redirect has meaning in a native client, so what is ported is the
-// part a person sees: the tag, its post count, and the feed.
+// Web's page is the top bar, a header row of three columns (back link, the
+// centred `#tag` title with its orange underline, and the FeedSourceMenu),
+// then the merged feed. Web also server-renders JSON-LD and redirects a
+// non-canonical tag casing; neither has meaning in a native client.
+import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { ArrowLeft } from "lucide-react-native";
+import { useCallback } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { ZephLoader } from "@/components/feedback/zeph-loader";
-import { authClient } from "@/features/auth/lib/auth-client";
+import { IconButton3D } from "@/components/surface/icon-button-3d";
 import { useSessionContext } from "@/features/auth/state/session";
-import { ExplorePostCard } from "@/features/explore/components/explore-post-card";
-import type { FeedPost } from "@/features/feed/lib/feed-types";
-import { LIST_VIRTUALIZATION_PROPS } from "@/lib/layout/list-virtualization";
-import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
-import { getApiBaseUrl } from "@/lib/network/api-env";
+import { FeedSourceMenu } from "@/features/feed/components/feed-source-menu";
+import { MobileHeader } from "@/features/home/components/mobile-header";
 import { useAppTheme } from "@/theme";
 
-import { MobileHeader } from "../../home/components/mobile-header";
-import {
-  canonicalTag,
-  fetchHashtagPage,
-  HashtagApiError,
-} from "../lib/hashtag-api";
+import { canonicalTag } from "../lib/hashtag-api";
+import { HashtagFeed } from "./hashtag-feed";
+
+// Web's `grid-cols-[2.75rem_minmax(0,1fr)_2.75rem]`: equal side columns keep
+// the title on the screen's centreline whatever sits beside it.
+const SIDE_COLUMN = 44;
+const UNDERLINE_GRADIENT = ["#ff9500", "#e65500"] as const;
 
 export function HashtagScreen() {
   const { theme } = useAppTheme();
@@ -33,72 +32,7 @@ export function HashtagScreen() {
   const raw = Array.isArray(params.tag) ? params.tag[0] : params.tag;
   const tag = canonicalTag(raw ?? "");
 
-  const [posts, setPosts] = useState<FeedPost[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [status, setStatus] = useState<"error" | "loading" | "success">(
-    "loading"
-  );
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  const load = useCallback(
-    async (cursor: string | null) => {
-      const options = {
-        apiBase: getApiBaseUrl(),
-        cookie: await authClient.getCookie(),
-      };
-      if (cursor === null) {
-        const page = await fetchHashtagPage(tag, null, options);
-        setPosts(page.posts);
-        setNextCursor(page.nextCursor);
-        setStatus("success");
-        setLoadError(null);
-        return;
-      }
-      const page = await fetchHashtagPage(tag, cursor, options);
-      setPosts((current) => [
-        ...current,
-        ...page.posts.filter(
-          (post) => !current.some((row) => row.id === post.id)
-        ),
-      ]);
-      setNextCursor(page.nextCursor);
-    },
-    [tag]
-  );
-
-  useEffect(() => {
-    if (!tag) {
-      // An incomplete hashtag is a broken deep link, not a load failure, so it
-      // is derived below rather than pushed through state.
-      return;
-    }
-    let active = true;
-    void (async () => {
-      try {
-        await load(null);
-      } catch (error) {
-        if (!active) {
-          return;
-        }
-        // oxlint-disable-next-line unicorn/catch-error-name -- `error` is the required name; it is destructured into the message below rather than shadowing a screen-level value
-        setLoadError(
-          error instanceof HashtagApiError
-            ? error.message
-            : "An error occurred while loading posts for this tag."
-        );
-        setStatus("error");
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [load, tag]);
-
-  const requireLogin = useCallback(() => {
-    router.push("/(auth)/login");
-  }, [router]);
-
-  const requireLoginBack = useCallback(() => {
+  const goBack = useCallback(() => {
     if (router.canGoBack()) {
       router.back();
       return;
@@ -106,105 +40,10 @@ export function HashtagScreen() {
     router.replace("/");
   }, [router]);
 
-  // A tag that does not survive canonicalisation cannot be searched for.
-  if (!tag) {
-    return (
-      <View style={[styles.center, { backgroundColor: theme.containerBg }]}>
-        <Text style={[styles.body, { color: theme.dividerText }]}>
-          That hashtag looks incomplete
-        </Text>
-        <Pressable
-          accessibilityLabel="Go back"
-          accessibilityRole="button"
-          onPress={requireLoginBack}
-          style={styles.retry}
-        >
-          <Text style={styles.retryText}>Go back</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  if (status === "error") {
-    return (
-      <View style={[styles.center, { backgroundColor: theme.containerBg }]}>
-        <Text style={[styles.body, { color: theme.dividerText }]}>
-          {loadError}
-        </Text>
-        <Pressable
-          accessibilityLabel="Go back"
-          accessibilityRole="button"
-          onPress={requireLoginBack}
-          style={styles.retry}
-        >
-          <Text style={styles.retryText}>Go back</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-      <FlatList
-        {...LIST_VIRTUALIZATION_PROPS}
-        contentContainerStyle={styles.content}
-        data={posts}
-        keyExtractor={(post) => post.id}
-        ListEmptyComponent={
-          status === "loading" ? (
-            <ZephLoader
-              variant="general"
-              color="#ff9500"
-              style={styles.loader}
-            />
-          ) : (
-            <View style={styles.empty}>
-              <Text style={[styles.emptyTitle, { color: theme.inputText }]}>
-                No posts found for #{tag}
-              </Text>
-              <Text style={[styles.body, { color: theme.dividerText }]}>
-                Be the first to rustle something about this topic.
-              </Text>
-            </View>
-          )
-        }
-        ListHeaderComponent={
-          <View
-            style={[
-              styles.header,
-              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
-            ]}
-          >
-            <Text style={[styles.tag, { color: theme.inputText }]}>#{tag}</Text>
-            <Text style={[styles.body, { color: theme.dividerText }]}>
-              {posts.length > 0
-                ? `${posts.length}${nextCursor ? "+" : ""} posts about this topic`
-                : "Posts about this topic"}
-            </Text>
-          </View>
-        }
-        onEndReached={() => {
-          if (nextCursor && status === "success") {
-            void load(nextCursor);
-          }
-        }}
-        onEndReachedThreshold={0.5}
-        renderItem={({ item }) => (
-          <ExplorePostCard
-            onPress={() => {
-              router.push({
-                params: { postId: item.id },
-                pathname: "/posts/[postId]",
-              });
-            }}
-            onRequireLogin={requireLogin}
-            post={item}
-            viewerId={user?.id ?? null}
-          />
-        )}
-        showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-      />
       <MobileHeader
+        hideOnScroll={false}
         user={
           user
             ? {
@@ -215,6 +54,63 @@ export function HashtagScreen() {
             : null
         }
       />
+      {tag ? (
+        <>
+          <View
+            style={[
+              styles.titleRow,
+              {
+                backgroundColor: theme.containerBg,
+                borderBottomColor: theme.cardBorder,
+              },
+            ]}
+          >
+            <View style={styles.side}>
+              <IconButton3D
+                accessibilityLabel="Go back"
+                icon={ArrowLeft}
+                onPress={goBack}
+                size={32}
+              />
+            </View>
+            <View style={styles.title}>
+              <Text
+                accessibilityRole="header"
+                numberOfLines={1}
+                style={[styles.titleText, { color: theme.inputText }]}
+              >
+                #{tag}
+              </Text>
+              <View style={styles.underlineWrap}>
+                <LinearGradient
+                  colors={UNDERLINE_GRADIENT}
+                  style={styles.underline}
+                />
+              </View>
+            </View>
+            <View style={styles.side}>
+              <FeedSourceMenu following={false} />
+            </View>
+          </View>
+          {/* Keyed by tag like web, so a new tag never shows the old one's pages. */}
+          <HashtagFeed key={tag} tag={tag} />
+        </>
+      ) : (
+        // A tag that does not normalise cannot be requested from either source.
+        <View style={styles.center}>
+          <Text style={[styles.body, { color: theme.dividerText }]}>
+            That hashtag looks incomplete
+          </Text>
+          <Pressable
+            accessibilityLabel="Go back"
+            accessibilityRole="button"
+            onPress={goBack}
+            style={styles.retry}
+          >
+            <Text style={styles.retryText}>Go back</Text>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
@@ -228,19 +124,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 24,
   },
-  content: { gap: 8, paddingBottom: 40, paddingTop: 60 },
-  empty: { alignItems: "center", gap: 6, padding: 32 },
-  emptyTitle: { fontFamily: "SofiaProBold", fontSize: 16 },
-  header: {
-    borderCurve: "continuous",
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 4,
-    marginBottom: 4,
-    marginHorizontal: 12,
-    padding: 16,
-  },
-  loader: { marginTop: 32 },
   retry: {
     backgroundColor: "#f97316",
     borderRadius: 999,
@@ -249,5 +132,36 @@ const styles = StyleSheet.create({
   },
   retryText: { color: "#ffffff", fontFamily: "SofiaProMed", fontSize: 13 },
   root: { flex: 1 },
-  tag: { fontFamily: "SofiaProBold", fontSize: 22 },
+  side: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: SIDE_COLUMN,
+  },
+  // `relative min-w-0 px-3 py-3 text-center`.
+  title: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  titleRow: {
+    alignItems: "center",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    paddingVertical: 6,
+  },
+  titleText: {
+    fontFamily: "SofiaProBold",
+    fontSize: 14,
+    textAlign: "center",
+  },
+  // `h-1 w-6 rounded-full bg-linear-to-b from-[#ff9500] to-[#e65500]`.
+  underline: { borderRadius: 2, height: 4, width: 24 },
+  underlineWrap: {
+    alignItems: "center",
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+  },
 });
