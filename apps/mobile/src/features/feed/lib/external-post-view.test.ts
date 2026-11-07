@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import type { ExternalPost } from "@asm/protocols/contracts";
 
-import { externalPostView } from "./external-post-view";
+import { externalPostView, getExternalPostView } from "./external-post-view";
 import {
   mediaGridImageUrl,
   mediaImageUrl,
@@ -141,4 +141,10 @@ test("a Bluesky ai-generated label marks media with its declaration source", () 
   expect(labelled.attachments?.[0]?.aiGeneratedSource).toBe("bluesky-label");
   const plain = externalPostView({ ...post, media });
   expect(plain.attachments?.[0]?.aiGenerated).toBeUndefined();
+});
+
+test("getExternalPostView reuses the view per post identity", () => {
+  const first = getExternalPostView(post);
+  expect(getExternalPostView(post)).toBe(first);
+  expect(getExternalPostView({ ...post })).not.toBe(first);
 });

@@ -25,3 +25,27 @@ export function mediaDownloadDescriptor(apiBase: string, media: FeedMedia) {
       : `${apiBase.replace(/\/+$/, "")}/api/media/${encodeURIComponent(media.id)}`,
   };
 }
+
+// Port of web media-viewer's 429 branch: the server rate-limits media
+// downloads, and expo's File.downloadFileAsync rejects an `UnableToDownload`
+// error whose message carries the HTTP status. Classifying it here keeps the
+// toast copy next to the download path.
+export class DownloadRateLimitedError extends Error {
+  constructor() {
+    super("Too many downloads");
+    this.name = "DownloadRateLimitedError";
+  }
+}
+
+// True when a download failure is the server's 429 backpressure (or an
+// already-classified instance), so the caller can ask the viewer to slow
+// down instead of showing the generic failure copy.
+export function isRateLimitedDownload(error: unknown): boolean {
+  if (error instanceof DownloadRateLimitedError) {
+    return true;
+  }
+  if (error instanceof Error) {
+    return /\b429\b/.test(error.message);
+  }
+  return false;
+}

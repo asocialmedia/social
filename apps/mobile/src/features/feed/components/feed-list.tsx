@@ -12,20 +12,23 @@ import {
 // pull-refresh, infinite scroll, per-tab scroll memory (restores position
 // when switching tabs, like web's useFeedScrollMemory), the new-content
 // pill overlay, and loading/error/empty/end states mirroring web HomeFeed.
+import { FlashList } from "@shopify/flash-list";
+import type { FlashListRef } from "@shopify/flash-list";
 import { Image } from "expo-image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
-import type { FlatList } from "react-native";
+import type { ReactElement, ReactNode, Ref } from "react";
+import type { ScrollViewInstance, ScrollViewProps } from "react-native";
 import {
   Animated,
-  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
-import Reanimated, {
+import {
+  createAnimatedComponent,
   useAnimatedScrollHandler,
   useSharedValue,
 } from "react-native-reanimated";
@@ -53,16 +56,18 @@ import {
 import { useFeedExposures } from "@/features/network/state/feed-exposures";
 import { useNetworkSettings } from "@/features/network/state/use-network-settings";
 import { haptic } from "@/lib/interaction/haptics";
-import type { ViewToken } from "@/lib/layout/list-virtualization";
-import { LIST_VIRTUALIZATION_PROPS } from "@/lib/layout/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
-import { externalPostView } from "../lib/external-post-view";
+import { getExternalPostView } from "../lib/external-post-view";
 import type { FeedVariant } from "../lib/feed-api";
 import { feedPrefetchUrls } from "../lib/feed-prefetch";
 import { incomingFeedRows } from "../lib/feed-rows";
+import {
+  FEED_LOAD_MORE_SKELETON_COUNT,
+  isBlueskySkeletonIndex,
+} from "../lib/feed-skeleton-layout";
 import { orderByIndex } from "../lib/feed-types";
 import type { FeedPost } from "../lib/feed-types";
 import {
@@ -72,14 +77,25 @@ import {
   resetHeaderScroll,
 } from "../lib/header-visibility";
 import { hasVideoAttachment } from "../lib/media-kind";
-import { mixedFeedRows, nativePostForRow } from "../lib/mixed-feed-rows";
+import {
+  areTimelineRowsIdentical,
+  mixedFeedRows,
+  nativePostForRow,
+  stableTimelineRows,
+} from "../lib/mixed-feed-rows";
 import type { TimelineRow } from "../lib/mixed-feed-rows";
+import { pillAuthors } from "../lib/pill-authors";
 import { viewBatcher } from "../lib/view-batcher";
 import {
+  isSameVisibilityPublish,
   setAutoplayPostId,
   setVisiblePostIds,
   setFeedMediaActive,
 } from "../lib/visible-posts";
+import {
+  useAltVisible,
+  useAltVisibilityStore,
+} from "../state/alt-visibility-store";
 import {
   useFeedSourceStore,
   useExternalExclusions,
@@ -129,6 +145,20 @@ const STABLE_VIEWABILITY = {
 function feedRowKey(row: TimelineRow): string {
   return row.id;
 }
+
+// Recycled rows keep the native views of their own kind: asm cards and
+// Bluesky cards pool separately, so a recycled cell never flashes the wrong
+// card's image while rebinding. Called per row, so it only reads the kind.
+function feedRowType(row: TimelineRow): string {
+  return row.kind;
+}
+
+// FlashList v2 measures rows automatically (no estimatedItemSize prop);
+// drawDistance extends the render window ahead of hard flings so recycled
+// rows are bound before they enter the viewport instead of popping in blank.
+const HOME_FEED_DRAW_DISTANCE = 500;
+
+const AnimatedFeedList = createAnimatedComponent(FlashList<TimelineRow>);
 
 // Guest prompt copy (web client-home AuthPromptCard) and empty-feed copy
 // (web home-feed / following). Following's empty state is one line on web.
@@ -189,6 +219,60 @@ function LoadMoreButton({ onPress }: { onPress: () => void }) {
 function FeedState({ children }: { children: ReactNode }) {
   return <View style={styles.stateWrap}>{children}</View>;
 }
+
+// One recycled row. Memoized on stable props; the alt flag is read inside
+// through the store selector, so toggling alt re-renders only that card —
+// the list's renderRow keeps a stable identity and memoized PostCards below
+// it skip every scroll tick. Lives at module scope so its identity (and the
+// recycled native views behind it) survives the list's own renders.
+const FeedRowItem = memo(
+  ({
+    cardBorder,
+    item,
+    onMore,
+    onShare,
+    showCommunityReason,
+    viewerId,
+  }: {
+    cardBorder: string;
+    item: TimelineRow;
+    onMore: (post: FeedPost, anchor: MenuAnchor) => void;
+    onShare: (post: FeedPost) => void;
+    showCommunityReason: boolean;
+    viewerId: string | undefined;
+  }) => {
+    const postId = item.kind === "asm" ? item.value.post.id : item.id;
+    const showAlt = useAltVisible(postId);
+    if (item.kind === "bluesky") {
+      return <BlueskyPostCard onShare={onShare} post={item.value} />;
+    }
+    const row = item.value;
+    return (
+      <View
+        style={[
+          styles.group,
+          {
+            borderBottomColor: cardBorder,
+            borderBottomWidth: row.hasThreadChild ? 0 : 1,
+          },
+        ]}
+      >
+        <PostCard
+          active
+          hasThreadChild={row.hasThreadChild}
+          hasThreadParent={row.hasThreadParent}
+          onMore={onMore}
+          onShare={onShare}
+          post={row.post}
+          showAlt={showAlt}
+          showCommunityReason={showCommunityReason}
+          viewerId={viewerId}
+        />
+      </View>
+    );
+  }
+);
+FeedRowItem.displayName = "FeedRowItem";
 
 interface FeedListProps {
   // Whether this tab is the visible one. Data fetching uses `enabled`
@@ -265,7 +349,7 @@ export const FeedList = memo(
         variant,
       ]
     );
-    const listRef = useRef<FlatList<TimelineRow>>(null);
+    const listRef = useRef<FlashListRef<TimelineRow>>(null);
     const previousSource = useRef(source);
     useEffect(() => {
       if (previousSource.current !== source) {
@@ -296,15 +380,16 @@ export const FeedList = memo(
       anchor: MenuAnchor;
       post: FeedPost;
     } | null>(null);
+    // The overflow menu's own alt label follows the same flag the row reads,
+    // so the menu never disagrees with the card behind it.
+    const moreAltShown = useAltVisibilityStore((state) =>
+      moreTarget ? state.ids.has(moreTarget.post.id) : false
+    );
     const showCaptions = useVideoCaptionsStore((state) => state.showCaptions);
     const toggleCaptions = useVideoCaptionsStore(
       (state) => state.toggleCaptions
     );
-    const [altVisibleIds, setAltVisibleIds] = useState<ReadonlySet<string>>(
-      () => new Set()
-    );
     const {
-      clearNewItems,
       incomingIds,
       dismissPost,
       fetchNext,
@@ -343,7 +428,7 @@ export const FeedList = memo(
       ]
     );
     const impressionPosts = useMemo(
-      () => [...posts, ...externalPosts.map(externalPostView)],
+      () => [...posts, ...externalPosts.map(getExternalPostView)],
       [posts, externalPosts]
     );
     useFeedImpressions(impressionPosts, latestVisibleRef, isActive, user?.id);
@@ -366,15 +451,7 @@ export const FeedList = memo(
         });
       },
       onToggleAlt: (post) => {
-        setAltVisibleIds((current) => {
-          const next = new Set(current);
-          if (next.has(post.id)) {
-            next.delete(post.id);
-          } else {
-            next.add(post.id);
-          }
-          return next;
-        });
+        useAltVisibilityStore.getState().toggle(post.id);
       },
       onToggleCaptions: () => {
         toggleCaptions();
@@ -524,6 +601,19 @@ export const FeedList = memo(
 
     const publishVisibleIds = useCallback(
       (ids: ReadonlySet<string>, autoplayPostId: string | null) => {
+        // Ticks repeat the same viewport on every scroll nudge; republishing
+        // would re-spread ids, re-mark views and re-notify every tile per
+        // tick. The retained refs still update so tab switches restore them.
+        if (
+          isSameVisibilityPublish(
+            latestVisibleRef.current,
+            latestAutoplayRef.current,
+            ids,
+            autoplayPostId
+          )
+        ) {
+          return;
+        }
         latestVisibleRef.current = ids;
         latestAutoplayRef.current = autoplayPostId;
         if (!enabledRef.current) {
@@ -550,15 +640,20 @@ export const FeedList = memo(
       [userId]
     );
 
+    // FlashList tokens carry the same index/item shape orderByIndex needs.
     const handleViewableItemsChanged = useCallback(
-      ({ viewableItems }: { viewableItems: ViewToken<TimelineRow>[] }) => {
+      ({
+        viewableItems,
+      }: {
+        viewableItems: { index?: number | null; item: TimelineRow }[];
+      }) => {
         const ids = new Set<string>();
         let autoplayPostId: string | null = null;
         const ordered = orderByIndex(viewableItems);
         for (const item of ordered) {
           const post =
             item.item.kind === "bluesky"
-              ? externalPostView(item.item.value)
+              ? getExternalPostView(item.item.value)
               : nativePostForRow(item.item);
           if (post) {
             ids.add(post.id);
@@ -632,7 +727,10 @@ export const FeedList = memo(
             scheduleOnRN(saveOffset, offset);
           }
           if (offset < 16 && previous >= 16) {
-            scheduleOnRN(clearNewItems);
+            // The reader reached the top: merge held head rows instead of
+            // only dismissing the pill, so they paint in place instead of
+            // vanishing until the next probe.
+            scheduleOnRN(showNewPosts);
           }
           // Ordinary scrolling stays on the UI thread. The custom refresh
           // loader only needs top crossings and iOS bounce distances on JS.
@@ -642,42 +740,35 @@ export const FeedList = memo(
         }
       },
     });
+    // FlashList's outer view does not scroll; the pull's native gesture must
+    // bind to the actual ScrollView, like the HackerNews tab does.
+    const renderScrollComponent = useCallback(
+      (props: ScrollViewProps & { ref?: Ref<ScrollViewInstance> }) => (
+        <GestureDetector gesture={pull.nativeScrollGesture}>
+          <ScrollView {...props} />
+        </GestureDetector>
+      ),
+      [pull.nativeScrollGesture]
+    );
     // Stable row renderer: same identity across scroll ticks so memoized cards
-    // skip re-renders. Depends only on stable callbacks + theme + variant.
+    // skip re-renders. Depends only on stable callbacks + theme + variant;
+    // the alt flag lives in the store and is read inside the row, so toggling
+    // it no longer recreates this callback (which used to re-render every
+    // mounted card).
     const showCommunityReason =
       variant === "trending" || variant === "personalized";
     const renderRow = useCallback(
-      ({ item }: { item: TimelineRow }) => {
-        if (item.kind === "bluesky") {
-          return <BlueskyPostCard onShare={handleShare} post={item.value} />;
-        }
-        const row = item.value;
-        return (
-          <View
-            style={[
-              styles.group,
-              {
-                borderBottomColor: theme.cardBorder,
-                borderBottomWidth: row.hasThreadChild ? 0 : 1,
-              },
-            ]}
-          >
-            <PostCard
-              active
-              hasThreadChild={row.hasThreadChild}
-              hasThreadParent={row.hasThreadParent}
-              onMore={handleOpenMore}
-              onShare={handleShare}
-              post={row.post}
-              showAlt={altVisibleIds.has(row.post.id)}
-              showCommunityReason={showCommunityReason}
-              viewerId={userId}
-            />
-          </View>
-        );
-      },
+      ({ item }: { item: TimelineRow }) => (
+        <FeedRowItem
+          cardBorder={theme.cardBorder}
+          item={item}
+          onMore={handleOpenMore}
+          onShare={handleShare}
+          showCommunityReason={showCommunityReason}
+          viewerId={userId}
+        />
+      ),
       [
-        altVisibleIds,
         handleOpenMore,
         handleShare,
         showCommunityReason,
@@ -694,15 +785,22 @@ export const FeedList = memo(
       }
       const urls: string[] = JSON.parse(prefetchKey);
       const timer = setTimeout(() => {
+        // Tiles render with memory-disk, so prefetch into the same tier:
+        // disk-only prefetches used to be evicted before the row mounted.
         void Promise.allSettled(
-          urls.map((url) => Image.prefetch(url, { cachePolicy: "disk" }))
+          urls.map((url) => Image.prefetch(url, { cachePolicy: "memory-disk" }))
         );
       }, 600);
       return () => clearTimeout(timer);
     }, [enabled, prefetchKey]);
 
-    const listHeader = <View style={{ height: headerHeight }} />;
-    const rows = useMemo(
+    // The spacer reserves the composer/editor height; memoized so the list
+    // header keeps its identity across scroll renders.
+    const listHeader = useMemo(
+      () => <View style={{ height: headerHeight }} />,
+      [headerHeight]
+    );
+    const freshRows = useMemo(
       () =>
         mixedFeedRows(
           incomingFeedRows(posts, incomingIds),
@@ -715,6 +813,19 @@ export const FeedList = memo(
         ),
       [externalPosts, incomingIds, posts, source, variant]
     );
+    // Reconciles rebuild every row wrapper around untouched posts, which
+    // would defeat the memoized row and re-render every mounted card
+    // mid-scroll. Stabilize to the previous row objects where nothing moved.
+    // The comparison is stabilization-vs-current (not fresh-vs-current): the
+    // stabilized array reuses old wrappers, so it can never be identical to
+    // the fresh one. Render-phase setState (the sanctioned "adjust state
+    // during render" pattern): fires at most once per input change.
+    const [stableRows, setStableRows] = useState<TimelineRow[]>([]);
+    const stabilizedRows = stableTimelineRows(stableRows, freshRows);
+    if (!areTimelineRowsIdentical(stabilizedRows, stableRows)) {
+      setStableRows(stabilizedRows);
+    }
+    const rows = stableRows;
     const externalPending = source !== "asm" && external.status === "loading";
     const preferencesFailed = !network.ready && Boolean(network.error);
     const availability = preferencesFailed
@@ -754,24 +865,172 @@ export const FeedList = memo(
       (source !== "bluesky" &&
         (status === "loading-more" || status === "refreshing")) ||
       (source !== "asm" && external.loadingMore);
-    const retryNative = () => {
+    // Stable callbacks, so the memoized header/footer below keep identity
+    // across scroll renders. The Bluesky store methods are stable per store;
+    // depending on the whole `external` object would recreate these every
+    // render (useBlueskyFeed returns a fresh object) and defeat the memo.
+    const retryNative = useCallback(() => {
       if (hasMore && posts.length > 0) {
         fetchNext();
       } else {
         refresh();
       }
-    };
-    const retryExternal = () => {
-      void external.retry();
-    };
-    const retryFailedSources = () => {
+    }, [fetchNext, hasMore, posts.length, refresh]);
+    // Read once per render: depending on the member expression would make
+    // the rule demand the whole `external` object, which is fresh every
+    // render and would defeat the memo.
+    const externalRetry = external.retry;
+    const retryExternal = useCallback(() => {
+      void externalRetry();
+    }, [externalRetry]);
+    const retryFailedSources = useCallback(() => {
       if (nativeFailed) {
         retryNative();
       }
       if (externalFailed) {
         retryExternal();
       }
-    };
+    }, [externalFailed, nativeFailed, retryExternal, retryNative]);
+
+    const showLoader =
+      (source !== "bluesky" && status === "loading-more") ||
+      (source !== "asm" && external.loadingMore) ||
+      sourcesPending ||
+      (initialSourceLoading && rows.length > 0);
+    // Web's feedComplete: no more pages, nothing loading or fetching, and
+    // no source failed. A failed Bluesky read never claims "caught up".
+    const feedComplete =
+      !combinedHasMore &&
+      !initialSourceLoading &&
+      !showLoader &&
+      !sourceFetching &&
+      !sourceFailed &&
+      rows.length > 0;
+    // Web's manual continuation: offered only after a source failed, when
+    // nothing is in flight. Healthy paging stays automatic.
+    const manualContinuation =
+      combinedHasMore && sourceFailed && !sourceFetching && !showLoader;
+    // The Following tab surfaces each source's failure inline above the
+    // list; the other tabs share one footer error instead.
+    const partialErrors = useMemo<ReactNode[]>(() => {
+      const errors: ReactNode[] = [];
+      if (variant === "following") {
+        if (externalFailed) {
+          errors.push(
+            <FeedErrorState
+              compact
+              key="bluesky"
+              isRetrying={external.loadingMore}
+              message="Bluesky posts couldn’t load right now. Please try again in a moment."
+              onRetry={retryExternal}
+            />
+          );
+        }
+        if (nativeFailed) {
+          errors.push(
+            <FeedErrorState
+              compact
+              key="asm"
+              message="Some posts couldn’t load right now. Please try again."
+              onRetry={retryNative}
+            />
+          );
+        }
+      }
+      return errors;
+    }, [
+      external.loadingMore,
+      externalFailed,
+      nativeFailed,
+      retryExternal,
+      retryNative,
+      variant,
+    ]);
+    // Header/footer elements are rebuilt only when their inputs change, so
+    // the list does not re-mount its chrome on every scroll render. These
+    // memos sit above the early returns: hooks cannot run conditionally.
+    const header = useMemo(
+      () =>
+        partialErrors.length > 0 ? (
+          <View>
+            {listHeader}
+            {partialErrors}
+          </View>
+        ) : (
+          listHeader
+        ),
+      [listHeader, partialErrors]
+    );
+    const footer = useMemo<ReactElement | null>(() => {
+      if (showLoader) {
+        // Post skeletons while paginating, like web's LoadMoreSkeleton (four
+        // cards), instead of a bare spinner.
+        return (
+          <View>
+            {Array.from(
+              { length: FEED_LOAD_MORE_SKELETON_COUNT },
+              (_, index) => (
+                <View
+                  key={index}
+                  style={[
+                    styles.group,
+                    { borderBottomColor: theme.cardBorder },
+                  ]}
+                >
+                  <FeedSkeletonCard
+                    index={index}
+                    isBluesky={isBlueskySkeletonIndex(source, index)}
+                    source={source}
+                  />
+                </View>
+              )
+            )}
+          </View>
+        );
+      }
+      if (sourceFailed && variant !== "following") {
+        return (
+          <View>
+            <FeedErrorState
+              compact
+              message="Some posts couldn’t load. Your loaded posts are still here—please try again."
+              onRetry={retryFailedSources}
+            />
+            {manualContinuation ? (
+              <LoadMoreButton onPress={retryFailedSources} />
+            ) : null}
+          </View>
+        );
+      }
+      if (manualContinuation) {
+        return <LoadMoreButton onPress={retryFailedSources} />;
+      }
+      if (feedComplete) {
+        return (
+          <View style={styles.endWrap}>
+            <Image
+              contentFit="contain"
+              source={notFoundImage}
+              style={styles.endArt}
+            />
+            <Text style={[styles.endText, { color: theme.dividerText }]}>
+              You&apos;re all caught up!
+            </Text>
+          </View>
+        );
+      }
+      return null;
+    }, [
+      feedComplete,
+      manualContinuation,
+      retryFailedSources,
+      showLoader,
+      source,
+      sourceFailed,
+      theme.cardBorder,
+      theme.dividerText,
+      variant,
+    ]);
 
     // Account-only tabs. For you is ranked from the viewer's own signals and
     // Following is their people, so neither means anything without an account;
@@ -808,7 +1067,7 @@ export const FeedList = memo(
       return (
         <FeedState>
           {listHeader}
-          <FeedSkeleton posts={posts} />
+          <FeedSkeleton posts={posts} source={source} />
         </FeedState>
       );
     }
@@ -882,117 +1141,41 @@ export const FeedList = memo(
         </FeedState>
       );
     }
-    const authors: PillAuthor[] = [
+    // Web's Following renders two pills (following.tsx), one per head probe.
+    // For you and Latest (home-feed.tsx) render one pill that merges both
+    // heads' authors (deduped by id) and sums their counts.
+    const nativeAuthors: PillAuthor[] = pillAuthors(newItems);
+    const externalAuthors: PillAuthor[] = pillAuthors(
+      external.newItems.map(getExternalPostView)
+    );
+    const splitPills = variant === "following";
+    const nativeNewCount = source === "bluesky" ? 0 : newItems.length;
+    const externalNewCount = source === "asm" ? 0 : external.newItems.length;
+    const mergedAuthors: PillAuthor[] = [
       ...new Map(
-        [...newItems, ...external.newItems.map(externalPostView)].map(
-          (post) => [
-            post.userId,
-            {
-              avatarUrl: post.user?.avatarUrl,
-              id: post.userId,
-              username: post.user?.username,
-            },
-          ]
-        )
+        [
+          ...(source === "bluesky" ? [] : nativeAuthors),
+          ...(source === "asm" ? [] : externalAuthors),
+        ].map((author) => [author.id, author] as const)
       ).values(),
     ];
+    const revealNewPosts = () => {
+      haptic();
+      showNewPosts();
+      external.acceptNew();
+      // Web's revealFeedHead (83655878): commit the new head
+      // first, then scroll, so maintainVisibleContentPosition
+      // cannot re-anchor and cancel the jump.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          listRef.current?.scrollToOffset({
+            animated: true,
+            offset: 0,
+          });
+        });
+      });
+    };
 
-    const showLoader =
-      (source !== "bluesky" && status === "loading-more") ||
-      (source !== "asm" && external.loadingMore) ||
-      sourcesPending ||
-      (initialSourceLoading && rows.length > 0);
-    // Web's feedComplete: no more pages, nothing loading or fetching, and
-    // no source failed. A failed Bluesky read never claims "caught up".
-    const feedComplete =
-      !combinedHasMore &&
-      !initialSourceLoading &&
-      !showLoader &&
-      !sourceFetching &&
-      !sourceFailed &&
-      rows.length > 0;
-    // Web's manual continuation: offered only after a source failed, when
-    // nothing is in flight. Healthy paging stays automatic.
-    const manualContinuation =
-      combinedHasMore && sourceFailed && !sourceFetching && !showLoader;
-    const partialErrors: ReactNode[] = [];
-    if (variant === "following") {
-      if (externalFailed) {
-        partialErrors.push(
-          <FeedErrorState
-            compact
-            key="bluesky"
-            isRetrying={external.loadingMore}
-            message="Bluesky posts couldn’t load right now. Please try again in a moment."
-            onRetry={retryExternal}
-          />
-        );
-      }
-      if (nativeFailed) {
-        partialErrors.push(
-          <FeedErrorState
-            compact
-            key="asm"
-            message="Some posts couldn’t load right now. Please try again."
-            onRetry={retryNative}
-          />
-        );
-      }
-    }
-    const header =
-      partialErrors.length > 0 ? (
-        <View>
-          {listHeader}
-          {partialErrors}
-        </View>
-      ) : (
-        listHeader
-      );
-    let footer: ReactNode = null;
-    if (showLoader) {
-      // Post skeletons while paginating, like web's LoadMoreSkeleton (two
-      // cards), instead of a bare spinner.
-      footer = (
-        <View>
-          {[0, 1].map((index) => (
-            <View
-              key={index}
-              style={[styles.group, { borderBottomColor: theme.cardBorder }]}
-            >
-              <FeedSkeletonCard />
-            </View>
-          ))}
-        </View>
-      );
-    } else if (sourceFailed && variant !== "following") {
-      footer = (
-        <View>
-          <FeedErrorState
-            compact
-            message="Some posts couldn’t load. Your loaded posts are still here—please try again."
-            onRetry={retryFailedSources}
-          />
-          {manualContinuation ? (
-            <LoadMoreButton onPress={retryFailedSources} />
-          ) : null}
-        </View>
-      );
-    } else if (manualContinuation) {
-      footer = <LoadMoreButton onPress={retryFailedSources} />;
-    } else if (feedComplete) {
-      footer = (
-        <View style={styles.endWrap}>
-          <Image
-            contentFit="contain"
-            source={notFoundImage}
-            style={styles.endArt}
-          />
-          <Text style={[styles.endText, { color: theme.dividerText }]}>
-            You&apos;re all caught up!
-          </Text>
-        </View>
-      );
-    }
     return (
       <FeedMediaScope.Provider value={memoryKey}>
         <GestureDetector gesture={pull.gesture}>
@@ -1003,72 +1186,69 @@ export const FeedList = memo(
                 { transform: [{ translateY: pull.pullShift }] },
               ]}
             >
-              <GestureDetector gesture={pull.nativeScrollGesture}>
-                <Reanimated.FlatList
-                  contentContainerStyle={{
-                    paddingBottom: HEADER_BAR_HEIGHT + bottomInset,
-                  }}
-                  data={visibleRows}
-                  maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-                  keyExtractor={feedRowKey}
-                  {...LIST_VIRTUALIZATION_PROPS}
-                  onEndReached={() => {
-                    // A failed source waits for the reader's retry instead of
-                    // re-firing on every end-reached, like web's manual gate.
-                    if (sourcesPending) {
-                      return;
-                    }
-                    if (source !== "bluesky" && status !== "error") {
-                      fetchNext();
-                    }
-                    if (source !== "asm" && external.status !== "error") {
-                      void external.fetchNext();
-                    }
-                  }}
-                  onEndReachedThreshold={0.5}
-                  onScroll={handleScroll}
-                  onViewableItemsChanged={handleViewableItemsChanged}
-                  // Detach native rows outside the viewport while retaining
-                  // their React state, measured heights and complete content.
-                  removeClippedSubviews={Platform.OS === "android"}
-                  ref={listRef}
-                  scrollEventThrottle={16}
-                  showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-                  viewabilityConfig={STABLE_VIEWABILITY}
-                  renderItem={renderRow}
-                  ListFooterComponent={footer ?? undefined}
-                  // The spacer and editor move together; preserving the visible
-                  // spacer prevents typing from scrolling the editor out of view.
-                  ListHeaderComponent={header ?? undefined}
-                />
-              </GestureDetector>
+              <AnimatedFeedList
+                contentContainerStyle={{
+                  paddingBottom: HEADER_BAR_HEIGHT + bottomInset,
+                }}
+                data={visibleRows}
+                // FlashList maintains visible content by default, so head
+                // merges and view-count reconciles do not shift the reader.
+                drawDistance={HOME_FEED_DRAW_DISTANCE}
+                keyExtractor={feedRowKey}
+                getItemType={feedRowType}
+                onEndReached={() => {
+                  // A failed source waits for the reader's retry instead of
+                  // re-firing on every end-reached, like web's manual gate.
+                  if (sourcesPending) {
+                    return;
+                  }
+                  if (source !== "bluesky" && status !== "error") {
+                    fetchNext();
+                  }
+                  if (source !== "asm" && external.status !== "error") {
+                    void external.fetchNext();
+                  }
+                }}
+                onEndReachedThreshold={0.5}
+                onScroll={handleScroll}
+                onViewableItemsChanged={handleViewableItemsChanged}
+                ref={listRef}
+                renderItem={renderRow}
+                renderScrollComponent={renderScrollComponent}
+                scrollEventThrottle={16}
+                showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+                viewabilityConfig={STABLE_VIEWABILITY}
+                ListFooterComponent={footer ?? undefined}
+                // The spacer and editor move together; preserving the visible
+                // spacer prevents typing from scrolling the editor out of view.
+                ListHeaderComponent={header ?? undefined}
+              />
             </Animated.View>
             {pull.loader}
-            {(source === "bluesky" ? 0 : newItems.length) +
-              (source === "asm" ? 0 : external.newItems.length) >
-            0 ? (
+            {!splitPills && nativeNewCount + externalNewCount > 0 ? (
               <NewContentPill
-                authors={authors}
-                count={
-                  (source === "bluesky" ? 0 : newItems.length) +
-                  (source === "asm" ? 0 : external.newItems.length)
+                authors={mergedAuthors}
+                count={nativeNewCount + externalNewCount}
+                onPress={revealNewPosts}
+              />
+            ) : null}
+            {splitPills && source !== "bluesky" && newItems.length > 0 ? (
+              <NewContentPill
+                authors={nativeAuthors}
+                count={newItems.length}
+                onPress={revealNewPosts}
+              />
+            ) : null}
+            {splitPills && source !== "asm" && external.newItems.length > 0 ? (
+              <NewContentPill
+                authors={externalAuthors}
+                count={external.newItems.length}
+                onPress={revealNewPosts}
+                style={
+                  source !== "bluesky" && newItems.length > 0
+                    ? { top: 60 }
+                    : undefined
                 }
-                onPress={() => {
-                  haptic();
-                  showNewPosts();
-                  external.acceptNew();
-                  // Web's revealFeedHead (83655878): commit the new head
-                  // first, then scroll, so maintainVisibleContentPosition
-                  // cannot re-anchor and cancel the jump.
-                  requestAnimationFrame(() => {
-                    requestAnimationFrame(() => {
-                      listRef.current?.scrollToOffset({
-                        animated: true,
-                        offset: 0,
-                      });
-                    });
-                  });
-                }}
               />
             ) : null}
             <ShareSheet onClose={handleCloseShare} post={sharePost} />
@@ -1079,7 +1259,7 @@ export const FeedList = memo(
                   ? buildMoreEntries({
                       post: moreTarget.post,
                       showCaptions,
-                      showingAlt: altVisibleIds.has(moreTarget.post.id),
+                      showingAlt: moreAltShown,
                       viewerId: user?.id,
                     })
                   : []

@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { mediaDownloadDescriptor } from "./media-download";
+import {
+  DownloadRateLimitedError,
+  isRateLimitedDownload,
+  mediaDownloadDescriptor,
+} from "./media-download";
 import { mediaPreviewLayout } from "./media-preview-layout";
 
 describe("original media actions", () => {
@@ -25,6 +29,19 @@ describe("original media actions", () => {
     });
     expect(descriptor.fileName).toBe("asocialmedia-videox.mov");
     expect(descriptor.url).toBe("https://social.test/api/media/..%2Fvideo%3Fx");
+  });
+  test("a 429 download failure classifies as rate-limited, other failures do not", () => {
+    expect(isRateLimitedDownload(new DownloadRateLimitedError())).toBe(true);
+    expect(
+      isRateLimitedDownload(new Error("UnableToDownload (Status 429)"))
+    ).toBe(true);
+    expect(
+      isRateLimitedDownload(new Error("UnableToDownload (Status 404)"))
+    ).toBe(false);
+    expect(isRateLimitedDownload(new Error("Network request failed"))).toBe(
+      false
+    );
+    expect(isRateLimitedDownload(null)).toBe(false);
   });
   test("portrait and landscape previews fit above the drawer without distortion", () => {
     for (const media of [

@@ -100,3 +100,20 @@ export function externalPostView(post: ExternalPost): FeedPost {
     userId: post.author.id,
   };
 }
+
+// Hot-path memo for per-tick callers (viewability publishing, impression
+// mapping) and cards: the view allocates a fresh FeedPost plus per-media
+// objects and runs label regexes, so calling it per visible row per scroll
+// tick is pure garbage. External posts are treated as immutable everywhere
+// (BlueskyPostCard memos on post identity), so caching by object identity is
+// sound; WeakMap entries die with their pages.
+const externalPostViewCache = new WeakMap<ExternalPost, FeedPost>();
+export function getExternalPostView(post: ExternalPost): FeedPost {
+  const cached = externalPostViewCache.get(post);
+  if (cached) {
+    return cached;
+  }
+  const view = externalPostView(post);
+  externalPostViewCache.set(post, view);
+  return view;
+}

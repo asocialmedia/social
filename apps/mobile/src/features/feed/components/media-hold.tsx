@@ -1,6 +1,7 @@
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useContext, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
 import type { ViewStyle, StyleProp } from "react-native";
+import { AppState } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import type { AnimatedRef } from "react-native-reanimated";
 import Animated, { measure, useAnimatedRef } from "react-native-reanimated";
@@ -26,8 +27,17 @@ function createHoldGesture(
   post: FeedPost | null,
   media: FeedMedia
 ) {
+  // Web's hold drawer only arms for IMAGE/VIDEO rows on a real post that is
+  // neither explicit-locked nor moderated; scroll cancels via the 10px slop
+  // (a scrolling finger cannot hold still for 350ms) and the scroll view
+  // taking the responder.
+  const armed =
+    Boolean(post) &&
+    !post?.explicitContent &&
+    !post?.moderated &&
+    (media.type === "IMAGE" || media.type === "VIDEO");
   return createLongPress()
-    .enabled(Boolean(post))
+    .enabled(armed)
     .minDuration(350)
     .maxDistance(10)
     .shouldCancelWhenOutside(true)
@@ -45,6 +55,23 @@ function createHoldGesture(
     });
 }
 
+// Web's blur/visibility interrupt: backgrounding closes the open preview so
+// no modal (and no preview video audio) survives the app switch. One shared
+// subscription no matter how many holds mount.
+let backgroundInterruptStarted = false;
+
+function ensureBackgroundInterrupt(): void {
+  if (backgroundInterruptStarted) {
+    return;
+  }
+  backgroundInterruptStarted = true;
+  AppState.addEventListener("change", (state) => {
+    if (state !== "active") {
+      useMediaPreviewStore.getState().close();
+    }
+  });
+}
+
 export function MediaHold({
   children,
   media,
@@ -56,6 +83,16 @@ export function MediaHold({
 }) {
   const post = useContext(MediaPostContext);
   const ref = useAnimatedRef<Animated.View>();
+  useEffect(() => {
+    ensureBackgroundInterrupt();
+  }, []);
+  // The switch-access path honors the same arming as the gesture: no preview
+  // for audio rows or explicit/moderated posts.
+  const armed =
+    Boolean(post) &&
+    !post?.explicitContent &&
+    !post?.moderated &&
+    (media.type === "IMAGE" || media.type === "VIDEO");
   const gesture = useMemo(
     // oxlint-disable-next-line react/refs -- creation retains the animated ref for the native gesture callback, without reading it during render
     () => createHoldGesture(ref, post, media),
@@ -68,10 +105,10 @@ export function MediaHold({
         ref={ref}
         style={style}
         accessibilityActions={
-          post ? [{ label: "Media actions", name: "longpress" }] : undefined
+          armed ? [{ label: "Media actions", name: "longpress" }] : undefined
         }
         onAccessibilityAction={(event) => {
-          if (post && event.nativeEvent.actionName === "longpress") {
+          if (armed && post && event.nativeEvent.actionName === "longpress") {
             ref.current?.measureInWindow((x, y, width, height) =>
               openPreview(post, media, { height, width, x, y })
             );

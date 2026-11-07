@@ -24,6 +24,7 @@ import { engagementStore, normalizeEngagement } from "../lib/engagement-store";
 import type { PostEngagement } from "../lib/engagement-store";
 import { submitBookmark, submitVote } from "../lib/feed-api";
 import type { ApiCallOptions, VoteInfo } from "../lib/feed-api";
+import { MutationGenerations } from "../lib/mutation-generations";
 
 export interface UsePostEngagementOptions {
   // The post's aura from the payload, used until the store has an answer. Leave
@@ -166,13 +167,18 @@ export function usePostEngagement({
   }, [key, viewerId]);
 
   // Rapid taps resolve out of order, so only the latest tap's response or
-  // rollback may settle state. Same generation guard the old components used.
-  const generationRef = useRef(0);
+  // rollback may settle state. Votes and bookmarks hold separate generations
+  // (see mutation-generations): one shared counter let a bookmark error
+  // after an intervening vote return silently without rolling back.
+  const generationsRef = useRef<MutationGenerations | null>(null);
+  if (generationsRef.current === null) {
+    generationsRef.current = new MutationGenerations();
+  }
+  const generations = generationsRef.current;
 
   const vote = useCallback(
     async (value: 1 | -1) => {
-      const generation = generationRef.current + 1;
-      generationRef.current = generation;
+      const generation = generations.begin("vote");
       const previous = getSnapshot();
       const toggleOff = previous.userVote === value;
       const target = toggleOff ? 0 : value;
@@ -192,7 +198,7 @@ export function usePostEngagement({
           await requestContext(),
           commentId
         );
-        if (generationRef.current !== generation) {
+        if (!generations.isCurrent("vote", generation)) {
           // A newer vote superseded this one, so this result is stale and the
           // caller must not announce it. `null` distinguishes that from a real
           // vote landing, which `VoteCluster` turns into a toast.
@@ -201,7 +207,7 @@ export function usePostEngagement({
         publish({ aura: info.aura, userVote: info.userVote });
         return info;
       } catch (error) {
-        if (generationRef.current !== generation) {
+        if (!generations.isCurrent("vote", generation)) {
           return null;
         }
         haptic("error");
@@ -213,12 +219,11 @@ export function usePostEngagement({
         throw error;
       }
     },
-    [commentId, getSnapshot, key, postId, publish]
+    [commentId, generations, getSnapshot, key, postId, publish]
   );
 
   const toggleBookmark = useCallback(async () => {
-    const generation = generationRef.current + 1;
-    generationRef.current = generation;
+    const generation = generations.begin("bookmark");
     const previous = getSnapshot();
     const next = !previous.isBookmarkedByUser;
     haptic();
@@ -226,7 +231,7 @@ export function usePostEngagement({
     try {
       await submitBookmark(postId, next, await requestContext());
     } catch (error) {
-      if (generationRef.current !== generation) {
+      if (!generations.isCurrent("bookmark", generation)) {
         return;
       }
       haptic("error");
@@ -237,7 +242,7 @@ export function usePostEngagement({
       });
       throw error;
     }
-  }, [key, postId, publish, getSnapshot]);
+  }, [generations, key, postId, publish, getSnapshot]);
 
   return { engagement, publish, refresh, toggleBookmark, vote };
 }

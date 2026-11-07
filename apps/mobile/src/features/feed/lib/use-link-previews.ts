@@ -23,7 +23,9 @@ const log = {
 let sharedResolver: ReturnType<typeof createLinkPreviewResolver> | null = null;
 let sharedApiBase = "";
 
-function resolverForApiBase(): ReturnType<typeof createLinkPreviewResolver> {
+export function resolverForApiBase(): ReturnType<
+  typeof createLinkPreviewResolver
+> {
   const apiBase = getApiBaseUrl();
   if (!sharedResolver || sharedApiBase !== apiBase) {
     sharedResolver = createLinkPreviewResolver({ apiBase, log });

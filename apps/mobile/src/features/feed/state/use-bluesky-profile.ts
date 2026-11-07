@@ -16,6 +16,8 @@ export function useBlueskyProfile(actor: string) {
           { signal }
         )
       ),
-    Boolean(actor)
+    Boolean(actor),
+    // Web's useBlueskyProfile keeps the author record for 60s.
+    60_000
   );
 }

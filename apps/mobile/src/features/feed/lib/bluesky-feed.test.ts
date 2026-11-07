@@ -64,6 +64,27 @@ test("event reads buffer new rows until acceptance without replacing loaded page
   store.dispose();
 });
 
+test("pausing retains loaded pages so returning paints without a refetch", async () => {
+  let reads = 0;
+  const store = createBlueskyFeed("https://asm.test", "latest", () => {
+    reads += 1;
+    return Promise.resolve(
+      Response.json({ ...page, items: [external("kept")] })
+    );
+  });
+  await store.refresh();
+  expect(store.snapshot().pages).toHaveLength(1);
+  store.pause();
+  store.activate();
+  expect(store.snapshot().pages).toHaveLength(1);
+  expect(store.snapshot().pages[0]?.items.map((item) => item.id)).toEqual([
+    external("kept").id,
+  ]);
+  expect(store.snapshot().status).toBe("success");
+  expect(reads).toBe(1);
+  store.dispose();
+});
+
 test("pausing cancels a pending head read before it can repopulate a tab", async () => {
   const pending = Promise.withResolvers<Response>();
   let reads = 0;

@@ -54,6 +54,7 @@ function authorProfile(
     badges: [],
     bannerUrl: author.bannerUrl ?? null,
     bio: author.description ?? null,
+    blueskyHandle: author.handle ?? null,
     communityMemberships: [],
     createdAt: "",
     customDomain: null,
@@ -156,6 +157,7 @@ function ExternalProfileContent({ actor }: { actor: string }) {
                   profile={authorProfile(author, follow.following)}
                   canFollow={!follow.pending}
                   canMessage={false}
+                  followPending={follow.pending}
                   isFollowing={follow.following}
                   isOwnProfile={false}
                   onFollow={() => {

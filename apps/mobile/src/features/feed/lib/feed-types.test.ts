@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  cachedFormatRelativeDate,
   extractInlineMeta,
   filterFeedPosts,
   findUnseenItems,
@@ -268,6 +269,18 @@ describe("formatRelativeDate", () => {
 
   test("rejects garbage", () => {
     expect(formatRelativeDate("nope")).toBe("");
+  });
+});
+
+describe("cachedFormatRelativeDate", () => {
+  test("matches the uncached formatter and caches by minute bucket", () => {
+    const created = new Date(Date.now() - 5 * 60_000).toISOString();
+    const first = cachedFormatRelativeDate(created);
+    expect(first).toBe(formatRelativeDate(created));
+    expect(cachedFormatRelativeDate(created)).toBe(first);
+    expect(cachedFormatRelativeDate(created, Date.now() + 61_000)).toBe(
+      formatRelativeDate(created)
+    );
   });
 });
 

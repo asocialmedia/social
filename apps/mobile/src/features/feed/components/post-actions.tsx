@@ -519,7 +519,9 @@ export function CommentButton({
 
 // Web's RespondButton: the direct response count, and a tap that opens the
 // composer as a Respond (a threaded post reply) to this post. Guests go to
-// login first, like every other gated action.
+// login first, like every other gated action. A nonzero count renders the
+// glyph in the foreground tone with a heavier stroke, like web's
+// `text-foreground stroke-[2.25px]` treatment.
 export function RespondButton({
   count,
   post,
@@ -531,10 +533,17 @@ export function RespondButton({
   const router = useRouter();
   const { user } = useSessionContext();
   const openComposer = useComposerStore((state) => state.open);
+  const hasResponses = count > 0;
   return (
     <CountButton
       count={count}
-      icon={<CornerDownRight color={theme.dividerText} size={16} />}
+      icon={
+        <CornerDownRight
+          color={hasResponses ? theme.inputText : theme.dividerText}
+          size={16}
+          strokeWidth={hasResponses ? 2.25 : 2}
+        />
+      }
       label="Respond to this post"
       onPress={
         post
@@ -548,6 +557,32 @@ export function RespondButton({
           : undefined
       }
     />
+  );
+}
+
+// Standalone aura header count, ported from web's posts/actions/aura-count.tsx
+// (text-lg semibold flame + count). Web pairs it with a hover tooltip reading
+// "Aura"; touch has no hover, so the count carries an accessibility label
+// instead. Web itself leaves this component unmounted (no callers in
+// apps/web/src), so this ships for the same future header use.
+export function AuraCount({ aura }: { aura: number }) {
+  const { theme } = useAppTheme();
+  const flame = getAuraFlameStyle(aura);
+  return (
+    <View
+      accessibilityLabel={`Aura: ${aura}`}
+      accessibilityRole="text"
+      style={styles.auraCount}
+    >
+      <Flame
+        color={flame.color}
+        fill={flame.filled ? flame.color : "none"}
+        size={20}
+      />
+      <Text style={[styles.auraCountText, { color: theme.inputText }]}>
+        {aura}
+      </Text>
+    </View>
   );
 }
 
@@ -587,15 +622,46 @@ export function ShareButton({ onPress }: { onPress: () => void }) {
 
 // Web's `...` trigger: a 28px round pill-3d-hover button in muted
 // foreground that nudges down while pressed. It reports its own window rect
-// so the dropdown can anchor under it.
+// so the dropdown can anchor under it. The media-page variant is web's dark
+// 3D chip (same look as the mobile viewer's control buttons): a 40px dark
+// gradient circle with a white glyph, used on dark media surfaces.
 export function MoreButton({
   onPress,
+  variant = "default",
 }: {
   onPress: (anchor: MenuAnchor) => void;
+  variant?: "default" | "media-page";
 }) {
   const { isDark, theme } = useAppTheme();
   const triggerRef = useRef<ViewInstance>(null);
   const pressedTone = isDark ? TRIGGER_PRESSED_DARK : TRIGGER_PRESSED_LIGHT;
+  if (variant === "media-page") {
+    return (
+      <Pressable
+        accessibilityLabel="Post options"
+        accessibilityRole="button"
+        hitSlop={6}
+        onPress={() => {
+          triggerRef.current?.measureInWindow((x, y, width, height) => {
+            onPress({ height, width, x, y });
+          });
+        }}
+        ref={triggerRef}
+        style={styles.iconHitMedia}
+      >
+        {({ pressed }) => (
+          <Gradient3D
+            colors={MEDIA_PAGE_GRADIENT}
+            radius={9999}
+            shadows={MEDIA_PAGE_SHADOWS}
+            style={[styles.mediaTrigger, pressed && styles.moreTriggerPressed]}
+          >
+            <MoreHorizontal color="#ffffff" size={16} />
+          </Gradient3D>
+        )}
+      </Pressable>
+    );
+  }
   return (
     <Pressable
       accessibilityLabel="Post options"
@@ -646,7 +712,26 @@ const TRIGGER_PRESSED_DARK = {
     "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(45, 50, 60, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)",
 } as const;
 
+// Web's media-page trigger: dark gradient chip with its own shadow stack,
+// taken from PostMoreButton's media-page branch. Same in both themes: the
+// media surface it sits on is always dark.
+const MEDIA_PAGE_GRADIENT = ["#3a3f4a", "#23262e"] as const;
+const MEDIA_PAGE_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.15), inset 0 1px 2px rgba(255, 255, 255, 0.18), 0 2px 6px rgba(0, 0, 0, 0.35)";
+
 const styles = StyleSheet.create({
+  auraCount: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+    marginBottom: 8,
+  },
+  auraCountText: {
+    fontFamily: "SofiaProBold",
+    fontSize: 18,
+    fontWeight: "normal",
+    lineHeight: 22,
+  },
   bookmarkActive: {
     alignItems: "center",
     justifyContent: "center",
@@ -664,10 +749,22 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 28,
   },
+  iconHitMedia: {
+    alignItems: "center",
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
   label: {
     fontFamily: "SofiaProMed",
     fontSize: 12,
     fontWeight: "normal",
+  },
+  mediaTrigger: {
+    alignItems: "center",
+    height: 40,
+    justifyContent: "center",
+    width: 40,
   },
   moreTrigger: {
     alignItems: "center",
