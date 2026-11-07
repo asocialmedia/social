@@ -94,7 +94,9 @@ let initialized = false;
 // on the Node.js server runtime and only when an OTLP endpoint is configured
 // (so `next build` stays offline, unset environments are no-ops, and the Edge
 // runtime never touches the Node-only @asm/logger module).
-export async function initWebTelemetry(): Promise<void> {
+export async function initWebTelemetry(): Promise<
+  (() => Promise<void>) | undefined
+> {
   if (initialized || process.env.NEXT_RUNTIME !== "nodejs") {
     return;
   }
@@ -117,10 +119,7 @@ export async function initWebTelemetry(): Promise<void> {
   webLogger = logger;
   forwardConsoleOutput(webLogger);
 
-  // Tear down exporters cleanly on shutdown.
-  process.once("exit", () => {
-    void telemetry.shutdown();
-  });
+  return () => telemetry.shutdown();
 }
 
 export function getWebLogger(): PinoLogger | undefined {

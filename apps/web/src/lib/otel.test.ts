@@ -69,7 +69,8 @@ describe("web telemetry", () => {
 
   test("boots the logger and forwards console.error as a log", async () => {
     const { calls, restore } = captureConsole("error");
-    await initWebTelemetry();
+    const shutdownTelemetry = await initWebTelemetry();
+    expect(typeof shutdownTelemetry).toBe("function");
     expect(getWebLogger()).toBeDefined();
 
     console.error("boom", new Error("kaboom"));
@@ -88,5 +89,6 @@ describe("web telemetry", () => {
       expect(exported.body).toContain("kaboom");
       expect(exported.headers["stream-name"]).toBe("asm_web_logs");
     }
+    await shutdownTelemetry?.();
   });
 });

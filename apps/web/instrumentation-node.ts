@@ -19,5 +19,10 @@ export async function registerNodeInstrumentation() {
     process.once("SIGTERM", shutdown);
   }
   const { initWebTelemetry } = await import("./src/lib/otel");
-  await initWebTelemetry();
+  const shutdownTelemetry = await initWebTelemetry();
+  if (shutdownTelemetry) {
+    process.once("exit", () => {
+      void shutdownTelemetry();
+    });
+  }
 }
