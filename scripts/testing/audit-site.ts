@@ -6,6 +6,7 @@ import lighthouse, { desktopConfig } from "lighthouse";
 import puppeteer from "puppeteer-core";
 
 import { inspectSeoHtml } from "./audit-seo";
+import { routeAuditComplete } from "./site-audit-progress";
 import { siteRouteInventory } from "./site-route-inventory";
 
 const root = path.resolve(import.meta.dir, "../..");
@@ -79,14 +80,7 @@ for (const [index, entry] of inventory.entries()) {
   if (selectedRoutes && !selectedRoutes.includes(entry.route)) {
     continue;
   }
-  if (
-    resume &&
-    results.some(
-      (result) =>
-        result.route === entry.route &&
-        (result.formFactor === "desktop" || !result.formFactor)
-    )
-  ) {
+  if (resume && routeAuditComplete(results, entry.route)) {
     continue;
   }
   const url = new URL(entry.path, origin);
@@ -156,6 +150,8 @@ for (const [index, entry] of inventory.entries()) {
           );
           // oxlint-disable-next-line no-await-in-loop -- one page per audit.
           const page = await browser.newPage();
+          // oxlint-disable-next-line no-await-in-loop -- activate this audit's tab before collecting paint timings.
+          await page.bringToFront();
           // oxlint-disable-next-line no-await-in-loop -- one Lighthouse run at a time.
           const result = await lighthouse(
             url.href,
