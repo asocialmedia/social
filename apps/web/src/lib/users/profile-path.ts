@@ -31,6 +31,7 @@ const appPaths = new Set([
   "two-factor",
   "users",
   "verify-email",
+  "watch",
 ]);
 
 export function profilePath(username: string) {

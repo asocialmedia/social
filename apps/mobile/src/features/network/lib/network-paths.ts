@@ -108,6 +108,7 @@ const WEB_APP_PATHS = new Set([
   "two-factor",
   "users",
   "verify-email",
+  "watch",
 ]);
 
 export function externalShareUrl(
