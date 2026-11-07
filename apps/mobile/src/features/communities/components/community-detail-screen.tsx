@@ -8,11 +8,22 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { PanelLeft } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import type { LayoutChangeEvent, ViewInstance } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import Reanimated, {
+  interpolate,
   useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -61,10 +72,19 @@ import type { CommunityDetail, CommunityPreview } from "../lib/communities-api";
 import { resolveCommunityAccentColor } from "../lib/community-accents";
 import { communityChatUiEnabled } from "../lib/community-chat-features";
 import {
+  communityHeaderProgress,
+  communityIdentityTransform,
+} from "../lib/community-header-identity";
+import type { HeaderIdentityGeometry } from "../lib/community-header-identity";
+import {
   communityMediaUrl,
   communityPageCache,
 } from "../lib/community-page-cache";
 import { canReviewCommunityRequests } from "../lib/community-requests-api";
+import {
+  communityChatHref,
+  rememberCommunityPostsHref,
+} from "../lib/community-section-links";
 import { activeCommunityStore } from "../state/active-community";
 import { useCommunityMembership } from "../state/use-community-membership";
 import { CommunityAboutCard } from "./community-about-card";
@@ -84,6 +104,95 @@ const COMMUNITY_VIEWABILITY = {
   itemVisiblePercentThreshold: 50,
   minimumViewTime: 200,
 };
+
+// Compact section bar the header identity docks into, and the identity sizes
+// it morphs between (web community-posts-workspace: h-12 bar, the 64px
+// avatar collapsing into the 28px slot, the 20px name into 14px, the 14px
+// slug into 12px).
+const COMPACT_BAR_HEIGHT = 48;
+const AVATAR_SOURCE_SIZE = 64;
+const AVATAR_TARGET_SIZE = 28;
+const NAME_TARGET_SCALE = 14 / 20;
+const SLUG_TARGET_SCALE = 12 / 14;
+
+interface MorphGeometry extends HeaderIdentityGeometry {
+  sourceHeight: number;
+}
+
+function emptyMorphGeometry(targetScale: number): MorphGeometry {
+  return {
+    sourceHeight: 0,
+    sourceWidth: 0,
+    sourceX: 0,
+    sourceY: 0,
+    targetScale,
+    targetWidth: 0,
+    targetX: 0,
+    targetY: 0,
+  };
+}
+
+// Source/target pairs are measured in window coordinates in the same pass,
+// so the scroll-independent deltas are exact; the vertical centering matches
+// web use-community-header-identity's target adjustment. Zero-size reads
+// (before layout) keep the previous geometry.
+function measureMorphGeometry(
+  source: ViewInstance | null,
+  target: ViewInstance | null,
+  targetScale: number,
+  geometry: { set: (next: MorphGeometry) => void }
+): void {
+  if (!source || !target) {
+    return;
+  }
+  source.measureInWindow((sourceX, sourceY, sourceWidth, sourceHeight) => {
+    if (sourceWidth <= 0 || sourceHeight <= 0) {
+      return;
+    }
+    target.measureInWindow((targetX, targetY, targetWidth, targetHeight) => {
+      if (targetWidth <= 0 || targetHeight <= 0) {
+        return;
+      }
+      geometry.set({
+        sourceHeight,
+        sourceWidth,
+        sourceX: 0,
+        sourceY: 0,
+        targetScale,
+        targetWidth,
+        targetX: targetX - sourceX,
+        targetY:
+          targetY - sourceY + (targetHeight - sourceHeight * targetScale) / 2,
+      });
+    });
+  });
+}
+
+// Web's communityIdentityTransform with RN's center-origin scale compensated
+// (translate first, then scale), so the scaled box lands exactly on the
+// target slot that web's top-left-origin morph lands on.
+function morphBoxStyle(
+  geometry: MorphGeometry,
+  progress: number
+): {
+  transform: [
+    { translateX: number },
+    { translateY: number },
+    { scale: number },
+  ];
+} {
+  "worklet";
+  const transform = communityIdentityTransform(geometry, progress);
+  const width = geometry.sourceWidth * transform.scale;
+  const height = geometry.sourceHeight * transform.scale;
+  return {
+    transform: [
+      { translateX: transform.x - (geometry.sourceWidth - width) / 2 },
+      { translateY: transform.y - (geometry.sourceHeight - height) / 2 },
+      { scale: transform.scale },
+    ],
+  };
+}
 
 type CommunitySort = "new" | "top";
 export function CommunityDetailScreen() {
@@ -117,20 +226,30 @@ export function CommunityDetailScreen() {
   const [filters, setFilters] = useState<PostFilters>(() =>
     readCommunityFeedSelection(new URLSearchParams())
   );
+  // Filter/sort keystrokes update the picker UI immediately, but the feed
+  // query (and its cache key) follows the deferred value, so typing does not
+  // reload the whole feed on every keystroke (audit P2-3).
+  const deferredFilters = useDeferredValue(filters);
+  const deferredSort = useDeferredValue(sort);
   const [revision, setRevision] = useState(0);
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [visiblePostIds, setVisiblePostIds] = useState<ReadonlySet<string>>(
     new Set()
   );
+  const visibleKeyRef = useRef("");
   const handleViewable = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken<FeedRow>[] }) => {
-      setVisiblePostIds(
-        new Set(
-          viewableItems
-            .filter((item) => item.isViewable)
-            .map((item) => item.item.post.id)
-        )
-      );
+      const ids = viewableItems
+        .filter((item) => item.isViewable)
+        .map((item) => item.item.post.id);
+      // Viewability ticks fire on every scroll settle; only publish when the
+      // visible set actually changes so autoplay state does not churn (P1-2).
+      // oxlint-disable-next-line unicorn/no-array-sort -- Device Hermes predates ES2023 toSorted (TypeError on device); sort runs on a fresh spread copy.
+      const key = [...ids].slice().sort().join(",");
+      if (key !== visibleKeyRef.current) {
+        visibleKeyRef.current = key;
+        setVisiblePostIds(new Set(ids));
+      }
     },
     []
   );
@@ -156,7 +275,7 @@ export function CommunityDetailScreen() {
   const paging = useRef(false);
   const forcedKey = useRef<string | null>(null);
   const apiBase = getApiBaseUrl();
-  const cacheKey = `${apiBase}:${user?.id ?? "guest"}:${slug}:${communityFeedSearchParams({ ...filters, sort })}`;
+  const cacheKey = `${apiBase}:${user?.id ?? "guest"}:${slug}:${communityFeedSearchParams({ ...deferredFilters, sort: deferredSort })}`;
   useEffect(() => {
     if (!user?.id || !slug) {
       return;
@@ -266,8 +385,8 @@ export function CommunityDetailScreen() {
               slug,
               null,
               { apiBase, cookie: await authClient.getCookie() },
-              sort,
-              filters
+              deferredSort,
+              deferredFilters
             ),
           forced
         );
@@ -291,7 +410,7 @@ export function CommunityDetailScreen() {
         generation.current += 1;
       }
     };
-  }, [apiBase, cacheKey, filters, revision, slug, sort]);
+  }, [apiBase, cacheKey, deferredFilters, deferredSort, revision, slug]);
   useFocusEffect(
     useCallback(() => {
       if (detail) {
@@ -307,6 +426,24 @@ export function CommunityDetailScreen() {
       return () => activeCommunityStore.getState().clear(slug);
     }, [detail, matureAccepted, membership.membership?.status, slug, user])
   );
+  // Remember this posts view (with its feed filters) as the community's
+  // return destination, mirroring web's rememberSection on every posts view.
+  // The Chat-side Posts button restores the filtered href via
+  // communityPostsHref instead of the bare community root.
+  useEffect(() => {
+    if (!slug) {
+      return;
+    }
+    const query = communityFeedSearchParams({
+      ...deferredFilters,
+      sort: deferredSort,
+    }).toString();
+    rememberCommunityPostsHref(
+      user?.id,
+      slug,
+      `/a/${slug}${query ? `?${query}` : ""}`
+    );
+  }, [deferredFilters, deferredSort, slug, user?.id]);
   const handleRefresh = () => {
     setRefreshing(true);
     handleRetry();
@@ -320,6 +457,76 @@ export function CommunityDetailScreen() {
   const scrollOffset = useSharedValue(0);
   const reportPullOffset = pull.onScrollOffset;
   const endPull = pull.onScrollEndDrag;
+  // Header identity morph state (web community-posts-workspace parity): the
+  // avatar, name and slug shrink and slide into the section bar while the
+  // action buttons, private chip and member count fade out over the first
+  // half. Geometry is measured on layout into shared values and progress
+  // derives from the scroll offset, so the morph runs entirely on the UI
+  // thread with no per-frame JS setState.
+  const avatarSourceRef = useRef<ViewInstance>(null);
+  const avatarTargetRef = useRef<ViewInstance>(null);
+  const nameSourceRef = useRef<ViewInstance>(null);
+  const nameTargetRef = useRef<ViewInstance>(null);
+  const slugSourceRef = useRef<ViewInstance>(null);
+  const slugTargetRef = useRef<ViewInstance>(null);
+  const headerContentHeight = useSharedValue(0);
+  const avatarMorph = useSharedValue<MorphGeometry>(
+    emptyMorphGeometry(AVATAR_TARGET_SIZE / AVATAR_SOURCE_SIZE)
+  );
+  const nameMorph = useSharedValue<MorphGeometry>(
+    emptyMorphGeometry(NAME_TARGET_SCALE)
+  );
+  const slugMorph = useSharedValue<MorphGeometry>(
+    emptyMorphGeometry(SLUG_TARGET_SCALE)
+  );
+  const remeasureMorph = useCallback(() => {
+    measureMorphGeometry(
+      avatarSourceRef.current,
+      avatarTargetRef.current,
+      AVATAR_TARGET_SIZE / AVATAR_SOURCE_SIZE,
+      avatarMorph
+    );
+    measureMorphGeometry(
+      nameSourceRef.current,
+      nameTargetRef.current,
+      NAME_TARGET_SCALE,
+      nameMorph
+    );
+    measureMorphGeometry(
+      slugSourceRef.current,
+      slugTargetRef.current,
+      SLUG_TARGET_SCALE,
+      slugMorph
+    );
+  }, [avatarMorph, nameMorph, slugMorph]);
+  const morphProgress = useDerivedValue(() =>
+    communityHeaderProgress(
+      scrollOffset.get(),
+      headerContentHeight.get() - COMPACT_BAR_HEIGHT
+    )
+  );
+  const avatarMorphStyle = useAnimatedStyle(() =>
+    morphBoxStyle(avatarMorph.get(), morphProgress.get())
+  );
+  const nameMorphStyle = useAnimatedStyle(() =>
+    morphBoxStyle(nameMorph.get(), morphProgress.get())
+  );
+  const slugMorphStyle = useAnimatedStyle(() =>
+    morphBoxStyle(slugMorph.get(), morphProgress.get())
+  );
+  // Web's detailsOpacity: 1 to 0 over progress 0 to 0.5.
+  const detailsFadeStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(morphProgress.get(), [0, 0.5], [1, 0]),
+  }));
+  // The tabs row's top offset within the header is the height of the content
+  // above it, which sets the morph's collapse distance.
+  const handleHeaderTabsLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      headerContentHeight.set(event.nativeEvent.layout.y);
+      remeasureMorph();
+    },
+    [headerContentHeight, remeasureMorph]
+  );
   const handleScroll = useAnimatedScrollHandler({
     onEndDrag: () => scheduleOnRN(endPull),
     onScroll: (event) => {
@@ -331,7 +538,7 @@ export function CommunityDetailScreen() {
       }
     },
   });
-  const handleMore = async () => {
+  const handleMore = useCallback(async () => {
     if (!cursor || paging.current || loading || feedError) {
       return;
     }
@@ -343,8 +550,8 @@ export function CommunityDetailScreen() {
         slug,
         cursor,
         { apiBase, cookie: await authClient.getCookie() },
-        sort,
-        filters
+        deferredSort,
+        deferredFilters
       );
       if (generation.current === token) {
         const next = communityPageCache.append(cacheKey, page);
@@ -360,7 +567,19 @@ export function CommunityDetailScreen() {
       paging.current = false;
       setLoadingMore(false);
     }
-  };
+  }, [
+    apiBase,
+    cacheKey,
+    cursor,
+    deferredFilters,
+    deferredSort,
+    feedError,
+    loading,
+    slug,
+  ]);
+  const handleEndReached = useCallback(() => {
+    void handleMore();
+  }, [handleMore]);
   const overflow = usePostOverflow({
     onDeleted: (id) => {
       communityPageCache.removePost(id);
@@ -389,6 +608,75 @@ export function CommunityDetailScreen() {
         username: user.username ?? "",
       }
     : null;
+  // Memoized feed rows (audit P1-1): the inline renderItem, empty and footer
+  // used to be recreated every render, re-rendering every mounted card on
+  // each keystroke or viewability tick. Defined before the early returns so
+  // hook order stays stable across loading/error/ready states.
+  const renderPost = useCallback(
+    ({ item }: { item: FeedRow }) => (
+      <PostCard
+        active={
+          visiblePostIds.has(item.post.id) &&
+          (!detail?.community.mature || matureAccepted)
+        }
+        hasThreadChild={item.hasThreadChild}
+        hasThreadParent={item.hasThreadParent}
+        showCommunity={false}
+        post={item.post}
+        viewerId={user?.id}
+        onMore={(post, anchor) => {
+          setMenuPost(post);
+          setMenuAnchor(anchor);
+        }}
+        onShare={setSharePost}
+      />
+    ),
+    [detail?.community.mature, matureAccepted, user?.id, visiblePostIds]
+  );
+  const listEmpty = useMemo(() => {
+    if (loading) {
+      return <FeedSkeleton />;
+    }
+    if (feedError) {
+      return (
+        <View style={styles.state}>
+          <Text style={{ color: theme.inputText }}>Couldn't load posts</Text>
+          <StatusActionButton label="Try again" onPress={handleRetry} />
+        </View>
+      );
+    }
+    return (
+      <View style={styles.state}>
+        <Text
+          style={{
+            color: theme.inputText,
+            fontFamily: "SofiaProBold",
+            fontSize: 18,
+          }}
+        >
+          {communityPostFilterCount(filters)
+            ? "No posts match these filters"
+            : "No posts yet"}
+        </Text>
+        <Text style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}>
+          {communityPostFilterCount(filters)
+            ? "Try a different combination or clear your filters."
+            : "Be the first to post here."}
+        </Text>
+      </View>
+    );
+  }, [
+    feedError,
+    filters,
+    handleRetry,
+    loading,
+    theme.dividerText,
+    theme.inputText,
+  ]);
+  const listFooter = useMemo(
+    () => (loadingMore ? <FeedSkeletonCard /> : undefined),
+    [loadingMore]
+  );
   if (detailError) {
     return (
       <View
@@ -443,36 +731,6 @@ export function CommunityDetailScreen() {
   const { community } = detail;
   const chip = metaChip(isDark);
   const banner = communityMediaUrl(community.bannerUrl, apiBase);
-  let empty = (
-    <View style={styles.state}>
-      <Text
-        style={{
-          color: theme.inputText,
-          fontFamily: "SofiaProBold",
-          fontSize: 18,
-        }}
-      >
-        {communityPostFilterCount(filters)
-          ? "No posts match these filters"
-          : "No posts yet"}
-      </Text>
-      <Text style={{ color: theme.dividerText, fontFamily: "SofiaProReg" }}>
-        {communityPostFilterCount(filters)
-          ? "Try a different combination or clear your filters."
-          : "Be the first to post here."}
-      </Text>
-    </View>
-  );
-  if (loading) {
-    empty = <FeedSkeleton />;
-  } else if (feedError) {
-    empty = (
-      <View style={styles.state}>
-        <Text style={{ color: theme.inputText }}>Couldn't load posts</Text>
-        <StatusActionButton label="Try again" onPress={handleRetry} />
-      </View>
-    );
-  }
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <MobileHeader user={headerUser} unreadCount={unreadNotifications} />
@@ -534,14 +792,25 @@ export function CommunityDetailScreen() {
                           marginTop: -32,
                         }}
                       >
-                        <CommunityAvatar community={community} size={64} />
-                        <View
-                          style={{
-                            alignItems: "center",
-                            flexDirection: "row",
-                            gap: 8,
-                            paddingBottom: 4,
-                          }}
+                        <Reanimated.View style={avatarMorphStyle}>
+                          <View
+                            collapsable={false}
+                            onLayout={remeasureMorph}
+                            ref={avatarSourceRef}
+                          >
+                            <CommunityAvatar community={community} size={64} />
+                          </View>
+                        </Reanimated.View>
+                        <Reanimated.View
+                          style={[
+                            {
+                              alignItems: "center",
+                              flexDirection: "row",
+                              gap: 8,
+                              paddingBottom: 4,
+                            },
+                            detailsFadeStyle,
+                          ]}
                         >
                           {canReviewCommunityRequests(
                             community.type,
@@ -564,30 +833,52 @@ export function CommunityDetailScreen() {
                             membershipState={membership}
                             onRequireLogin={handleRequireLogin}
                           />
-                        </View>
+                        </Reanimated.View>
                       </View>
-                      <Text
-                        style={{
-                          color: theme.inputText,
-                          fontFamily: "SofiaProBold",
-                          fontSize: 20,
-                          marginTop: 12,
-                        }}
+                      <Reanimated.View
+                        style={[{ marginTop: 12 }, nameMorphStyle]}
                       >
-                        {community.name}
-                      </Text>
+                        <View
+                          collapsable={false}
+                          onLayout={remeasureMorph}
+                          ref={nameSourceRef}
+                        >
+                          <Text
+                            style={{
+                              color: theme.inputText,
+                              fontFamily: "SofiaProBold",
+                              fontSize: 20,
+                            }}
+                          >
+                            {community.name}
+                          </Text>
+                        </View>
+                      </Reanimated.View>
                       <View style={styles.metaRow}>
-                        <Text
-                          numberOfLines={1}
+                        <Reanimated.View
                           style={[
-                            styles.metaText,
-                            { color: theme.dividerText },
+                            { flexShrink: 1, minWidth: 0 },
+                            slugMorphStyle,
                           ]}
                         >
-                          a/{community.slug}
-                        </Text>
-                        {community.type === "PRIVATE" ? (
                           <View
+                            collapsable={false}
+                            onLayout={remeasureMorph}
+                            ref={slugSourceRef}
+                          >
+                            <Text
+                              numberOfLines={1}
+                              style={[
+                                styles.metaText,
+                                { color: theme.dividerText },
+                              ]}
+                            >
+                              a/{community.slug}
+                            </Text>
+                          </View>
+                        </Reanimated.View>
+                        {community.type === "PRIVATE" ? (
+                          <Reanimated.View
                             style={[
                               styles.privateChip,
                               {
@@ -595,6 +886,7 @@ export function CommunityDetailScreen() {
                                 borderColor: chip.border,
                                 boxShadow: chip.shadows,
                               },
+                              detailsFadeStyle,
                             ]}
                           >
                             <Text
@@ -605,23 +897,26 @@ export function CommunityDetailScreen() {
                             >
                               Private
                             </Text>
-                          </View>
+                          </Reanimated.View>
                         ) : null}
-                        <Text
-                          style={[
-                            styles.metaText,
-                            { color: theme.dividerText },
-                          ]}
-                        >
-                          · {formatNumber(detail.stats.members)}{" "}
-                          {detail.stats.members === 1 ? "member" : "members"}
-                        </Text>
+                        <Reanimated.View style={detailsFadeStyle}>
+                          <Text
+                            style={[
+                              styles.metaText,
+                              { color: theme.dividerText },
+                            ]}
+                          >
+                            · {formatNumber(detail.stats.members)}{" "}
+                            {detail.stats.members === 1 ? "member" : "members"}
+                          </Text>
+                        </Reanimated.View>
                       </View>
                     </View>
                     {community.type === "PRIVATE" ? null : (
                       <CommunityAboutCard detail={detail} />
                     )}
                     <View
+                      onLayout={handleHeaderTabsLayout}
                       style={{
                         alignItems: "center",
                         flexDirection: "row",
@@ -642,6 +937,43 @@ export function CommunityDetailScreen() {
                       >
                         <PanelLeft color={theme.inputText} size={22} />
                       </Pressable>
+                      {/* Invisible morph dock (web community-posts-workspace
+                          identity): the collapsing avatar, name and slug land
+                          here at full collapse. Absolutely positioned so the
+                          visible tabs keep their layout. */}
+                      <View
+                        accessibilityElementsHidden
+                        importantForAccessibility="no-hide-descendants"
+                        pointerEvents="none"
+                        style={styles.morphTargets}
+                      >
+                        <View
+                          collapsable={false}
+                          onLayout={remeasureMorph}
+                          ref={avatarTargetRef}
+                          style={styles.morphAvatarTarget}
+                        />
+                        <View
+                          collapsable={false}
+                          onLayout={remeasureMorph}
+                          ref={nameTargetRef}
+                          style={styles.morphNameTarget}
+                        >
+                          <Text numberOfLines={1} style={styles.morphNameText}>
+                            {community.name}
+                          </Text>
+                        </View>
+                        <View
+                          collapsable={false}
+                          onLayout={remeasureMorph}
+                          ref={slugTargetRef}
+                          style={styles.morphSlugTarget}
+                        >
+                          <Text numberOfLines={1} style={styles.morphSlugText}>
+                            a/{community.slug}
+                          </Text>
+                        </View>
+                      </View>
                       <View style={{ flex: 1 }}>
                         <FeedTabs<"posts" | "chat">
                           alignment="start"
@@ -654,7 +986,7 @@ export function CommunityDetailScreen() {
                           ]}
                           onChange={(value) => {
                             if (value === "chat") {
-                              router.push(`/a/${slug}/chat`);
+                              router.push(communityChatHref(user?.id, slug));
                             }
                           }}
                         />
@@ -702,36 +1034,15 @@ export function CommunityDetailScreen() {
                     ) : null}
                   </>
                 }
-                ListEmptyComponent={empty ?? undefined}
-                ListFooterComponent={
-                  loadingMore ? <FeedSkeletonCard /> : undefined
-                }
+                ListEmptyComponent={listEmpty ?? undefined}
+                ListFooterComponent={listFooter}
                 onScroll={handleScroll}
                 scrollEventThrottle={16}
-                onEndReached={() => {
-                  void handleMore();
-                }}
+                onEndReached={handleEndReached}
                 onEndReachedThreshold={0.6}
                 viewabilityConfig={COMMUNITY_VIEWABILITY}
                 onViewableItemsChanged={handleViewable}
-                renderItem={({ item }) => (
-                  <PostCard
-                    active={
-                      visiblePostIds.has(item.post.id) &&
-                      (!detail?.community.mature || matureAccepted)
-                    }
-                    hasThreadChild={item.hasThreadChild}
-                    hasThreadParent={item.hasThreadParent}
-                    showCommunity={false}
-                    post={item.post}
-                    viewerId={user?.id}
-                    onMore={(post, anchor) => {
-                      setMenuPost(post);
-                      setMenuAnchor(anchor);
-                    }}
-                    onShare={setSharePost}
-                  />
-                )}
+                renderItem={renderPost}
                 showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
               />
             </GestureDetector>
@@ -773,6 +1084,7 @@ export function CommunityDetailScreen() {
           communityName={detail.community.name}
           onClose={() => setNavigationOpen(false)}
           slug={slug}
+          viewerId={user?.id}
         />
       ) : null}
     </View>
@@ -788,6 +1100,25 @@ const styles = StyleSheet.create({
     rowGap: 4,
   },
   metaText: { flexShrink: 1, fontFamily: "SofiaProReg", fontSize: 14 },
+  // Invisible morph dock in the section bar: the collapsing identity lands
+  // here. Absolutely positioned so the visible tabs keep their layout.
+  morphAvatarTarget: { height: 28, width: 28 },
+  morphNameTarget: { flexShrink: 1, minWidth: 0 },
+  morphNameText: { fontFamily: "SofiaProBold", fontSize: 14 },
+  morphSlugTarget: { flexShrink: 1, minWidth: 0 },
+  morphSlugText: { fontFamily: "SofiaProReg", fontSize: 12 },
+  morphTargets: {
+    alignItems: "center",
+    bottom: 0,
+    flexDirection: "row",
+    gap: 8,
+    left: 60,
+    minWidth: 0,
+    opacity: 0,
+    position: "absolute",
+    right: 8,
+    top: 0,
+  },
   // Web's `chip-3d px-1.5 text-[10px]`.
   privateChip: {
     borderRadius: 6,

@@ -4,14 +4,10 @@ import type {
   CommunityChatRoom,
   CommunityChatThreadSummary,
 } from "@asm/messages";
-// oxlint-disable no-nested-ternary, unicorn/no-nested-ternary, no-negated-condition, unicorn/no-negated-condition, no-void -- Compact mobile state branches keep the narrow composer readable; detached handlers surface errors in the screen.
-import {
-  mergeCommunityChatTimeline,
-  QUICK_MESSAGE_REACTIONS,
-} from "@asm/messages";
-import { isStickerMessagePayload } from "@asm/messages/payload";
+// oxlint-disable no-nested-ternary, unicorn/no-nested-ternary, no-negated-condition, unicorn/no-negated-condition, no-void, no-await-in-loop, unicorn/no-array-sort, unicorn/no-array-reverse, unicorn/prefer-spread -- Compact mobile state branches keep the narrow composer readable; detached handlers surface errors in the screen; SSE change actions apply sequentially in arrival order. sort/reverse run on fresh copies (spread/filter/slice first): the device Hermes predates ES2023 toSorted/toReversed (TypeError on device), so the mutating forms on copies are the compatible spelling.
+import { mergeCommunityChatTimeline } from "@asm/messages";
+import * as Clipboard from "expo-clipboard";
 import { randomUUID } from "expo-crypto";
-import { Image } from "expo-image";
 import type { Href } from "expo-router";
 import {
   Redirect,
@@ -28,15 +24,14 @@ import {
   MessageCircle,
   ChevronDown,
   MoreHorizontal,
-  Pencil,
   Pin,
-  Trash2,
   Reply,
   Send,
   Users,
   X,
 } from "lucide-react-native";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { RefObject } from "react";
 import {
   AppState,
   FlatList,
@@ -53,6 +48,7 @@ import type { FlatListProps, TextInputInstance } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { StatusActionButton } from "@/components/feedback/status-action-button";
+import { toast } from "@/components/feedback/toast";
 import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { DialogPanel } from "@/components/surface/dialog-panel";
 import { premiumInput } from "@/components/surface/recipes";
@@ -61,9 +57,8 @@ import { useSessionContext } from "@/features/auth/state/session";
 import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { MobileHeader } from "@/features/home/components/mobile-header";
-import { UserBadge } from "@/features/home/components/user-badge";
-import { SavableSticker } from "@/features/messages/components/savable-sticker";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
+import { LIST_VIRTUALIZATION_PROPS } from "@/lib/layout/list-virtualization";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { readSseStream } from "@/lib/network/sse-stream";
 import { useAppTheme } from "@/theme";
@@ -85,9 +80,19 @@ import {
   updateCommunityChatReaction,
 } from "../lib/community-chat-api";
 import type { CommunityChatChannelsResponse } from "../lib/community-chat-api";
+import {
+  classifyCommunityChatChange,
+  isStaleCommunityChatChange,
+} from "../lib/community-chat-events";
 import { communityChatUiEnabled } from "../lib/community-chat-features";
+import { stabilizeCommunityChatRows } from "../lib/community-chat-row-identity";
+import { shouldSnapTimelineToLatest } from "../lib/community-chat-timeline-gate";
+import { rememberCommunityChatHref } from "../lib/community-section-links";
 import { CommunityAvatar } from "./community-avatar";
 import { CommunityChannelSettingsButton } from "./community-channel-settings";
+import CommunityChatLoading from "./community-chat-loading";
+import CommunityChatMessageActions from "./community-chat-message-actions";
+import CommunityChatMessageRow from "./community-chat-message-row";
 import { CommunityNavigationDrawer } from "./community-navigation-drawer";
 import { CommunityPrivateThreadDialog } from "./community-private-thread-dialog";
 import { CommunityThreadFollowButton } from "./community-thread-follow-button";
@@ -275,13 +280,21 @@ function CommunityChatChannelsContent() {
           </View>
         ) : (
           <FlatList
+            {...LIST_VIRTUALIZATION_PROPS}
             contentContainerStyle={styles.channelList}
             data={channels}
             keyExtractor={(channel) => channel.id}
             renderItem={({ item }) => (
               <Pressable
                 accessibilityRole="button"
-                onPress={() => router.push(chatUrl(slug, item.id))}
+                onPress={() => {
+                  rememberCommunityChatHref(
+                    user?.id,
+                    slug,
+                    `/a/${slug}/chat/${item.id}`
+                  );
+                  router.push(chatUrl(slug, item.id));
+                }}
                 style={({ pressed }) => [
                   styles.channelCard,
                   {
@@ -344,6 +357,135 @@ function CommunityChatChannelsContent() {
   );
 }
 
+// The timeline composer, memoized with local draft state so typing does not
+// re-render the FlatList above it. The screen only learns the text on submit.
+const CommunityChatComposer = memo(
+  ({
+    accent,
+    channelName,
+    inputRef,
+    onClearReply,
+    onSubmit,
+    replyingToName,
+    resetKey,
+    sendError,
+    sending,
+  }: {
+    accent: string;
+    channelName: string;
+    inputRef: RefObject<TextInputInstance | null>;
+    onClearReply: () => void;
+    onSubmit: (content: string) => void;
+    replyingToName: string | null;
+    resetKey: number;
+    sendError: string | null;
+    sending: boolean;
+  }) => {
+    const { theme } = useAppTheme();
+    const insets = useSafeAreaInsets();
+    const [content, setContent] = useState("");
+    const [keyboardVisible, setKeyboardVisible] = useState(false);
+    useEffect(() => {
+      const show = Keyboard.addListener(
+        Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+        () => setKeyboardVisible(true)
+      );
+      const hide = Keyboard.addListener(
+        Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+        () => setKeyboardVisible(false)
+      );
+      return () => {
+        show.remove();
+        hide.remove();
+      };
+    }, []);
+    // Clears the draft when the parent bumps resetKey after a successful send.
+    const [appliedResetKey, setAppliedResetKey] = useState(resetKey);
+    useEffect(() => {
+      if (appliedResetKey !== resetKey) {
+        setAppliedResetKey(resetKey);
+        setContent("");
+      }
+    }, [appliedResetKey, resetKey]);
+    const trimmed = content.trim();
+    return (
+      <View
+        style={[
+          styles.composer,
+          {
+            backgroundColor: theme.cardBg,
+            borderColor: theme.cardBorder,
+            marginBottom: keyboardVisible ? 8 : Math.max(insets.bottom, 10),
+          },
+        ]}
+      >
+        {replyingToName ? (
+          <View style={[styles.retryRow, { width: "100%" }]}>
+            <Reply color={accent} size={14} />
+            <Text
+              numberOfLines={1}
+              style={[styles.retryText, { color: theme.dividerText }]}
+            >
+              Replying to {replyingToName}
+            </Text>
+            <Pressable accessibilityLabel="Cancel reply" onPress={onClearReply}>
+              <X color={theme.dividerText} size={18} />
+            </Pressable>
+          </View>
+        ) : null}
+        <TextInput
+          ref={inputRef}
+          accessibilityLabel={`Message ${channelName}`}
+          editable={!sending}
+          maxLength={4000}
+          multiline
+          onChangeText={setContent}
+          onSubmitEditing={() => onSubmit(trimmed)}
+          placeholder={`Message ${channelName}`}
+          placeholderTextColor={theme.dividerText}
+          returnKeyType="send"
+          style={[styles.composerInput, { color: theme.inputText }]}
+          value={content}
+        />
+        <Pressable
+          accessibilityLabel="Send message"
+          accessibilityRole="button"
+          disabled={!trimmed || sending}
+          onPress={() => onSubmit(trimmed)}
+          style={({ pressed }) => [
+            styles.sendButton,
+            {
+              backgroundColor: accent,
+              opacity: !trimmed || sending ? 0.48 : pressed ? 0.78 : 1,
+            },
+          ]}
+        >
+          {sending ? (
+            <ZephLoader variant="messages" color="#fff" size="small" />
+          ) : (
+            <Send color="#fff" size={17} />
+          )}
+        </Pressable>
+        {sendError ? (
+          <View style={styles.retryRow}>
+            <Text style={[styles.retryText, { color: theme.errorBannerText }]}>
+              {sendError}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              disabled={sending}
+              onPress={() => onSubmit(trimmed)}
+            >
+              <Text style={[styles.retryAction, { color: accent }]}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+);
+CommunityChatComposer.displayName = "CommunityChatComposer";
+
 export function CommunityChatScreen() {
   const { user } = useSessionContext();
   const params = useLocalSearchParams();
@@ -399,29 +541,27 @@ function CommunityChatTimelineScreen() {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasOlder, setHasOlder] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [content, setContent] = useState("");
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-  useEffect(() => {
-    const show = Keyboard.addListener(
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
-      () => setKeyboardVisible(true)
-    );
-    const hide = Keyboard.addListener(
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
-      () => setKeyboardVisible(false)
-    );
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
-  const [sending, setSending] = useState(false);
+  // Bumped after a successful send so the memoized composer clears its draft
+  // without the draft living in this screen's state (which would re-render the
+  // whole timeline on every keystroke).
+  const [composerResetKey, setComposerResetKey] = useState(0);
+  // Explicit send state machine (audit S1-2): send no-ops unless idle or
+  // failed. A single boolean let two rapid Enter presses race past the guard
+  // before setSending(true) committed; the union plus its ref mirror make the
+  // transition atomic with the in-flight clientId.
+  type CommunityChatSendState =
+    | { kind: "failed"; clientId: string; error: string }
+    | { kind: "idle" }
+    | { kind: "sending"; clientId: string };
+  const [sendState, setSendState] = useState<CommunityChatSendState>({
+    kind: "idle",
+  });
+  const sendStateRef = useRef<CommunityChatSendState>({ kind: "idle" });
   const [pending, setPending] = useState<{
     clientId: string;
     content: string;
     replyToId?: string;
   } | null>(null);
-  const [sendError, setSendError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [channelsOpen, setChannelsOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -429,6 +569,12 @@ function CommunityChatTimelineScreen() {
   const [atLatest, setAtLatest] = useState(true);
   const atLatestRef = useRef(true);
   const windowAtLiveTail = useRef(true);
+  // Last scroll position for the pin-to-latest gate: a content size change
+  // that lands while the reader is scrolled up must not yank them back to
+  // the bottom.
+  const lastOffsetY = useRef(0);
+  const lastScrollAtMs = useRef(0);
+  const draggingRef = useRef(false);
   const [newActivity, setNewActivity] = useState(false);
   const [replyTarget, setReplyTarget] = useState<CommunityChatMessage | null>(
     null
@@ -458,6 +604,10 @@ function CommunityChatTimelineScreen() {
   const latestSequence = useRef("0");
   const latestChangeSequence = useRef("0");
   const paging = useRef(false);
+  // Room generation: loadPage bumps this when it starts for a room, so a
+  // late fetchLatest/loadOlder/send settle from the previous room drops
+  // instead of merging old messages into the new room's timeline.
+  const roomGenRef = useRef(0);
   const roomReady = room !== null;
 
   const options = useCallback(
@@ -570,13 +720,19 @@ function CommunityChatTimelineScreen() {
           windowAtLiveTail.current = false;
           setNewActivity(true);
         }
-        return window.messages.toReversed();
+        // Reuses row objects that render identically so a merge that changed
+        // one row does not re-render the whole transcript.
+        return stabilizeCommunityChatRows(
+          current,
+          window.messages.slice().reverse()
+        );
       });
     },
     []
   );
 
   const fetchLatest = useCallback(async () => {
+    const generation = roomGenRef.current;
     const requestOptions = await options();
     const page = await fetchCommunityChatMessages(
       slug,
@@ -588,6 +744,9 @@ function CommunityChatTimelineScreen() {
       },
       requestOptions
     );
+    if (roomGenRef.current !== generation) {
+      return;
+    }
     setPermissions(page.permissions);
     setRoom(page.room);
     mergeMessages(page.messages);
@@ -597,11 +756,17 @@ function CommunityChatTimelineScreen() {
     if (!slug || !channelId) {
       return;
     }
+    // Owns the room from here: any in-flight loader for the previous room
+    // is stale the moment this starts, even before its response lands.
+    roomGenRef.current += 1;
+    const generation = roomGenRef.current;
     setLoading(true);
     setLoadError(null);
     setMessages([]);
     setReplyTarget(null);
     setPending(null);
+    sendStateRef.current = { kind: "idle" };
+    setSendState({ kind: "idle" });
     latestSequence.current = "0";
     latestChangeSequence.current = "0";
     try {
@@ -625,12 +790,17 @@ function CommunityChatTimelineScreen() {
       ) {
         throw new Error("This conversation is not available");
       }
+      if (roomGenRef.current !== generation) {
+        return;
+      }
       setDetail(communityDetail);
       setChannels(chatChannels.channels);
       setThreads(chatThreads.threads);
       setPermissions(page.permissions);
       setRoom(page.room);
-      setMessages([...page.messages].toReversed());
+      setMessages(
+        stabilizeCommunityChatRows([], [...page.messages].slice().reverse())
+      );
       setHasOlder(page.nextBeforeSequence !== null);
       latestSequence.current = page.room.nextSequence;
       latestChangeSequence.current = page.room.changeSequence;
@@ -644,21 +814,35 @@ function CommunityChatTimelineScreen() {
         )
       );
     } catch (error) {
+      if (roomGenRef.current !== generation) {
+        return;
+      }
       setLoadError(
         error instanceof Error
           ? error.message
           : "Couldn't open this conversation"
       );
     } finally {
-      setLoading(false);
+      if (roomGenRef.current === generation) {
+        setLoading(false);
+      }
     }
   }, [anchorId, channelId, options, roomId, slug, threadId]);
+
+  // Remember this channel as the community's last-visited chat destination so
+  // the Posts tab's Chat button deep-links back here, mirroring web's
+  // rememberSection on every chat view (community-page.tsx). A thread view
+  // remembers its parent channel, like web's communityChatLocation.
+  useEffect(() => {
+    if (slug && channelId) {
+      rememberCommunityChatHref(user?.id, slug, `/a/${slug}/chat/${channelId}`);
+    }
+  }, [channelId, slug, user?.id]);
 
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect -- Load the selected room when its route becomes active.
     void loadPage();
   }, [loadPage]);
-
   const loadOlder = useCallback(async () => {
     const oldest = messages.at(-1);
     if (!oldest || !hasOlder || paging.current) {
@@ -666,6 +850,7 @@ function CommunityChatTimelineScreen() {
     }
     paging.current = true;
     setLoadingOlder(true);
+    const generation = roomGenRef.current;
     try {
       const page = await fetchCommunityChatMessages(
         slug,
@@ -673,9 +858,15 @@ function CommunityChatTimelineScreen() {
         { before: oldest.sequence, limit: HISTORY_LIMIT },
         await options()
       );
+      if (roomGenRef.current !== generation) {
+        return;
+      }
       setHasOlder(page.nextBeforeSequence !== null);
       mergeMessages(page.messages, "older");
     } catch (error) {
+      if (roomGenRef.current !== generation) {
+        return;
+      }
       setActionError(
         error instanceof Error
           ? error.message
@@ -695,18 +886,21 @@ function CommunityChatTimelineScreen() {
       const controller = new AbortController();
       const connect = async () => {
         try {
-          const currentCookie = await authClient.getCookie();
           await readSseStream({
             baseFetch: streamingFetch,
             eventName: ["change", "reset", "access-revoked"],
-            getCookie: () => Promise.resolve(currentCookie),
+            // Live credentials per attempt: the old code snapshotted the
+            // cookie at focus time, so every backoff retry after a rotation
+            // replayed the stale credential until the stream died.
+            getCookie: () => authClient.getCookie(),
             onEvent: async (event, data) => {
               if (event === "access-revoked") {
                 setAccessRevoked(true);
                 setMessages([]);
                 setThreads([]);
-                setContent("");
                 setPending(null);
+                sendStateRef.current = { kind: "idle" };
+                setSendState({ kind: "idle" });
                 setReplyTarget(null);
                 setActionMessage(null);
                 setDetailsOpen(false);
@@ -726,23 +920,14 @@ function CommunityChatTimelineScreen() {
               }
               if (event === "change") {
                 const change = data as CommunityChatChange;
-                if (
-                  change.kind === "thread.created" ||
-                  change.kind === "thread.updated"
-                ) {
-                  try {
-                    const result = await fetchCommunityChatThreads(
-                      slug,
-                      channelId,
-                      await options()
-                    );
-                    setThreads(result.threads);
-                  } catch {
-                    setActionError(
-                      "Couldn't refresh channel threads. Please try again."
-                    );
-                  }
-                }
+                // Explicit replay handling (community-chat-events): an inline
+                // message merges without a page refetch, a bare ref refetches
+                // that message, and only unknown shapes reload the page, so a
+                // busy channel no longer refetches on every event.
+                const stale = isStaleCommunityChatChange(
+                  change,
+                  latestChangeSequence.current
+                );
                 if (
                   change.changeSequence &&
                   BigInt(change.changeSequence) >
@@ -750,28 +935,57 @@ function CommunityChatTimelineScreen() {
                 ) {
                   latestChangeSequence.current = change.changeSequence;
                 }
-                if (change.message) {
-                  mergeMessages([change.message]);
-                  return;
-                }
-                if (typeof change.messageId === "string") {
-                  const { messageId } = change;
-                  try {
-                    const requestOptions = await options();
-                    const result = await fetchCommunityChatMessage(
-                      slug,
-                      roomId,
-                      messageId,
-                      requestOptions
-                    );
-                    mergeMessages([result.message]);
-                  } catch {
-                    setActionError("Couldn't refresh this message.");
+                for (const action of classifyCommunityChatChange(change)) {
+                  if (action.kind === "ignore") {
+                    continue;
                   }
-                  return;
+                  if (action.kind === "refresh-threads") {
+                    try {
+                      const result = await fetchCommunityChatThreads(
+                        slug,
+                        channelId,
+                        await options()
+                      );
+                      setThreads(result.threads);
+                    } catch {
+                      setActionError(
+                        "Couldn't refresh channel threads. Please try again."
+                      );
+                    }
+                    continue;
+                  }
+                  if (action.kind === "merge") {
+                    if (!stale) {
+                      mergeMessages([action.message]);
+                    }
+                    continue;
+                  }
+                  if (action.kind === "refresh-message") {
+                    try {
+                      const requestOptions = await options();
+                      const result = await fetchCommunityChatMessage(
+                        slug,
+                        roomId,
+                        action.messageId,
+                        requestOptions
+                      );
+                      mergeMessages([result.message]);
+                    } catch {
+                      setActionError("Couldn't refresh this message.");
+                    }
+                    continue;
+                  }
+                  if (!stale) {
+                    try {
+                      await fetchLatest();
+                    } catch {
+                      setActionError("Reconnecting to this conversation…");
+                    }
+                  }
                 }
+                return;
               }
-              if (event === "reset" || event === "change") {
+              if (event === "reset") {
                 try {
                   await fetchLatest();
                 } catch {
@@ -851,7 +1065,9 @@ function CommunityChatTimelineScreen() {
       windowAtLiveTail.current = true;
       setAtLatest(true);
       setNewActivity(false);
-      setMessages(page.messages.toReversed());
+      setMessages((current) =>
+        stabilizeCommunityChatRows(current, page.messages.slice().reverse())
+      );
       setHasOlder(page.nextBeforeSequence !== null);
       latestSequence.current = page.room.nextSequence;
       latestChangeSequence.current = page.room.changeSequence;
@@ -1047,62 +1263,255 @@ function CommunityChatTimelineScreen() {
     }
   }
 
-  const submit = useCallback(async () => {
-    const outgoing = pending ?? {
-      clientId: randomUUID(),
-      content: content.trim(),
-      replyToId: replyTarget?.id,
-    };
-    if (!outgoing.content || sending || !permissions?.canSend) {
+  // Takes the composer text as an argument so the memoized composer owns the
+  // draft: typing never touches this screen's state, so it never re-renders
+  // the timeline. The pending/error restore only reuses the previous attempt
+  // when the text is unchanged since the failure.
+  const submit = useCallback(
+    async (text: string) => {
+      const state = sendStateRef.current;
+      if (state.kind !== "idle" && state.kind !== "failed") {
+        return;
+      }
+      const trimmed = text.trim();
+      const outgoing =
+        pending && pending.content === trimmed
+          ? pending
+          : {
+              clientId: randomUUID(),
+              content: trimmed,
+              replyToId: replyTarget?.id,
+            };
+      if (!outgoing.content || !permissions?.canSend) {
+        return;
+      }
+      setPending(outgoing);
+      const sending: CommunityChatSendState = {
+        clientId: outgoing.clientId,
+        kind: "sending",
+      };
+      sendStateRef.current = sending;
+      setSendState(sending);
+      // The room may change while the send is in flight: a late success must
+      // not merge this room's message into the next room's timeline.
+      const generation = roomGenRef.current;
+      try {
+        const result = await sendCommunityChatMessage(
+          slug,
+          roomId,
+          outgoing,
+          await options()
+        );
+        if (roomGenRef.current !== generation) {
+          return;
+        }
+        if (!atLatestRef.current) {
+          await jumpToLatest();
+        }
+        if (atLatestRef.current) {
+          mergeMessages([result.message]);
+        } else {
+          setNewActivity(true);
+        }
+        setPending(null);
+        setReplyTarget(null);
+        setComposerResetKey((value) => value + 1);
+        const idle: CommunityChatSendState = { kind: "idle" };
+        sendStateRef.current = idle;
+        setSendState(idle);
+        if (atLatestRef.current) {
+          requestAnimationFrame(() =>
+            listRef.current?.scrollToOffset({ animated: false, offset: 0 })
+          );
+        }
+      } catch (error) {
+        if (roomGenRef.current !== generation) {
+          return;
+        }
+        setPending(outgoing);
+        const failed: CommunityChatSendState = {
+          clientId: outgoing.clientId,
+          error: error instanceof Error ? error.message : "Message didn't send",
+          kind: "failed",
+        };
+        sendStateRef.current = failed;
+        setSendState(failed);
+      }
+    },
+    [
+      roomId,
+      mergeMessages,
+      options,
+      pending,
+      replyTarget,
+      jumpToLatest,
+      permissions?.canSend,
+      slug,
+    ]
+  );
+
+  // Memoized timeline list callbacks (audit P1-1, P1-2): the inline
+  // renderItem, ListEmpty, ListFooter and onScroll used to be recreated every
+  // render, defeating the memo on each row. Stable identities here mean a new
+  // message only re-renders the rows it touches.
+  const messageKeyExtractor = useCallback(
+    (message: CommunityChatMessage) => message.id,
+    []
+  );
+  const threadSourceIds = useMemo(
+    () =>
+      new Set(
+        threads
+          .map((thread) => thread.sourceMessage?.id)
+          .filter((id): id is string => typeof id === "string")
+      ),
+    [threads]
+  );
+  const openMessageActions = useCallback(
+    (message: CommunityChatMessage) => setActionMessage(message),
+    []
+  );
+  const openMessageThread = useCallback(
+    (message: CommunityChatMessage) => {
+      const thread = threads.find(
+        (entry) => entry.sourceMessage?.id === message.id
+      );
+      if (thread) {
+        router.push(threadUrl(slug, channelId, thread.room.id));
+      }
+    },
+    [channelId, router, slug, threads]
+  );
+  const renderMessage = useCallback<
+    NonNullable<FlatListProps<CommunityChatMessage>["renderItem"]>
+  >(
+    ({ index, item }) => {
+      const previous = messages[index + 1];
+      const grouped = Boolean(
+        previous &&
+        previous.senderId === item.senderId &&
+        Math.abs(
+          new Date(previous.createdAt).getTime() -
+            new Date(item.createdAt).getTime()
+        ) <
+          5 * 60_000
+      );
+      return (
+        <CommunityChatMessageRow
+          accent={communityAccent}
+          apiBase={apiBase}
+          canReact={permissions?.canSend ?? false}
+          cardBg={theme.cardBg}
+          cardBorder={theme.cardBorder}
+          community={detail?.community ?? null}
+          dividerText={theme.dividerText}
+          grouped={grouped}
+          hasThread={threadSourceIds.has(item.id)}
+          inputText={theme.inputText}
+          message={item}
+          onOpenActions={openMessageActions}
+          onOpenThread={openMessageThread}
+          onReact={reactToMessage}
+          showThreadLink={!threadId}
+        />
+      );
+    },
+    [
+      apiBase,
+      communityAccent,
+      detail?.community,
+      messages,
+      openMessageActions,
+      openMessageThread,
+      permissions?.canSend,
+      reactToMessage,
+      theme.cardBg,
+      theme.cardBorder,
+      theme.dividerText,
+      theme.inputText,
+      threadId,
+      threadSourceIds,
+    ]
+  );
+  const listEmpty = useMemo(
+    () => (
+      <View style={styles.emptyMessages}>
+        {detail ? (
+          <CommunityAvatar community={detail.community} size={54} />
+        ) : null}
+        <Text style={[styles.stateTitle, { color: theme.inputText }]}>
+          A fresh place to start
+        </Text>
+        <Text style={[styles.stateBody, { color: theme.dividerText }]}>
+          {permissions?.canSend
+            ? "Say hello to the community."
+            : "Community conversations will appear here."}
+        </Text>
+      </View>
+    ),
+    [detail, permissions?.canSend, theme.dividerText, theme.inputText]
+  );
+  const listFooter = useMemo(
+    () => <ZephLoader variant="messages" color={communityAccent} />,
+    [communityAccent]
+  );
+  const handleClearReply = useCallback(() => {
+    setReplyTarget(null);
+    setPending(null);
+  }, []);
+  // Pinned to the live tail only while the reader is actually there. An
+  // unconditional snap fires on every mounting image as well, yanking a
+  // reader who just scrolled up back to the bottom.
+  const handleContentSizeChange = useCallback(() => {
+    if (!atLatestRef.current) {
       return;
     }
-    setPending(outgoing);
-    setSending(true);
-    setSendError(null);
-    try {
-      const result = await sendCommunityChatMessage(
-        slug,
-        roomId,
-        outgoing,
-        await options()
-      );
-      if (!atLatestRef.current) {
-        await jumpToLatest();
-      }
-      if (atLatestRef.current) {
-        mergeMessages([result.message]);
-      } else {
-        setNewActivity(true);
-      }
-      setPending(null);
-      setReplyTarget(null);
-      setContent("");
-      if (atLatestRef.current) {
-        requestAnimationFrame(() =>
-          listRef.current?.scrollToOffset({ animated: false, offset: 0 })
-        );
-      }
-    } catch (error) {
-      setPending(outgoing);
-      setContent(outgoing.content);
-      setSendError(
-        error instanceof Error ? error.message : "Message didn't send"
-      );
-    } finally {
-      setSending(false);
+    if (
+      !shouldSnapTimelineToLatest({
+        dragging: draggingRef.current,
+        lastOffsetY: lastOffsetY.current,
+        lastScrollAtMs: lastScrollAtMs.current,
+        nowMs: Date.now(),
+      })
+    ) {
+      return;
     }
-  }, [
-    roomId,
-    content,
-    mergeMessages,
-    options,
-    pending,
-    replyTarget,
-    jumpToLatest,
-    permissions?.canSend,
-    sending,
-    slug,
-  ]);
+    listRef.current?.scrollToOffset({ animated: false, offset: 0 });
+  }, []);
+  const handleTimelineScroll = useCallback<
+    NonNullable<FlatListProps<CommunityChatMessage>["onScroll"]>
+  >((event) => {
+    lastOffsetY.current = event.nativeEvent.contentOffset.y;
+    lastScrollAtMs.current = Date.now();
+    const nearLatest =
+      windowAtLiveTail.current && event.nativeEvent.contentOffset.y < 64;
+    atLatestRef.current = nearLatest;
+    setAtLatest(nearLatest);
+    if (nearLatest) {
+      setNewActivity(false);
+    }
+  }, []);
+  const handleBeginDrag = useCallback(() => {
+    draggingRef.current = true;
+    lastScrollAtMs.current = Date.now();
+  }, []);
+  const handleEndDrag = useCallback(() => {
+    draggingRef.current = false;
+    lastScrollAtMs.current = Date.now();
+  }, []);
+  const handleScrollToIndexFailed = useCallback<
+    NonNullable<FlatListProps<CommunityChatMessage>["onScrollToIndexFailed"]>
+  >(
+    (info) =>
+      listRef.current?.scrollToOffset({
+        animated: false,
+        offset: Math.max(0, info.averageItemLength * info.index),
+      }),
+    []
+  );
+  const handleEndReached = useCallback(() => {
+    void loadOlder();
+  }, [loadOlder]);
 
   if (accessRevoked) {
     return (
@@ -1122,6 +1531,8 @@ function CommunityChatTimelineScreen() {
   }
 
   const channelName = room?.name ?? "Community chat";
+  const sending = sendState.kind === "sending";
+  const sendError = sendState.kind === "failed" ? sendState.error : null;
   const parentChannelName =
     channels.find((channel) => channel.id === channelId)?.name ?? "channel";
   const threadRoot = threadId
@@ -1231,9 +1642,7 @@ function CommunityChatTimelineScreen() {
         </View>
       ) : null}
       {loading ? (
-        <View style={styles.state}>
-          <ZephLoader variant="messages" color={communityAccent} />
-        </View>
+        <CommunityChatLoading />
       ) : loadError ? (
         <View style={styles.state}>
           <Text style={[styles.stateTitle, { color: theme.inputText }]}>
@@ -1247,288 +1656,26 @@ function CommunityChatTimelineScreen() {
       ) : (
         <>
           <FlatList
+            {...LIST_VIRTUALIZATION_PROPS}
             inverted
             contentContainerStyle={styles.messageList}
             data={messages}
-            keyExtractor={(message) => message.id}
-            ListEmptyComponent={
-              <View style={styles.emptyMessages}>
-                {detail ? (
-                  <CommunityAvatar community={detail.community} size={54} />
-                ) : null}
-                <Text style={[styles.stateTitle, { color: theme.inputText }]}>
-                  A fresh place to start
-                </Text>
-                <Text style={[styles.stateBody, { color: theme.dividerText }]}>
-                  {permissions?.canSend
-                    ? "Say hello to the community."
-                    : "Community conversations will appear here."}
-                </Text>
-              </View>
-            }
-            ListFooterComponent={
-              loadingOlder ? (
-                <ZephLoader variant="messages" color={communityAccent} />
-              ) : undefined
-            }
+            keyExtractor={messageKeyExtractor}
+            ListEmptyComponent={listEmpty}
+            ListFooterComponent={loadingOlder ? listFooter : undefined}
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
             onViewableItemsChanged={onViewableMessagesChanged}
             viewabilityConfig={CHAT_VIEWABILITY_CONFIG}
-            onContentSizeChange={() => {
-              if (atLatestRef.current) {
-                listRef.current?.scrollToOffset({ animated: false, offset: 0 });
-              }
-            }}
-            onScroll={(event) => {
-              const nearLatest =
-                windowAtLiveTail.current &&
-                event.nativeEvent.contentOffset.y < 64;
-              atLatestRef.current = nearLatest;
-              setAtLatest(nearLatest);
-              if (nearLatest) {
-                setNewActivity(false);
-              }
-            }}
+            onContentSizeChange={handleContentSizeChange}
+            onScroll={handleTimelineScroll}
+            onScrollBeginDrag={handleBeginDrag}
+            onScrollEndDrag={handleEndDrag}
             scrollEventThrottle={100}
-            onScrollToIndexFailed={(info) =>
-              listRef.current?.scrollToOffset({
-                animated: false,
-                offset: Math.max(0, info.averageItemLength * info.index),
-              })
-            }
-            onEndReached={() => void loadOlder()}
+            onScrollToIndexFailed={handleScrollToIndexFailed}
+            onEndReached={handleEndReached}
             onEndReachedThreshold={0.3}
             ref={listRef}
-            renderItem={({ item, index }) => {
-              const previous = messages[index + 1];
-              const grouped = Boolean(
-                previous &&
-                previous.senderId === item.senderId &&
-                Math.abs(
-                  new Date(previous.createdAt).getTime() -
-                    new Date(item.createdAt).getTime()
-                ) <
-                  5 * 60_000
-              );
-              return (
-                <Pressable
-                  accessible={false}
-                  onLongPress={() => {
-                    if (!item.deletedAt) {
-                      setActionMessage(item);
-                    }
-                  }}
-                  style={[styles.messageRow, grouped && styles.groupedMessage]}
-                >
-                  <View style={styles.messageAvatarSlot}>
-                    {!grouped ? (
-                      <Image
-                        source={
-                          item.sender.avatarUrl
-                            ? { uri: item.sender.avatarUrl }
-                            : undefined
-                        }
-                        style={[
-                          styles.avatar,
-                          {
-                            backgroundColor: theme.cardBg,
-                            borderColor: theme.cardBorder,
-                          },
-                        ]}
-                      />
-                    ) : null}
-                  </View>
-                  <View
-                    style={[
-                      styles.messageBody,
-                      grouped && { paddingRight: 36 },
-                    ]}
-                  >
-                    {!grouped ? (
-                      <View style={styles.messageMeta}>
-                        <Text
-                          numberOfLines={1}
-                          style={[
-                            styles.senderName,
-                            { color: theme.inputText },
-                          ]}
-                        >
-                          {userLabel(item)}
-                        </Text>
-                        {item.sender.role && detail ? (
-                          <UserBadge
-                            communityRoles={[
-                              {
-                                community: detail.community,
-                                role: item.sender.role,
-                              },
-                            ]}
-                          />
-                        ) : null}
-                        <Text
-                          style={[
-                            styles.timestamp,
-                            { color: theme.dividerText },
-                          ]}
-                        >
-                          {new Date(item.createdAt).toLocaleTimeString([], {
-                            hour: "numeric",
-                            minute: "2-digit",
-                          })}
-                        </Text>
-                        {item.editedAt ? (
-                          <Text
-                            style={[
-                              styles.timestamp,
-                              { color: theme.dividerText },
-                            ]}
-                          >
-                            edited
-                          </Text>
-                        ) : null}
-                      </View>
-                    ) : null}
-                    {item.replyTo ? (
-                      <Text
-                        numberOfLines={1}
-                        style={[
-                          styles.channelTopic,
-                          { color: theme.dividerText },
-                        ]}
-                      >
-                        ↳ {item.replyTo.senderName}:{" "}
-                        {item.replyTo.deleted
-                          ? "Original message deleted"
-                          : (item.replyTo.content ?? "Message")}
-                      </Text>
-                    ) : null}
-                    {item.pinned ? (
-                      <Text
-                        style={[styles.staffLabel, { color: communityAccent }]}
-                      >
-                        PINNED MESSAGE
-                      </Text>
-                    ) : null}
-                    {item.payload?.type === "text" ? (
-                      <Text
-                        style={[styles.messageText, { color: theme.inputText }]}
-                      >
-                        {item.payload.content}
-                      </Text>
-                    ) : item.payload &&
-                      isStickerMessagePayload(item.payload) ? (
-                      <SavableSticker
-                        canSave
-                        mediaId={item.payload.sticker.mediaId}
-                        messageId={item.id}
-                        source="community"
-                      >
-                        <Image
-                          source={{
-                            uri: `${apiBase}/api/communities/chat/stickers/${item.id}`,
-                          }}
-                          contentFit="contain"
-                          style={{ height: 192, width: 192 }}
-                        />
-                      </SavableSticker>
-                    ) : item.deletedAt ? (
-                      <Text
-                        style={[
-                          styles.deletedText,
-                          { color: theme.dividerText },
-                        ]}
-                      >
-                        This message was deleted.
-                      </Text>
-                    ) : null}
-                    {item.reactions?.length ? (
-                      <View
-                        style={[styles.row, { flexWrap: "wrap", marginTop: 6 }]}
-                      >
-                        {item.reactions.map((reaction) => (
-                          <Pressable
-                            accessibilityLabel={`${reaction.emoji}, ${reaction.count} reactions`}
-                            accessibilityRole="button"
-                            accessibilityState={{
-                              disabled: !permissions?.canSend,
-                              selected: reaction.reacted,
-                            }}
-                            disabled={!permissions?.canSend}
-                            key={reaction.emoji}
-                            onPress={() =>
-                              void reactToMessage(item, reaction.emoji)
-                            }
-                            style={{
-                              backgroundColor: reaction.reacted
-                                ? `${communityAccent}20`
-                                : theme.cardBg,
-                              borderColor: reaction.reacted
-                                ? communityAccent
-                                : theme.cardBorder,
-                              borderRadius: 18,
-                              borderWidth: StyleSheet.hairlineWidth,
-                              minHeight: 34,
-                              paddingHorizontal: 10,
-                              paddingVertical: 5,
-                            }}
-                          >
-                            <Text style={{ color: theme.inputText }}>
-                              {reaction.emoji} {reaction.count}
-                            </Text>
-                          </Pressable>
-                        ))}
-                      </View>
-                    ) : null}
-                    {!threadId &&
-                    threads.some(
-                      (thread) => thread.sourceMessage?.id === item.id
-                    ) ? (
-                      <Pressable
-                        onPress={() => {
-                          const thread = threads.find(
-                            (entry) => entry.sourceMessage?.id === item.id
-                          );
-                          if (thread) {
-                            router.push(
-                              threadUrl(slug, channelId, thread.room.id)
-                            );
-                          }
-                        }}
-                        style={{ paddingVertical: 8 }}
-                      >
-                        <Text
-                          style={[
-                            styles.retryAction,
-                            { color: communityAccent },
-                          ]}
-                        >
-                          View thread →
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                    {!item.deletedAt ? (
-                      <Pressable
-                        accessibilityLabel="Message actions"
-                        accessibilityRole="button"
-                        hitSlop={6}
-                        onPress={() => setActionMessage(item)}
-                        style={{
-                          alignItems: "center",
-                          justifyContent: "center",
-                          minHeight: 36,
-                          minWidth: 36,
-                          position: "absolute",
-                          right: 0,
-                          top: 0,
-                        }}
-                      >
-                        <MoreHorizontal color={theme.dividerText} size={18} />
-                      </Pressable>
-                    ) : null}
-                  </View>
-                </Pressable>
-              );
-            }}
+            renderItem={renderMessage}
             showsVerticalScrollIndicator={false}
           />
           {!atLatest ? (
@@ -1564,9 +1711,7 @@ function CommunityChatTimelineScreen() {
                 {
                   backgroundColor: theme.cardBg,
                   borderColor: theme.cardBorder,
-                  marginBottom: keyboardVisible
-                    ? 8
-                    : Math.max(insets.bottom, 8),
+                  marginBottom: Math.max(insets.bottom, 8),
                 },
               ]}
             >
@@ -1581,10 +1726,7 @@ function CommunityChatTimelineScreen() {
                   </Text>
                   <Pressable
                     accessibilityLabel="Cancel reply"
-                    onPress={() => {
-                      setReplyTarget(null);
-                      setPending(null);
-                    }}
+                    onPress={handleClearReply}
                   >
                     <X color={theme.dividerText} size={18} />
                   </Pressable>
@@ -1609,81 +1751,17 @@ function CommunityChatTimelineScreen() {
               </Text>
             </View>
           ) : (
-            <View
-              style={[
-                styles.composer,
-                {
-                  backgroundColor: theme.cardBg,
-                  borderColor: theme.cardBorder,
-                  marginBottom: keyboardVisible
-                    ? 8
-                    : Math.max(insets.bottom, 10),
-                },
-              ]}
-            >
-              <TextInput
-                ref={composerRef}
-                accessibilityLabel={`Message ${channelName}`}
-                editable={!sending}
-                maxLength={4000}
-                multiline
-                onChangeText={(value) => {
-                  setContent(value);
-                  if (pending) {
-                    setPending(null);
-                  }
-                  if (sendError) {
-                    setSendError(null);
-                  }
-                }}
-                onSubmitEditing={() => void submit()}
-                placeholder={`Message ${channelName}`}
-                placeholderTextColor={theme.dividerText}
-                returnKeyType="send"
-                style={[styles.composerInput, { color: theme.inputText }]}
-                value={content}
-              />
-              <Pressable
-                accessibilityLabel="Send message"
-                accessibilityRole="button"
-                disabled={!content.trim() || sending}
-                onPress={() => void submit()}
-                style={({ pressed }) => [
-                  styles.sendButton,
-                  {
-                    backgroundColor: communityAccent,
-                    opacity:
-                      !content.trim() || sending ? 0.48 : pressed ? 0.78 : 1,
-                  },
-                ]}
-              >
-                {sending ? (
-                  <ZephLoader variant="messages" color="#fff" size="small" />
-                ) : (
-                  <Send color="#fff" size={17} />
-                )}
-              </Pressable>
-              {sendError ? (
-                <View style={styles.retryRow}>
-                  <Text
-                    style={[styles.retryText, { color: theme.errorBannerText }]}
-                  >
-                    {sendError}
-                  </Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={sending}
-                    onPress={() => void submit()}
-                  >
-                    <Text
-                      style={[styles.retryAction, { color: communityAccent }]}
-                    >
-                      Retry
-                    </Text>
-                  </Pressable>
-                </View>
-              ) : null}
-            </View>
+            <CommunityChatComposer
+              accent={communityAccent}
+              channelName={channelName}
+              inputRef={composerRef}
+              onClearReply={handleClearReply}
+              onSubmit={(text) => void submit(text)}
+              replyingToName={replyTarget ? userLabel(replyTarget) : null}
+              resetKey={composerResetKey}
+              sendError={sendError}
+              sending={sending}
+            />
           )}
         </>
       )}
@@ -1736,7 +1814,8 @@ function CommunityChatTimelineScreen() {
                       channel.id === updated.id ? updated : channel
                     )
                     .filter((channel) => !channel.archived)
-                    .toSorted((left, right) => left.sortOrder - right.sortOrder)
+                    .slice()
+                    .sort((left, right) => left.sortOrder - right.sortOrder)
                 );
                 setRoom(updated);
                 if (updated.archived) {
@@ -1943,144 +2022,69 @@ function CommunityChatTimelineScreen() {
               </Pressable>
             </View>
           ) : (
-            <>
-              {permissions?.canSend ? (
-                <>
-                  <View
-                    style={[
-                      styles.row,
-                      { justifyContent: "space-between", marginBottom: 12 },
-                    ]}
-                  >
-                    {QUICK_MESSAGE_REACTIONS.map((emoji) => (
-                      <Pressable
-                        accessibilityLabel={`React ${emoji}`}
-                        accessibilityRole="button"
-                        key={emoji}
-                        onPress={() =>
-                          void reactToMessage(actionMessage, emoji)
-                        }
-                        style={{
-                          alignItems: "center",
-                          justifyContent: "center",
-                          minHeight: 44,
-                          minWidth: 44,
-                        }}
-                      >
-                        <Text style={{ fontSize: 26 }}>{emoji}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                  <Pressable
-                    onPress={() => {
-                      setReplyTarget(actionMessage);
-                      setPending(null);
-                      setActionMessage(null);
-                      requestAnimationFrame(() => composerRef.current?.focus());
-                    }}
-                    style={styles.actionRow}
-                  >
-                    <Reply color={communityAccent} size={18} />
-                    <Text
-                      style={[styles.channelName, { color: theme.inputText }]}
-                    >
-                      Reply
-                    </Text>
-                  </Pressable>
-                  {!threadId &&
-                  !threads.some(
-                    (thread) => thread.sourceMessage?.id === actionMessage.id
-                  ) ? (
-                    <Pressable
-                      onPress={() => {
-                        setThreadSource(actionMessage);
-                        setThreadName(
-                          actionMessage.payload?.type === "text"
-                            ? (actionMessage.payload.content
-                                .split("\n")[0]
-                                ?.slice(0, 64) ?? "")
-                            : ""
-                        );
-                        threadRequestId.current = randomUUID();
-                        setActionMessage(null);
-                        setActionError(null);
-                      }}
-                      style={styles.actionRow}
-                    >
-                      <MessageCircle color={communityAccent} size={18} />
-                      <Text
-                        style={[styles.channelName, { color: theme.inputText }]}
-                      >
-                        Start a thread
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                </>
-              ) : (
-                <Text
-                  style={[styles.channelTopic, { color: theme.dividerText }]}
-                >
-                  Join this community to reply or react.
-                </Text>
-              )}
-              {permissions?.canManage ? (
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={mutatingMessage}
-                  onPress={() => void toggleMessagePin()}
-                  style={styles.actionRow}
-                >
-                  <Pin color={communityAccent} size={18} />
-                  <Text
-                    style={[styles.channelName, { color: theme.inputText }]}
-                  >
-                    {actionMessage.pinned ? "Unpin message" : "Pin message"}
-                  </Text>
-                </Pressable>
-              ) : null}
-              {permissions?.canSend && actionMessage.senderId === user?.id ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => {
-                    setEditContent(
-                      actionMessage.payload?.type === "text"
-                        ? actionMessage.payload.content
-                        : ""
+            <CommunityChatMessageActions
+              accent={communityAccent}
+              gating={{
+                canManage: permissions?.canManage ?? false,
+                canSend: permissions?.canSend ?? false,
+                hasThread: threads.some(
+                  (thread) => thread.sourceMessage?.id === actionMessage.id
+                ),
+                isOwn: actionMessage.senderId === user?.id,
+                pinned: actionMessage.pinned ?? false,
+                threadId,
+              }}
+              message={actionMessage}
+              onCopyLink={() => {
+                const link = `asocialmedia://a/${slug}/chat/${channelId}?message=${actionMessage.id}`;
+                const copy = async () => {
+                  try {
+                    await Clipboard.setStringAsync(link);
+                    setActionMessage(null);
+                    toast({ title: "Message link copied" });
+                  } catch {
+                    setActionError(
+                      "Couldn't copy the message link. Please try again."
                     );
-                    setMessageActionMode("EDIT");
-                    setActionError(null);
-                  }}
-                  style={styles.actionRow}
-                >
-                  <Pencil color={communityAccent} size={18} />
-                  <Text
-                    style={[styles.channelName, { color: theme.inputText }]}
-                  >
-                    Edit message
-                  </Text>
-                </Pressable>
-              ) : null}
-              {permissions?.canManage || actionMessage.senderId === user?.id ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => {
-                    setMessageActionMode("DELETE");
-                    setActionError(null);
-                  }}
-                  style={styles.actionRow}
-                >
-                  <Trash2 color={theme.errorBannerText} size={18} />
-                  <Text
-                    style={[
-                      styles.channelName,
-                      { color: theme.errorBannerText },
-                    ]}
-                  >
-                    Delete message
-                  </Text>
-                </Pressable>
-              ) : null}
-            </>
+                  }
+                };
+                void copy();
+              }}
+              onDelete={() => {
+                setMessageActionMode("DELETE");
+                setActionError(null);
+              }}
+              onEdit={() => {
+                setEditContent(
+                  actionMessage.payload?.type === "text"
+                    ? actionMessage.payload.content
+                    : ""
+                );
+                setMessageActionMode("EDIT");
+                setActionError(null);
+              }}
+              onPin={() => void toggleMessagePin()}
+              onReact={(emoji) => void reactToMessage(actionMessage, emoji)}
+              onReply={() => {
+                setReplyTarget(actionMessage);
+                setPending(null);
+                setActionMessage(null);
+                requestAnimationFrame(() => composerRef.current?.focus());
+              }}
+              onStartThread={() => {
+                setThreadSource(actionMessage);
+                setThreadName(
+                  actionMessage.payload?.type === "text"
+                    ? (actionMessage.payload.content
+                        .split("\n")[0]
+                        ?.slice(0, 64) ?? "")
+                    : ""
+                );
+                threadRequestId.current = randomUUID();
+                setActionMessage(null);
+                setActionError(null);
+              }}
+            />
           )}
           {actionError ? (
             <Text
@@ -2180,6 +2184,7 @@ function CommunityChatTimelineScreen() {
           slug={slug}
           threadId={threadId}
           threads={threads}
+          viewerId={user?.id}
         />
       ) : null}
     </KeyboardAvoidingView>
@@ -2271,7 +2276,6 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: "center",
     paddingVertical: 30,
-    transform: [{ scaleY: -1 }],
   },
   eyebrow: {
     fontFamily: "SofiaProMed",
@@ -2306,7 +2310,6 @@ const styles = StyleSheet.create({
     gap: 9,
     paddingBottom: 7,
     paddingTop: 9,
-    transform: [{ scaleY: -1 }],
   },
   messageText: { fontFamily: "SofiaProReg", fontSize: 15, lineHeight: 22 },
   readOnly: {

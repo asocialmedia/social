@@ -43,11 +43,15 @@ function formatAge(createdAt: string): string {
 export function CommunityCard({
   aura = 0,
   community,
+  hasUnread = false,
   onPress,
   width,
 }: {
   aura?: number;
   community: CommunityData;
+  // Unread community-chat activity from the chat inbox. Only the joined rail
+  // passes it; discovery cards never show it.
+  hasUnread?: boolean;
   onPress: () => void;
   width?: number;
 }) {
@@ -60,7 +64,11 @@ export function CommunityCard({
   );
   return (
     <Pressable
-      accessibilityLabel={`Open ${community.name}`}
+      accessibilityLabel={
+        hasUnread
+          ? `Open ${community.name}, unread chat messages`
+          : `Open ${community.name}`
+      }
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [
@@ -110,12 +118,20 @@ export function CommunityCard({
         </View>
         <View style={styles.identityRow}>
           <View style={styles.identity}>
-            <Text
-              numberOfLines={1}
-              style={[styles.name, { color: theme.inputText }]}
-            >
-              {community.name}
-            </Text>
+            <View style={styles.nameRow}>
+              <Text
+                numberOfLines={1}
+                style={[styles.name, { color: theme.inputText }]}
+              >
+                {community.name}
+              </Text>
+              {hasUnread ? (
+                <View
+                  accessibilityLabel="Unread chat messages"
+                  style={[styles.unreadDot, { backgroundColor: accent }]}
+                />
+              ) : null}
+            </View>
             <Text
               numberOfLines={1}
               style={[styles.slug, { color: theme.dividerText }]}
@@ -228,10 +244,16 @@ const styles = StyleSheet.create({
   },
   matureText: { fontFamily: "SofiaProMed", fontSize: 10 },
   name: {
+    flexShrink: 1,
     fontFamily: "SofiaProBold",
     fontSize: 18,
     letterSpacing: -0.45,
     lineHeight: 28,
+  },
+  nameRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
   },
   slug: { fontFamily: "SofiaProReg", fontSize: 13, lineHeight: 19.5 },
   stat: { alignItems: "center", flexDirection: "row", gap: 6 },
@@ -246,4 +268,5 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     rowGap: 4,
   },
+  unreadDot: { borderRadius: 5, height: 10, width: 10 },
 });

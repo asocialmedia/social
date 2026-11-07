@@ -25,6 +25,8 @@ import type {
   CommunityMember,
   CommunityMutationResult,
 } from "../lib/communities-api";
+import { isCommunityBadgedRole } from "../lib/community-role-badge";
+import CommunityRoleBadge from "./community-role-badge";
 
 // Web's grouping, in the same order. A member holding no role badge is a
 // participant and is listed last.
@@ -228,12 +230,17 @@ export function CommunityRosterCard({
               }
             />
             <View style={styles.memberCopy}>
-              <Text
-                numberOfLines={1}
-                style={[styles.memberName, { color: theme.inputText }]}
-              >
-                {member.displayName || member.username}
-              </Text>
+              <View style={styles.memberNameRow}>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.memberName, { color: theme.inputText }]}
+                >
+                  {member.displayName || member.username}
+                </Text>
+                {isCommunityBadgedRole(member.role) ? (
+                  <CommunityRoleBadge roleValue={member.role} />
+                ) : null}
+              </View>
               <Text
                 numberOfLines={1}
                 style={[styles.note, { color: theme.dividerText }]}
@@ -316,7 +323,17 @@ const styles = StyleSheet.create({
   },
   member: { alignItems: "center", flexDirection: "row", gap: 10 },
   memberCopy: { flex: 1, minWidth: 0 },
-  memberName: { fontFamily: "SofiaProMed", fontSize: 14 },
+  memberName: {
+    flexShrink: 1,
+    fontFamily: "SofiaProMed",
+    fontSize: 14,
+  },
+  memberNameRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 1,
+    gap: 6,
+  },
   note: { fontFamily: "SofiaProReg", fontSize: 12, lineHeight: 17 },
   tab: { fontFamily: "SofiaProMed", fontSize: 13 },
   title: { fontFamily: "SofiaProBold", fontSize: 16 },

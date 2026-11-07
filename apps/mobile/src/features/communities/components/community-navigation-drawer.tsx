@@ -21,8 +21,6 @@ import {
 import { useReducedMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { StatusActionButton } from "@/components/feedback/status-action-button";
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { getApiBaseUrl } from "@/lib/network/api-env";
@@ -31,6 +29,11 @@ import { useAppTheme } from "@/theme";
 import { resolveCommunityAccentColor } from "../lib/community-accents";
 import { fetchCommunityChatChannels } from "../lib/community-chat-api";
 import { communityChatUiEnabled } from "../lib/community-chat-features";
+import {
+  communityChatHref,
+  communityPostsHref,
+} from "../lib/community-section-links";
+import CommunityChannelShortcuts from "./community-channel-shortcuts";
 
 const EMPTY_THREADS: CommunityChatThreadSummary[] = [];
 
@@ -44,6 +47,7 @@ export function CommunityNavigationDrawer({
   slug,
   threadId,
   threads = EMPTY_THREADS,
+  viewerId,
 }: {
   active: "posts" | "chat";
   accentColor: string | null;
@@ -54,6 +58,7 @@ export function CommunityNavigationDrawer({
   slug: string;
   threadId?: string | null;
   threads?: CommunityChatThreadSummary[];
+  viewerId?: string;
 }) {
   const router = useRouter();
   const onCloseRef = useRef(onClose);
@@ -211,7 +216,7 @@ export function CommunityNavigationDrawer({
                 if (active === "posts") {
                   close();
                 } else {
-                  navigate(`/a/${slug}`);
+                  navigate(communityPostsHref(viewerId, slug));
                 }
               }}
             >
@@ -235,8 +240,8 @@ export function CommunityNavigationDrawer({
                 onPress={() =>
                   navigate(
                     channelId
-                      ? `/a/${slug}/chat/${channelId}`
-                      : `/a/${slug}/chat`
+                      ? communityChatHref(viewerId, slug, channelId)
+                      : communityChatHref(viewerId, slug)
                   )
                 }
               >
@@ -249,58 +254,20 @@ export function CommunityNavigationDrawer({
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" style={{ flex: 1 }}>
             {communityChatUiEnabled ? (
-              <Text
-                accessibilityRole="header"
-                style={[styles.eyebrow, { color: theme.dividerText }]}
-              >
-                Channels · {(availableChannels ?? channels).length}
-              </Text>
-            ) : null}
-            {status === "loading" ? (
-              <ZephLoader
-                variant="general"
-                accessibilityLabel="Loading channels"
+              <CommunityChannelShortcuts
+                activeChannelId={channelId}
+                channels={availableChannels ?? channels}
+                error={status === "error"}
+                loading={status === "loading"}
+                onOpenChannel={(href) => navigate(href)}
+                onRetry={() => {
+                  setStatus("loading");
+                  setAttempt((value) => value + 1);
+                }}
+                selectedAccent={accent}
+                slug={slug}
               />
             ) : null}
-            {status === "error" ? (
-              <View style={styles.error}>
-                <Text style={{ color: theme.dividerText }}>
-                  Couldn’t load channels.
-                </Text>
-                <StatusActionButton
-                  label="Try again"
-                  onPress={() => {
-                    setStatus("loading");
-                    setAttempt((value) => value + 1);
-                  }}
-                />
-              </View>
-            ) : null}
-            {(availableChannels ?? channels).map((channel) => (
-              <Pressable
-                key={channel.id}
-                accessibilityRole="link"
-                accessibilityState={{ selected: channel.id === channelId }}
-                style={rowStyle(channel.id === channelId)}
-                onPress={() => navigate(`/a/${slug}/chat/${channel.id}`)}
-              >
-                <MessageCircle
-                  size={17}
-                  color={channel.id === channelId ? accent : theme.dividerText}
-                />
-                <Text
-                  numberOfLines={1}
-                  style={[styles.channelName, { color: theme.inputText }]}
-                >
-                  {channel.name}
-                </Text>
-                {channel.channelType === "ANNOUNCEMENT" ? (
-                  <Text style={[styles.staff, { color: theme.dividerText }]}>
-                    Staff
-                  </Text>
-                ) : null}
-              </Pressable>
-            ))}
             {threads.length ? (
               <View
                 style={[styles.threads, { borderTopColor: theme.cardBorder }]}
@@ -373,7 +340,6 @@ const styles = StyleSheet.create({
     minHeight: 44,
     minWidth: 44,
   },
-  error: { gap: 12, padding: 12 },
   eyebrow: {
     fontFamily: "SofiaProBold",
     fontSize: 12,
@@ -416,10 +382,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 16,
     paddingBottom: 0,
-  },
-  staff: {
-    fontFamily: "SofiaProBold",
-    fontSize: 12,
   },
   tab: {
     backgroundColor: "transparent",

@@ -13,6 +13,8 @@ export type CommunityDiscoveryRow =
       communities: CommunityData[];
       icon: "users" | "flame" | "zap";
       title: string;
+      // Slugs with unread community-chat activity (joined rail only).
+      unreadSlugs?: ReadonlySet<string>;
     }
   | { key: string; kind: "community"; community: CommunityData };
 
@@ -69,4 +71,16 @@ export function communityDiscoveryRows({
     rows.push({ key: "state", kind: "state" });
   }
   return rows;
+}
+
+// Marks the joined rail with the slugs that have unread community-chat
+// activity, driving the accent unread dot on those rail cards. Only the
+// joined rail carries marks; discovery rails never do.
+export function withUnreadChatSlugs(
+  rows: CommunityDiscoveryRow[],
+  unreadSlugs: ReadonlySet<string>
+): CommunityDiscoveryRow[] {
+  return rows.map((row) =>
+    row.kind === "rail" && row.key === "joined" ? { ...row, unreadSlugs } : row
+  );
 }

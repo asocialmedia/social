@@ -58,6 +58,10 @@ export function useCommunityMembership({
   const router = useRouter();
   const { runWithInstallToken } = useInstall();
   const [pending, setPending] = useState(false);
+  // Synchronous in-flight guard: the `pending` state above commits on the
+  // next render, so two taps before the re-render both passed the guard and
+  // fired join+leave. The ref flips in the same task as the check.
+  const pendingRef = useRef(false);
   const [snapshot, setSnapshot] = useState<Snapshot>(() => ({
     canModerate: false,
     membership: initialMembership,
@@ -171,11 +175,15 @@ export function useCommunityMembership({
       requireLogin();
       return;
     }
-    if (pending) {
+    if (pendingRef.current) {
       return;
     }
+    pendingRef.current = true;
     setPending(true);
     const wasActive = current.membership?.status === "ACTIVE";
+    // Captured for the rollback below: `current` is render-scoped and a
+    // re-render mid-flight would otherwise restore the wrong value.
+    const rollbackTo = current.membership;
     // Optimistic mirror, like the web JoinButton's local state, so the control
     // flips the instant it is tapped rather than after the round trip.
     const optimistic: Membership = wasActive
@@ -195,12 +203,13 @@ export function useCommunityMembership({
     } catch {
       result = null;
     }
+    pendingRef.current = false;
     setPending(false);
 
     // Anything other than a success (a real error, or the user dismissing the
     // install gate) rolls the optimistic mirror back to what it was.
     if (result === null || result.kind !== "success") {
-      patch({ membership: current.membership });
+      patch({ membership: rollbackTo });
       if (result?.kind === "error") {
         toast({
           description: wasActive
@@ -234,7 +243,6 @@ export function useCommunityMembership({
     isLoggedIn,
     options,
     patch,
-    pending,
     requireLogin,
     runWithInstallToken,
     slug,

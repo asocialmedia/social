@@ -20,12 +20,14 @@ export function CommunityRail({
   icon,
   onOpen,
   title,
+  unreadSlugs,
 }: {
   auras: Record<string, number>;
   communities: CommunityData[];
   icon: "flame" | "users" | "zap";
   onOpen: (community: CommunityData) => void;
   title: string;
+  unreadSlugs?: ReadonlySet<string>;
 }) {
   const { width } = useWindowDimensions();
   const { theme } = useAppTheme();
@@ -48,6 +50,7 @@ export function CommunityRail({
           <CommunityCard
             aura={auras[community.id] ?? 0}
             community={community}
+            hasUnread={unreadSlugs?.has(community.slug) ?? false}
             key={community.id}
             onPress={() => onOpen(community)}
             width={Math.max(1, width - COMMUNITY_PAGE_GUTTER * 2)}
