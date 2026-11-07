@@ -5,6 +5,7 @@ import { mediaReshareLabel } from "@asm/media";
 import { Button } from "@asm/ui/shadui/button";
 import { Eye, MessageSquare } from "lucide-react";
 import { motion } from "motion/react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type React from "react";
@@ -17,7 +18,6 @@ import {
 } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import Comments from "@/components/comments/thread/comments";
 import {
   CommunityAttribution,
   CommunityShareCard,
@@ -38,7 +38,6 @@ import PostLinkEmbeds from "@/components/posts/embeds/link-embeds";
 import { usePostLinkPreviews } from "@/components/posts/embeds/use-post-link-previews";
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { ExternalAuthorTooltip } from "@/components/protocols/external-author-tooltip";
-import { ExternalDiscussion } from "@/components/protocols/external-discussion";
 import {
   ExternalBookmarkButton,
   ExternalRespondButton,
@@ -72,6 +71,13 @@ import { HNStoryCard } from "./hn-story-card";
 // eslint-disable-next-line import/no-cycle -- post-card renders media-previews, whose viewer surfaces related posts via post-card
 import { MediaPreviews } from "./media-previews";
 import ShareButton from "./share-button";
+
+const Comments = dynamic(() => import("@/components/comments/thread/comments"));
+const ExternalDiscussion = dynamic(async () => {
+  const discussionModule =
+    await import("@/components/protocols/external-discussion");
+  return discussionModule.ExternalDiscussion;
+});
 
 export { isInteractiveTarget } from "@/lib/interactive-target";
 

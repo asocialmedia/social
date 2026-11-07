@@ -10,6 +10,7 @@ import { Button } from "@asm/ui/shadui/button";
 import { useQuery } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
 import { Clapperboard, ImagePlus, SendHorizonal, X } from "lucide-react";
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import type React from "react";
@@ -18,7 +19,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import UserAvatar from "@/components/layouts/user/user-avatar";
-import { InlineRichEditor } from "@/components/posts/editor/inline-rich-editor";
 import LinkEmbedComposer from "@/components/posts/editor/link-embed-composer";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useToast } from "@/lib/gooey-toast";
@@ -34,6 +34,12 @@ import {
 import KlipyGifPicker from "./klipy-gif-picker";
 import type { KlipyGif } from "./klipy-gif-picker";
 import { useCommentAttachments } from "./use-comment-attachments";
+
+const InlineRichEditor = dynamic(async () => {
+  const editorModule =
+    await import("@/components/posts/editor/inline-rich-editor");
+  return editorModule.InlineRichEditor;
+});
 
 const SEND_BTN_SHADOW =
   "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";
