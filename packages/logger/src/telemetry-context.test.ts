@@ -1,10 +1,27 @@
 import { describe, expect, test } from "bun:test";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 
 import { bindTelemetryExport } from "./telemetry-context";
 
 describe("telemetry export context", () => {
+  test("suppresses tracing with an active SDK context manager", async () => {
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        fileURLToPath(new URL("telemetry-context.fixture.ts", import.meta.url)),
+      ],
+      { stderr: "pipe", stdout: "pipe" }
+    );
+    const [exitCode, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stderr).text(),
+    ]);
+    expect(stderr).toBe("");
+    expect(exitCode).toBe(0);
+  });
+
   test("detaches render and request stores, including async export work", async () => {
     const renderStore = new AsyncLocalStorage<string>();
     const requestStore = new AsyncLocalStorage<string>();

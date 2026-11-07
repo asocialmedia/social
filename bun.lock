@@ -397,7 +397,7 @@
     },
     "packages/logger": {
       "name": "@asm/logger",
-      "version": "1.0.24",
+      "version": "1.0.25",
       "dependencies": {
         "@opentelemetry/api": "^1.9.1",
         "@opentelemetry/api-logs": "^0.221.0",

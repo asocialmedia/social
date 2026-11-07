@@ -24,12 +24,14 @@ describe("OTLP log destination", () => {
           { preconnect: globalThis.fetch.preconnect }
         )
       );
-      const destination = createOtlpLogDestination({
-        batchSize: trigger === "batch" ? 1 : 100,
-        endpoint: "https://telemetry.invalid/v1/logs",
-        flushIntervalMs: trigger === "timer" ? 1 : 60_000,
-        headers: {},
-      });
+      const destination = renderStore.run("lazy-logger-request", () =>
+        createOtlpLogDestination({
+          batchSize: trigger === "batch" ? 1 : 100,
+          endpoint: "https://telemetry.invalid/v1/logs",
+          flushIntervalMs: trigger === "timer" ? 1 : 60_000,
+          headers: {},
+        })
+      );
       try {
         renderStore.run("prerender", () => {
           destination.write(
