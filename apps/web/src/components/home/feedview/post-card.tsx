@@ -21,6 +21,7 @@ import {
   CommunityAttribution,
   CommunityShareCard,
 } from "@/components/communities/card/community-attribution";
+import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
 import FollowButton from "@/components/layouts/user/follow-button";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
@@ -72,12 +73,20 @@ import { MediaPreviews } from "./media-previews";
 import ShareButton from "./share-button";
 import { useContentOverflow } from "./use-content-overflow";
 
-const Comments = dynamic(() => import("@/components/comments/thread/comments"));
-const ExternalDiscussion = dynamic(async () => {
-  const discussionModule =
-    await import("@/components/protocols/external-discussion");
-  return discussionModule.ExternalDiscussion;
-});
+const Comments = dynamic(
+  () => import("@/components/comments/thread/comments"),
+  {
+    loading: () => <CommentsSkeleton />,
+  }
+);
+const ExternalDiscussion = dynamic(
+  async () => {
+    const discussionModule =
+      await import("@/components/protocols/external-discussion");
+    return discussionModule.ExternalDiscussion;
+  },
+  { loading: () => <CommentsSkeleton /> }
+);
 
 export { isInteractiveTarget } from "@/lib/interactive-target";
 

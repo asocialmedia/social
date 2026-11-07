@@ -1,5 +1,6 @@
 "use client";
 
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import dynamic from "next/dynamic";
 import type React from "react";
 import { useCallback, useEffect } from "react";
@@ -7,7 +8,8 @@ import { useCallback, useEffect } from "react";
 import { useComposerStore } from "@/store/composer-store";
 
 const PostEditor = dynamic(
-  () => import("@/components/posts/editor/post-editor")
+  () => import("@/components/posts/editor/post-editor"),
+  { loading: () => <Skeleton className="h-34 w-full rounded-none" /> }
 );
 
 const FloatingPostComposer: React.FC = () => {

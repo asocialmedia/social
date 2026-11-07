@@ -35,11 +35,21 @@ import KlipyGifPicker from "./klipy-gif-picker";
 import type { KlipyGif } from "./klipy-gif-picker";
 import { useCommentAttachments } from "./use-comment-attachments";
 
-const InlineRichEditor = dynamic(async () => {
-  const editorModule =
-    await import("@/components/posts/editor/inline-rich-editor");
-  return editorModule.InlineRichEditor;
-});
+const InlineRichEditor = dynamic(
+  async () => {
+    const editorModule =
+      await import("@/components/posts/editor/inline-rich-editor");
+    return editorModule.InlineRichEditor;
+  },
+  {
+    loading: () => (
+      <div
+        aria-hidden="true"
+        className="bg-muted/20 h-10 w-full animate-pulse rounded-xl"
+      />
+    ),
+  }
+);
 
 const SEND_BTN_SHADOW =
   "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1.5px_2px_rgba(255,255,255,0.5),0_0_0_1px_rgba(170,60,0,0.95),0_1px_1px_rgba(255,255,255,0.4),0_3px_5px_rgba(0,0,0,0.12)]";

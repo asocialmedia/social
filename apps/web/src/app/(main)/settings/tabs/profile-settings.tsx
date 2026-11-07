@@ -47,11 +47,21 @@ import type { UploadStage } from "@/lib/media/media-upload-client";
 import { cn } from "@/lib/utils";
 import { getSecureImageUrl } from "@/lib/utils/image-url";
 
-const InlineRichEditor = dynamic(async () => {
-  const editorModule =
-    await import("@/components/posts/editor/inline-rich-editor");
-  return editorModule.InlineRichEditor;
-});
+const InlineRichEditor = dynamic(
+  async () => {
+    const editorModule =
+      await import("@/components/posts/editor/inline-rich-editor");
+    return editorModule.InlineRichEditor;
+  },
+  {
+    loading: () => (
+      <div
+        aria-hidden="true"
+        className="premium-input h-24 animate-pulse rounded-xl"
+      />
+    ),
+  }
+);
 
 const whitespaceRegex = /\s+/;
 

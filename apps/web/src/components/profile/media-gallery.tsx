@@ -29,7 +29,8 @@ import {
 } from "@/lib/utils/image-url";
 
 const MediaViewer = dynamic(
-  () => import("@/components/home/feedview/media-viewer")
+  () => import("@/components/home/feedview/media-viewer"),
+  { ssr: false }
 );
 
 // Full skeleton grid with the login prompt centered on top. Shared between the

@@ -23,7 +23,8 @@ import { useComposerAttachmentStore } from "./attachment-store";
 import { EQ_BAR_COUNT, EQ_FALLBACK_HEIGHTS, extractWaveform } from "./waveform";
 
 const MessageImageEditDialog = dynamic(
-  () => import("@/components/messages/message-image-edit-dialog")
+  () => import("@/components/messages/message-image-edit-dialog"),
+  { ssr: false }
 );
 
 export { getUploadProgressInfo } from "@/lib/media/upload-progress";

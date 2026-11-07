@@ -47,11 +47,21 @@ import { croppedImageFile } from "@/lib/media/cropped-image-file";
 import type { UploadStage } from "@/lib/media/media-upload-client";
 import { cn } from "@/lib/utils";
 
-const InlineRichEditor = dynamic(async () => {
-  const editorModule =
-    await import("@/components/posts/editor/inline-rich-editor");
-  return editorModule.InlineRichEditor;
-});
+const InlineRichEditor = dynamic(
+  async () => {
+    const editorModule =
+      await import("@/components/posts/editor/inline-rich-editor");
+    return editorModule.InlineRichEditor;
+  },
+  {
+    loading: () => (
+      <div
+        aria-hidden="true"
+        className="premium-input h-24 animate-pulse rounded-xl"
+      />
+    ),
+  }
+);
 
 const ORANGE_GRADIENT_CLASS =
   "orange-3d-surface bg-linear-to-b from-[#ff9500] to-[#e65500] text-white";

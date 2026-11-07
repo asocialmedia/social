@@ -25,7 +25,8 @@ import { useBlueskyProfile } from "./use-bluesky-profile";
 import { useExternalPost } from "./use-external-post";
 
 const MediaViewer = dynamic(
-  () => import("@/components/home/feedview/media-viewer")
+  () => import("@/components/home/feedview/media-viewer"),
+  { loading: () => <MediaRouteSkeleton /> }
 );
 
 export function ExternalPostPage({
