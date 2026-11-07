@@ -1,0 +1,18 @@
+{
+  "base": "Use case: stylized-concept. Asset: one finished editorial illustration for the Asocialmedia About page, landscape 4:3 composition, no text. Reference image 1 and 2 define the SAME brand mascot Zeph: a soft yellow rounded cloud speech-bubble face, thick warm orange edge, two simple vertical orange eyes and a small friendly orange smile; small rounded orange arms when needed. Retain this distinctive silhouette, never substitute a bear, human, generic blob or chat app icon. Reference 1 also defines orange cap styling. Render a cozy minimalist tactile miniature world, warm cream and terracotta with golden orange highlights, soft felt and densely tufted carpet/wool textures, soft matte clay details, warm diffuse late-afternoon light, gentle shadows. Editorial premium 3D craft, a few large shapes, uncluttered background, careful texture, readable even at thumbnail sizes. The setting and mascot belong to one coherent set. No lettering, no interface text, no watermark, no border, no collage or multiple panels. Center-safe subject with breathing room for square and portrait crops. Scene: ",
+  "scenes": {
+    "making": "Zeph in its orange cap leaning over a cream notebook, holding an oversized warm terracotta pencil on a soft oatmeal rug. A single curved paper sheet and tiny orange desk lamp. The feeling of having an idea worth sharing.",
+    "nature": "Zeph wearing the soft orange bucket hat resting among three rounded mossy sage carpet hills and one small felt tree, warm sunlight across cream ground. A peaceful very small outdoor world, tactile grass carpet, expansive calm.",
+    "code": "Zeph in the orange cap building something at a minimal rounded laptop on an oatmeal carpet, screen is a simple warm geometric arrangement of tiles with NO letters or UI text. One orange ceramic mug. Craft and curiosity, not a corporate office.",
+    "music": "Zeph wearing soft orange headphones sitting beside one minimal terracotta vinyl player on a cream tufted rug, with one sage cushion. Warm intimate listening nook. Simple generous forms, no notes or written labels.",
+    "art": "Zeph creating a small abstract orange and sage painting on a tiny cream easel. One thick soft paintbrush held in its rounded orange arm, two matte paint pots, plush oatmeal carpet beneath. Quiet joyful creativity.",
+    "space": "Zeph gazing at a small floating felt ringed planet and one softly glowing orange wool star in a warm taupe miniature cosmos. Cream tufted moonlike ground, gentle warm amber background, curious and cozy rather than cold neon science fiction.",
+    "people": "Two friendly Zeph-style speech-cloud characters seated together on a single low terracotta upholstered sofa on an oatmeal tufted rug, one wears the reference orange cap and one the orange bucket hat. Warm afternoon light, one small sage cushion, welcoming companionship, NO text.",
+    "reading": "Zeph curled in a cream rounded armchair reading an open orange book beside two oversized simple felt books on an oatmeal carpet. One low warm lamp. Cozy curiosity, minimal quiet library corner without writing or labels."
+  },
+  "mode": "Built-in image_gen; existing Zeph avatar and greeting artwork used as style/identity references.",
+  "references": [
+    "apps/web/public/avatars/default-1.png",
+    "apps/web/assets/general/zeph-say-hi.webp"
+  ]
+}
