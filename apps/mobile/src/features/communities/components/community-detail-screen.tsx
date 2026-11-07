@@ -20,6 +20,7 @@ import { scheduleOnRN } from "react-native-worklets";
 
 import { StatusActionButton } from "@/components/feedback/status-action-button";
 import { usePullToRefresh } from "@/components/feedback/use-pull-to-refresh";
+import { metaChip } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import {
@@ -51,20 +52,25 @@ import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import {
+  CommunityApiError,
   fetchCommunityDetail,
   fetchCommunityPosts,
+  fetchCommunityPreview,
 } from "../lib/communities-api";
-import type { CommunityDetail } from "../lib/communities-api";
+import type { CommunityDetail, CommunityPreview } from "../lib/communities-api";
 import { resolveCommunityAccentColor } from "../lib/community-accents";
 import { communityChatUiEnabled } from "../lib/community-chat-features";
 import {
   communityMediaUrl,
   communityPageCache,
 } from "../lib/community-page-cache";
+import { canReviewCommunityRequests } from "../lib/community-requests-api";
 import { activeCommunityStore } from "../state/active-community";
 import { useCommunityMembership } from "../state/use-community-membership";
+import { CommunityAboutCard } from "./community-about-card";
 import { CommunityAvatar } from "./community-avatar";
 import { CommunityJoinButton } from "./community-join-button";
+import { CommunityJoinRequests } from "./community-join-requests";
 import { CommunityMatureGate } from "./community-mature-gate";
 import { CommunityNavigationDrawer } from "./community-navigation-drawer";
 import { CommunityNotifyButton } from "./community-notify-button";
@@ -72,6 +78,7 @@ import {
   CommunityPostFilters,
   CommunityPostFilterSummary,
 } from "./community-post-filters";
+import { CommunityPrivateLanding } from "./community-private-landing";
 
 const COMMUNITY_VIEWABILITY = {
   itemVisiblePercentThreshold: 50,
@@ -84,13 +91,28 @@ export function CommunityDetailScreen() {
   const insets = useSafeAreaInsets();
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [dockHeight, setDockHeight] = useState(56);
-  const params = useLocalSearchParams<{ slug?: string | string[] }>();
+  const params = useLocalSearchParams<{
+    requests?: string | string[];
+    slug?: string | string[];
+  }>();
   const slug =
     (Array.isArray(params.slug) ? params.slug[0] : params.slug) ?? "";
+  // The join-request notification and push link here with `?requests=1`.
+  const requestsLink =
+    (Array.isArray(params.requests) ? params.requests[0] : params.requests) ===
+    "1";
   const { theme, isDark } = useAppTheme();
   const { user } = useSessionContext();
   const [detail, setDetail] = useState<CommunityDetail | null>(null);
   const [detailError, setDetailError] = useState(false);
+  // A PRIVATE community the viewer cannot read: the detail route answers 404,
+  // and the public preview drives the members-only landing instead. Stamped
+  // with the viewer and slug so a navigation never shows another community's
+  // landing.
+  const [privatePreview, setPrivatePreview] = useState<{
+    preview: CommunityPreview;
+    scope: string;
+  } | null>(null);
   const [sort, setSort] = useState<CommunitySort>("new");
   const [filters, setFilters] = useState<PostFilters>(() =>
     readCommunityFeedSelection(new URLSearchParams())
@@ -181,9 +203,24 @@ export function CommunityDetailScreen() {
         const next = await fetchCommunityDetail(slug, options);
         if (active) {
           setDetail(next);
+          setPrivatePreview(null);
         }
-      } catch {
-        if (active) {
+      } catch (error) {
+        // A 404 is also what a PRIVATE community answers a non-member, so ask
+        // the preview route before calling the community missing.
+        const preview =
+          error instanceof CommunityApiError && error.status === 404
+            ? await fetchCommunityPreview(slug, {
+                apiBase,
+                cookie: await authClient.getCookie(),
+              }).catch(() => null)
+            : null;
+        if (!active) {
+          return;
+        }
+        if (preview && !preview.permissions.canReadContent) {
+          setPrivatePreview({ preview, scope: `${viewerScope}:${slug}` });
+        } else {
           setDetailError(true);
         }
       }
@@ -374,6 +411,26 @@ export function CommunityDetailScreen() {
       </View>
     );
   }
+  const landingScope = `${user?.id ?? "guest"}:${slug}`;
+  if (!detail && privatePreview?.scope === landingScope) {
+    return (
+      <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
+        <MobileHeader user={headerUser} unreadCount={unreadNotifications} />
+        <CommunityPrivateLanding
+          key={landingScope}
+          bottomPadding={bottomDockPadding({
+            bottomInset: insets.bottom,
+            dockHeight,
+          })}
+          initialPreview={privatePreview.preview}
+          isLoggedIn={Boolean(user)}
+          onAccessGranted={handleRetry}
+          onRequireLogin={handleRequireLogin}
+        />
+        <MobileBottomNav onHeightChange={setDockHeight} />
+      </View>
+    );
+  }
   if (!detail) {
     return (
       <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
@@ -384,6 +441,7 @@ export function CommunityDetailScreen() {
     );
   }
   const { community } = detail;
+  const chip = metaChip(isDark);
   const banner = communityMediaUrl(community.bannerUrl, apiBase);
   let empty = (
     <View style={styles.state}>
@@ -485,6 +543,17 @@ export function CommunityDetailScreen() {
                             paddingBottom: 4,
                           }}
                         >
+                          {canReviewCommunityRequests(
+                            community.type,
+                            membership.membership ?? detail.membership
+                          ) ? (
+                            <CommunityJoinRequests
+                              key={`${user?.id ?? "guest"}:${slug}`}
+                              initiallyOpen={requestsLink}
+                              onDecided={handleRetry}
+                              slug={slug}
+                            />
+                          ) : null}
                           <CommunityJoinButton
                             isLoggedIn={Boolean(user)}
                             membershipState={membership}
@@ -507,18 +576,51 @@ export function CommunityDetailScreen() {
                       >
                         {community.name}
                       </Text>
-                      <Text
-                        style={{
-                          color: theme.dividerText,
-                          fontFamily: "SofiaProReg",
-                          fontSize: 14,
-                        }}
-                      >
-                        a/{community.slug} ·{" "}
-                        {formatNumber(detail.stats.members)}{" "}
-                        {detail.stats.members === 1 ? "member" : "members"}
-                      </Text>
+                      <View style={styles.metaRow}>
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.metaText,
+                            { color: theme.dividerText },
+                          ]}
+                        >
+                          a/{community.slug}
+                        </Text>
+                        {community.type === "PRIVATE" ? (
+                          <View
+                            style={[
+                              styles.privateChip,
+                              {
+                                backgroundColor: chip.background,
+                                borderColor: chip.border,
+                                boxShadow: chip.shadows,
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.privateChipText,
+                                { color: theme.inputText },
+                              ]}
+                            >
+                              Private
+                            </Text>
+                          </View>
+                        ) : null}
+                        <Text
+                          style={[
+                            styles.metaText,
+                            { color: theme.dividerText },
+                          ]}
+                        >
+                          · {formatNumber(detail.stats.members)}{" "}
+                          {detail.stats.members === 1 ? "member" : "members"}
+                        </Text>
+                      </View>
                     </View>
+                    {community.type === "PRIVATE" ? null : (
+                      <CommunityAboutCard detail={detail} />
+                    )}
                     <View
                       style={{
                         alignItems: "center",
@@ -678,6 +780,22 @@ export function CommunityDetailScreen() {
 }
 const styles = StyleSheet.create({
   listWrap: { flex: 1, position: "relative" },
+  metaRow: {
+    alignItems: "center",
+    columnGap: 6,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    rowGap: 4,
+  },
+  metaText: { flexShrink: 1, fontFamily: "SofiaProReg", fontSize: 14 },
+  // Web's `chip-3d px-1.5 text-[10px]`.
+  privateChip: {
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  privateChipText: { fontFamily: "SofiaProMed", fontSize: 10 },
   root: { flex: 1 },
   state: {
     alignItems: "center",

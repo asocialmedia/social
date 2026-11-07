@@ -9,6 +9,10 @@ import {
   updateCommunityChatThreadFollowing,
   createCommunityChatPrivateThread,
   fetchCommunityChatMembers,
+  communityChannelSettingsBody,
+  communityChannelSettingsDraft,
+  slowModeLabel,
+  updateCommunityChatChannel,
 } from "./community-chat-api";
 
 function transport(status = 200) {
@@ -152,5 +156,78 @@ describe("native community chat management", () => {
     ]);
     expect(requests[1]?.body).toEqual({ following: false });
     expect(requests[3]?.body).toEqual({ messageId: "message", pinned: true });
+  });
+});
+
+describe("community channel settings", () => {
+  const room = {
+    archived: false,
+    changeSequence: "1",
+    channelType: "TEXT" as const,
+    id: "room/1",
+    kind: "CHANNEL" as const,
+    locked: false,
+    name: "general",
+    nextSequence: "1",
+    parentRoomId: null,
+    slowModeSeconds: 30,
+    slug: "general",
+    sortOrder: 2,
+    topic: null,
+    visibility: "PUBLIC" as const,
+  };
+
+  test("drafts from the room and builds web's PATCH body", () => {
+    const draft = communityChannelSettingsDraft(room);
+    expect(draft).toEqual({
+      announcement: false,
+      locked: false,
+      name: "general",
+      position: 2,
+      slowModeSeconds: 30,
+      topic: "",
+    });
+    expect(
+      communityChannelSettingsBody(
+        { ...draft, announcement: true, position: 12_345.7, topic: "Hi" },
+        true
+      )
+    ).toEqual({
+      archived: true,
+      channelType: "ANNOUNCEMENT",
+      locked: false,
+      name: "general",
+      slowModeSeconds: 30,
+      sortOrder: 9999,
+      topic: "Hi",
+    });
+    expect(slowModeLabel(0)).toBe("Off");
+    expect(slowModeLabel(300)).toBe("300 seconds");
+  });
+
+  test("patches the encoded channel route and returns the channel", async () => {
+    const requests: { body: unknown; method: string; url: string }[] = [];
+    const baseFetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+        method: init?.method ?? "GET",
+        url: String(input),
+      });
+      return Promise.resolve(
+        Response.json({ channel: { ...room, name: "renamed" } })
+      );
+    }) as typeof fetch;
+    const channel = await updateCommunityChatChannel(
+      "a/b",
+      room.id,
+      communityChannelSettingsDraft(room),
+      false,
+      { apiBase: "https://example.test", baseFetch, cookie: "session=test" }
+    );
+    expect(channel.name).toBe("renamed");
+    expect(requests[0]?.method).toBe("PATCH");
+    expect(requests[0]?.url).toBe(
+      "https://example.test/api/communities/a%2Fb/chat/channels/room%2F1"
+    );
   });
 });

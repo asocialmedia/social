@@ -276,3 +276,73 @@ export function updateCommunityChatThreadFollowing(
     { ...options, body: { following }, method: "PATCH" }
   );
 }
+
+// Web's channel settings form, as a PATCH body. A blank topic clears it.
+export interface CommunityChannelSettingsDraft {
+  announcement: boolean;
+  locked: boolean;
+  name: string;
+  position: number;
+  slowModeSeconds: number;
+  topic: string;
+}
+
+export const COMMUNITY_SLOW_MODE_OPTIONS = [
+  0, 5, 10, 30, 60, 300, 900, 3600,
+] as const;
+
+export function communityChannelSettingsDraft(
+  room: CommunityChatRoom
+): CommunityChannelSettingsDraft {
+  return {
+    announcement: room.channelType === "ANNOUNCEMENT",
+    locked: room.locked,
+    name: room.name,
+    position: room.sortOrder,
+    slowModeSeconds: room.slowModeSeconds,
+    topic: room.topic ?? "",
+  };
+}
+
+export function communityChannelSettingsBody(
+  draft: CommunityChannelSettingsDraft,
+  archived: boolean
+) {
+  const position = Number.isFinite(draft.position)
+    ? Math.min(9999, Math.max(0, Math.trunc(draft.position)))
+    : 0;
+  return {
+    archived,
+    channelType: draft.announcement ? "ANNOUNCEMENT" : "TEXT",
+    locked: draft.locked,
+    name: draft.name,
+    slowModeSeconds: draft.slowModeSeconds,
+    sortOrder: position,
+    topic: draft.topic || null,
+  };
+}
+
+export async function updateCommunityChatChannel(
+  slug: string,
+  channelId: string,
+  draft: CommunityChannelSettingsDraft,
+  archived: boolean,
+  options: ApiCallOptions
+): Promise<CommunityChatRoom> {
+  const result = await requestJson<{ channel?: CommunityChatRoom }>(
+    `/api/communities/${encodeURIComponent(slug)}/chat/channels/${encodeURIComponent(channelId)}`,
+    {
+      ...options,
+      body: communityChannelSettingsBody(draft, archived),
+      method: "PATCH",
+    }
+  );
+  if (!result.channel) {
+    throw new CommunityChatApiError("Couldn't save this channel", 500);
+  }
+  return result.channel;
+}
+
+export function slowModeLabel(seconds: number): string {
+  return seconds === 0 ? "Off" : `${seconds} seconds`;
+}

@@ -318,6 +318,124 @@ export function leaveCommunity(
   );
 }
 
+// Withdraws a PENDING request on a private community. The same DELETE as
+// leaving, flagged with `pending=1` so the server cancels the request rather
+// than removing an active membership.
+export function cancelCommunityRequest(
+  slug: string,
+  options: ApiCallOptions
+): Promise<CommunityMutationResult> {
+  return mutateCommunity(
+    communityPath(slug, "/membership?pending=1"),
+    "DELETE",
+    undefined,
+    options,
+    "Cancel request"
+  );
+}
+
+// --- Private preview ---------------------------------------------------------
+
+// Web's `getCommunityPreview` payload: the public identity of a community plus
+// what the viewer is allowed to do. It is the only read a viewer gets of a
+// PRIVATE community they are not an active member of; the detail route answers
+// 404 for them.
+export interface CommunityPreview {
+  community: {
+    accentColor: string | null;
+    avatarUrl: string | null;
+    bannerUrl: string | null;
+    description: string;
+    id: string;
+    mature: boolean;
+    memberCount: number;
+    name: string;
+    slug: string;
+    topics: string[];
+    type: string;
+  };
+  membership: { role: string; status: string } | null;
+  permissions: {
+    banned: boolean;
+    canModerate: boolean;
+    canReadChat: boolean;
+    canReadContent: boolean;
+    canRequest: boolean;
+  };
+}
+
+export function parseCommunityPreview(
+  payload: unknown
+): CommunityPreview | null {
+  const body = objectOf(payload);
+  const community = objectOf(body?.community);
+  const permissions = objectOf(body?.permissions);
+  if (
+    !body ||
+    !community ||
+    !permissions ||
+    typeof community.id !== "string" ||
+    typeof community.name !== "string" ||
+    typeof community.slug !== "string"
+  ) {
+    return null;
+  }
+  const membership = objectOf(body.membership);
+  return {
+    community: {
+      accentColor: textOf(community.accentColor),
+      avatarUrl: textOf(community.avatarUrl),
+      bannerUrl: textOf(community.bannerUrl),
+      description: textOf(community.description) ?? "",
+      id: community.id,
+      mature: community.mature === true,
+      memberCount: countOf(community.memberCount),
+      name: community.name,
+      slug: community.slug,
+      topics: Array.isArray(community.topics)
+        ? community.topics.filter(
+            (topic): topic is string => typeof topic === "string"
+          )
+        : [],
+      type: textOf(community.type) ?? "PRIVATE",
+    },
+    membership:
+      membership &&
+      typeof membership.role === "string" &&
+      typeof membership.status === "string"
+        ? { role: membership.role, status: membership.status }
+        : null,
+    permissions: {
+      banned: permissions.banned === true,
+      canModerate: permissions.canModerate === true,
+      canReadChat: permissions.canReadChat === true,
+      canReadContent: permissions.canReadContent === true,
+      canRequest: permissions.canRequest === true,
+    },
+  };
+}
+
+// Null when the community does not exist (404); any other failure throws so
+// the caller can offer a retry instead of claiming the community is gone.
+export async function fetchCommunityPreview(
+  slug: string,
+  options: ApiCallOptions
+): Promise<CommunityPreview | null> {
+  const response = await get(communityPath(slug, "/preview"), options);
+  if (response.status === 404) {
+    return null;
+  }
+  requireOk(response, "Community preview");
+  const preview = parseCommunityPreview(await readJson(response));
+  if (!preview) {
+    throw new CommunityApiError(
+      "Community preview was not usable",
+      response.status
+    );
+  }
+  return preview;
+}
+
 export function setCommunitySubscription(
   slug: string,
   subscribe: boolean,

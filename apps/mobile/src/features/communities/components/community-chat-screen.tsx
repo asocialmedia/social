@@ -12,6 +12,7 @@ import {
 import { isStickerMessagePayload } from "@asm/messages/payload";
 import { randomUUID } from "expo-crypto";
 import { Image } from "expo-image";
+import type { Href } from "expo-router";
 import {
   Redirect,
   useFocusEffect,
@@ -86,6 +87,7 @@ import {
 import type { CommunityChatChannelsResponse } from "../lib/community-chat-api";
 import { communityChatUiEnabled } from "../lib/community-chat-features";
 import { CommunityAvatar } from "./community-avatar";
+import { CommunityChannelSettingsButton } from "./community-channel-settings";
 import { CommunityNavigationDrawer } from "./community-navigation-drawer";
 import { CommunityPrivateThreadDialog } from "./community-private-thread-dialog";
 import { CommunityThreadFollowButton } from "./community-thread-follow-button";
@@ -104,12 +106,20 @@ function userLabel(message: CommunityChatMessage): string {
   return message.sender.displayName.trim() || message.sender.username;
 }
 
-function chatUrl(slug: string, channelId: string): string {
-  return `/a/${encodeURIComponent(slug)}/chat/${encodeURIComponent(channelId)}`;
+// Typed object hrefs let expo-router encode each segment and keep the
+// route table checked when the generated route types change.
+function chatUrl(slug: string, channelId: string): Href {
+  return {
+    params: { "channel-id": channelId, slug },
+    pathname: "/a/[slug]/chat/[channel-id]",
+  };
 }
 
-function threadUrl(slug: string, channelId: string, threadId: string): string {
-  return `${chatUrl(slug, channelId)}/threads/${encodeURIComponent(threadId)}`;
+function threadUrl(slug: string, channelId: string, threadId: string): Href {
+  return {
+    params: { "channel-id": channelId, slug, "thread-id": threadId },
+    pathname: "/a/[slug]/chat/[channel-id]/threads/[thread-id]",
+  };
 }
 
 function communityChatUrl(slug: string, roomId: string, suffix = ""): string {
@@ -1716,6 +1726,32 @@ function CommunityChatTimelineScreen() {
               Pinned messages
             </Text>
           </Pressable>
+          {permissions?.canManage && room?.kind === "CHANNEL" ? (
+            <CommunityChannelSettingsButton
+              canArchive={channels.length > 1}
+              onUpdated={(updated) => {
+                setChannels((current) =>
+                  current
+                    .map((channel) =>
+                      channel.id === updated.id ? updated : channel
+                    )
+                    .filter((channel) => !channel.archived)
+                    .toSorted((left, right) => left.sortOrder - right.sortOrder)
+                );
+                setRoom(updated);
+                if (updated.archived) {
+                  setDetailsOpen(false);
+                  router.replace({
+                    params: { slug },
+                    pathname: "/a/[slug]/chat",
+                  });
+                }
+              }}
+              options={options}
+              room={room}
+              slug={slug}
+            />
+          ) : null}
           {threadId && permissions?.isMember ? (
             <CommunityThreadFollowButton
               key={
@@ -1765,17 +1801,27 @@ function CommunityChatTimelineScreen() {
                   key={message.id}
                   onPress={() => {
                     setPins(null);
-                    router.push({
-                      params: {
-                        "channel-id": channelId,
-                        message: message.id,
-                        slug,
-                        ...(threadId ? { "thread-id": threadId } : {}),
-                      },
-                      pathname: threadId
-                        ? "/a/[slug]/chat/[channel-id]/threads/[thread-id]"
-                        : "/a/[slug]/chat/[channel-id]",
-                    });
+                    if (threadId) {
+                      router.push({
+                        params: {
+                          "channel-id": channelId,
+                          message: message.id,
+                          slug,
+                          "thread-id": threadId,
+                        },
+                        pathname:
+                          "/a/[slug]/chat/[channel-id]/threads/[thread-id]",
+                      });
+                    } else {
+                      router.push({
+                        params: {
+                          "channel-id": channelId,
+                          message: message.id,
+                          slug,
+                        },
+                        pathname: "/a/[slug]/chat/[channel-id]",
+                      });
+                    }
                   }}
                   style={styles.actionRow}
                 >
