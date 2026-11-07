@@ -17,9 +17,11 @@ export default function RightSideBar() {
       </div>
       <div className="hide-native-scrollbar flex flex-1 flex-col gap-4 overflow-y-auto">
         <TrendingTopics />
-        <WhoToFollowSuggestions key={user?.id ?? "guest"} />
         {user ? (
-          <PostHistoryCard />
+          <>
+            <WhoToFollowSuggestions key={user.id} />
+            <PostHistoryCard />
+          </>
         ) : (
           <AuthPromptCard
             description="Create an account to unlock the full asocialmedia experience."

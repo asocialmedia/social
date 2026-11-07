@@ -58,11 +58,6 @@ export function WhoToFollowSuggestions() {
           </button>
         ) : null}
       </div>
-      {user ? null : (
-        <p className="text-muted-foreground px-3 py-2 text-sm">
-          Sign in to see suggestions for people to follow.
-        </p>
-      )}
       {user && suggestions.isPending
         ? [0, 1, 2].map((index) => (
             <div key={index} className="flex gap-3 px-2.5 py-3">

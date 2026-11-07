@@ -733,7 +733,7 @@ export default function Spotlight({
             <div className="flex w-full min-w-0 flex-nowrap items-center gap-1.5 lg:w-auto lg:justify-end">
               <fieldset
                 className={cn(
-                  "segmented-3d m-0 flex h-9 min-w-0 flex-1 items-center gap-0.5 rounded-xl border-0 p-1",
+                  "segmented-3d m-0 flex h-9 min-w-0 flex-1 items-center gap-0.5 rounded-xl border-0 p-1 lg:flex-none lg:shrink-0",
                   blue && "segmented-3d-on-brand"
                 )}
               >
@@ -748,7 +748,7 @@ export default function Spotlight({
                       aria-pressed={active}
                       onClick={() => changeSource(option.value)}
                       className={cn(
-                        "focus-visible:ring-ring flex h-7 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none sm:gap-1.5 sm:px-2.5",
+                        "focus-visible:ring-ring flex h-7 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:outline-none sm:gap-1.5 sm:px-2.5 lg:flex-none lg:shrink-0",
                         sourceSegmentSkin(active, option.value, blue)
                       )}
                     >
