@@ -3,14 +3,15 @@ import path from "node:path";
 
 import { launch } from "chrome-launcher";
 import lighthouse, { desktopConfig } from "lighthouse";
-import puppeteer from "puppeteer-core";
+import { connect } from "puppeteer-core";
 
 import { inspectSeoHtml } from "./audit-seo";
-import { routeAuditComplete } from "./site-audit-progress";
+import { auditCountryHeaders, parseAuditCountry } from "./site-audit-headers";
+import { routeAuditComplete, withAuditDeadline } from "./site-audit-progress";
 import { siteRouteInventory } from "./site-route-inventory";
 
 const root = path.resolve(import.meta.dir, "../..");
-const origin = new URL(process.argv[2] ?? "http://localhost:3002").origin;
+const { origin } = new URL(process.argv[2] ?? "http://localhost:3002");
 const output = path.resolve(root, process.argv[3] ?? "artifacts/site-audit");
 const fixtureFile = process.argv
   .find((arg) => arg.startsWith("--fixtures="))
@@ -26,14 +27,19 @@ const selectedRoutes = process.argv
   ?.slice(9)
   .split(",");
 const httpOnly = process.argv.includes("--http-only");
+const requestCountry = parseAuditCountry(
+  process.argv.find((arg) => arg.startsWith("--country="))?.slice(10)
+);
 const fixtures: Record<string, string> = fixtureFile
   ? await Bun.file(fixtureFile).json()
   : {};
 if (
-  (headerFile || cookieFile) &&
+  (headerFile || cookieFile || requestCountry) &&
   !["localhost", "127.0.0.1"].includes(new URL(origin).hostname)
 ) {
-  throw new Error("Audit credentials are restricted to localhost");
+  throw new Error(
+    "Audit credentials and country simulation are restricted to localhost"
+  );
 }
 if (headerFile && !cookieFile && !httpOnly) {
   throw new Error(
@@ -43,9 +49,15 @@ if (headerFile && !cookieFile && !httpOnly) {
 const cookies: { name: string; value: string }[] = cookieFile
   ? await Bun.file(cookieFile).json()
   : [];
-const headers: Record<string, string> = headerFile
+const suppliedHeaders: Record<string, string> = headerFile
   ? await Bun.file(headerFile).json()
   : {};
+const headers = auditCountryHeaders(
+  origin,
+  origin,
+  suppliedHeaders,
+  requestCountry
+);
 const inventory = await siteRouteInventory(root, fixtures);
 await mkdir(output, { recursive: true });
 const resume = process.argv.includes("--resume");
@@ -62,10 +74,11 @@ const save = () =>
     path.join(output, "coverage.json"),
     JSON.stringify(
       {
-        origin,
         checkedAt: new Date().toISOString(),
-        note: "Every source page is inventoried. Dynamic routes require explicit fixtures. Redirects and error pages are reported, never counted as successful content audits. Lighthouse is lab data, not field Core Web Vitals.",
         inventory,
+        note: "Every source page is inventoried. Dynamic routes require explicit fixtures. Redirects and error pages are reported, never counted as successful content audits. Lighthouse is lab data, not field Core Web Vitals.",
+        origin,
+        requestCountry: requestCountry ?? null,
         results,
       },
       null,
@@ -87,6 +100,7 @@ for (const [index, entry] of inventory.entries()) {
   if (url.origin !== origin) {
     throw new Error("Cross-origin audit fixture rejected");
   }
+  let activeFormFactor: "mobile" | "desktop" | undefined;
   try {
     // oxlint-disable-next-line no-await-in-loop -- keep crawler and browser load sequential.
     const response = await fetch(url, {
@@ -96,25 +110,26 @@ for (const [index, entry] of inventory.entries()) {
     // oxlint-disable-next-line no-await-in-loop -- inspect the completed response before starting Lighthouse.
     const html = await response.text();
     const http = {
-      status: response.status,
+      bytes: Buffer.byteLength(html),
       finalUrl: response.url,
       redirected: response.redirected,
-      bytes: Buffer.byteLength(html),
+      status: response.status,
       ...inspectSeoHtml(html),
     };
     if (httpOnly || !response.ok || response.redirected) {
+      let state = response.ok ? "http-checked" : "http-error";
+      if (response.redirected) {
+        state = "redirect";
+      }
       results.push({
-        route: entry.route,
-        path: entry.path,
         http,
-        state: response.redirected
-          ? "redirect"
-          : response.ok
-            ? "http-checked"
-            : "http-error",
+        path: entry.path,
+        route: entry.route,
+        state,
       });
     } else {
       for (const formFactor of ["mobile", "desktop"] as const) {
+        activeFormFactor = formFactor;
         if (
           resume &&
           results.some(
@@ -133,7 +148,7 @@ for (const [index, entry] of inventory.entries()) {
           chromeFlags: ["--headless", "--no-sandbox"],
         });
         // oxlint-disable-next-line no-await-in-loop -- connect to this audit's isolated browser.
-        const browser = await puppeteer.connect({
+        const browser = await connect({
           browserURL: `http://localhost:${chrome.port}`,
         });
         try {
@@ -143,61 +158,76 @@ for (const [index, entry] of inventory.entries()) {
             ...cookies.map((cookie) => ({
               ...cookie,
               domain: url.hostname,
-              path: "/",
               httpOnly: true,
+              path: "/",
               secure: url.protocol === "https:",
             }))
           );
           // oxlint-disable-next-line no-await-in-loop -- one page per audit.
           const page = await browser.newPage();
+          if (requestCountry) {
+            // oxlint-disable-next-line no-await-in-loop -- configure this isolated measurement before navigation.
+            await page.setRequestInterception(true);
+            page.on("request", async (request) => {
+              if (request.isInterceptResolutionHandled()) {
+                return;
+              }
+              try {
+                await request.continue({
+                  headers: auditCountryHeaders(
+                    request.url(),
+                    origin,
+                    request.headers(),
+                    requestCountry
+                  ),
+                });
+              } catch {
+                // Closing the owned browser cancels outstanding intercepted requests.
+              }
+            });
+          }
           // oxlint-disable-next-line no-await-in-loop -- activate this audit's tab before collecting paint timings.
           await page.bringToFront();
+          console.log(`${entry.route} ${formFactor}: measuring`);
           // oxlint-disable-next-line no-await-in-loop -- one Lighthouse run at a time.
-          const result = await lighthouse(
-            url.href,
-            {
-              disableStorageReset: cookies.length > 0,
-              onlyCategories: [
-                "performance",
-                "accessibility",
-                "best-practices",
-                "seo",
-              ],
-              logLevel: "error",
-            },
-            formFactor === "desktop" ? desktopConfig : undefined,
-            page
+          const result = await withAuditDeadline(
+            lighthouse(
+              url.href,
+              {
+                disableStorageReset: cookies.length > 0,
+                logLevel:
+                  process.env.ASM_AUDIT_VERBOSE === "1" ? "info" : "error",
+                onlyCategories: [
+                  "performance",
+                  "accessibility",
+                  "best-practices",
+                  "seo",
+                ],
+              },
+              formFactor === "desktop" ? desktopConfig : undefined,
+              page
+            )
           );
           const report = result?.lhr;
-          // oxlint-disable-next-line no-await-in-loop -- save the completed audit before cleanup.
           if (report) {
+            // oxlint-disable-next-line no-await-in-loop -- save the completed audit before cleanup.
             await Bun.write(reportFile, JSON.stringify(report));
           }
           const finalUrl = report?.finalDisplayedUrl;
           const redirected = finalUrl
             ? new URL(finalUrl).pathname !== url.pathname
             : false;
+          let reportState = "audited";
+          if (!report || report.runtimeError) {
+            reportState = "lighthouse-error";
+          } else if (redirected) {
+            reportState = "redirect";
+          }
           results.push({
-            route: entry.route,
-            path: entry.path,
+            error: report?.runtimeError,
+            finalUrl,
             formFactor,
             http,
-            finalUrl,
-            state:
-              !report || report.runtimeError
-                ? "lighthouse-error"
-                : redirected
-                  ? "redirect"
-                  : "audited",
-            error: report?.runtimeError,
-            scores: report
-              ? Object.fromEntries(
-                  Object.entries(report.categories).map(([name, category]) => [
-                    name,
-                    category.score,
-                  ])
-                )
-              : null,
             metrics: report
               ? Object.fromEntries(
                   [
@@ -210,16 +240,30 @@ for (const [index, entry] of inventory.entries()) {
                   ].map((name) => [name, report.audits[name]?.numericValue])
                 )
               : null,
+            path: entry.path,
             report: path.basename(reportFile),
+            route: entry.route,
+            scores: report
+              ? Object.fromEntries(
+                  Object.entries(report.categories).map(([name, category]) => [
+                    name,
+                    category.score,
+                  ])
+                )
+              : null,
+            state: reportState,
           });
           // Persist results before browser shutdown, which can be interrupted on Windows.
           // oxlint-disable-next-line no-await-in-loop -- retain each finished report immediately.
           await save();
         } finally {
-          // oxlint-disable-next-line no-await-in-loop -- close only this audit's browser.
-          await browser.close();
-          // oxlint-disable-next-line no-await-in-loop -- release this audit's Chrome process.
-          await chrome.kill();
+          try {
+            // oxlint-disable-next-line no-await-in-loop -- detach only this audit's browser connection.
+            await browser.disconnect();
+          } finally {
+            // oxlint-disable-next-line no-await-in-loop -- release this audit's Chrome process even if disconnect fails.
+            await chrome.kill();
+          }
         }
         console.log(`${entry.route} ${formFactor}: ${results.at(-1)?.state}`);
         // oxlint-disable-next-line no-await-in-loop -- preserve partial coverage if a later audit is interrupted.
@@ -228,10 +272,11 @@ for (const [index, entry] of inventory.entries()) {
     }
   } catch (error) {
     results.push({
-      route: entry.route,
-      path: entry.path,
-      state: "error",
       error: error instanceof Error ? error.message : String(error),
+      formFactor: activeFormFactor,
+      path: entry.path,
+      route: entry.route,
+      state: "error",
     });
   }
   // oxlint-disable-next-line no-await-in-loop -- persist after every route.
@@ -240,3 +285,10 @@ for (const [index, entry] of inventory.entries()) {
 console.log(
   `Saved coverage for ${inventory.length} route definitions to ${output}`
 );
+if (
+  results.some((result) =>
+    ["error", "lighthouse-error", "http-error"].includes(String(result.state))
+  )
+) {
+  process.exitCode = 1;
+}

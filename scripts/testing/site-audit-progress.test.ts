@@ -1,13 +1,32 @@
 import { expect, test } from "bun:test";
 
-import { routeAuditComplete } from "./site-audit-progress";
+import { routeAuditComplete, withAuditDeadline } from "./site-audit-progress";
+
+test("a stalled device measurement rejects instead of blocking route coverage forever", async () => {
+  await expect(
+    withAuditDeadline(Promise.withResolvers<never>().promise, 10)
+  ).rejects.toThrow("Lighthouse exceeded its 10 ms deadline");
+});
+
+test("a completed measurement retains its result and clears its deadline", async () => {
+  expect(await withAuditDeadline(Promise.resolve("report"), 100)).toBe(
+    "report"
+  );
+});
+
+test("a failed measurement preserves the original failure", async () => {
+  const failure = new Error("Browser disconnected");
+  await expect(withAuditDeadline(Promise.reject(failure), 100)).rejects.toBe(
+    failure
+  );
+});
 
 test("resume retries a failed mobile audit even when desktop finished", () => {
   expect(
     routeAuditComplete(
       [
-        { route: "/login", formFactor: "mobile", state: "lighthouse-error" },
-        { route: "/login", formFactor: "desktop", state: "audited" },
+        { formFactor: "mobile", route: "/login", state: "lighthouse-error" },
+        { formFactor: "desktop", route: "/login", state: "audited" },
       ],
       "/login"
     )
@@ -18,8 +37,8 @@ test("both completed device audits or an explicit HTTP redirect complete a route
   expect(
     routeAuditComplete(
       [
-        { route: "/about", formFactor: "mobile", state: "audited" },
-        { route: "/about", formFactor: "desktop", state: "audited" },
+        { formFactor: "mobile", route: "/about", state: "audited" },
+        { formFactor: "desktop", route: "/about", state: "audited" },
       ],
       "/about"
     )
