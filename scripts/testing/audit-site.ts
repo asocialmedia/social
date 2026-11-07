@@ -216,9 +216,12 @@ for (const [index, entry] of inventory.entries()) {
               : null,
             report: path.basename(reportFile),
           });
+          // Persist results before browser shutdown, which can be interrupted on Windows.
+          // oxlint-disable-next-line no-await-in-loop -- retain each finished report immediately.
+          await save();
         } finally {
           // oxlint-disable-next-line no-await-in-loop -- close only this audit's browser.
-          await browser.disconnect();
+          await browser.close();
           // oxlint-disable-next-line no-await-in-loop -- release this audit's Chrome process.
           await chrome.kill();
         }

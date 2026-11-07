@@ -158,7 +158,7 @@ export function DocSection({
     <section className="scroll-mt-8" id={id}>
       <header className="mb-3.5 flex items-baseline gap-3.5">
         {isNumbered ? (
-          <span className="text-primary/45 text-xl font-bold tabular-nums sm:text-2xl">
+          <span className="text-primary/80 text-xl font-bold tabular-nums sm:text-2xl">
             {ordinal(index)}
           </span>
         ) : null}
