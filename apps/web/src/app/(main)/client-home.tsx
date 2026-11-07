@@ -14,6 +14,7 @@ import {
 } from "@asm/ui/shadui/dropdown-menu";
 import { Tabs, TabsList } from "@asm/ui/shadui/tabs";
 import { ListPlus, Plus } from "lucide-react";
+import dynamic from "next/dynamic";
 import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -31,7 +32,6 @@ import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-botto
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import SearchField from "@/components/layouts/navigation/search-field";
 import { CollapsibleTopBar } from "@/components/layouts/shell/collapsible-top-bar";
-import PostEditor from "@/components/posts/editor/post-editor";
 import { FeedSourceMenu } from "@/components/protocols/feed-source-menu";
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
 import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
@@ -55,6 +55,10 @@ interface ClientHomeProps {
 }
 
 type FeedTab = HomeTab;
+
+const PostEditor = dynamic(
+  () => import("@/components/posts/editor/post-editor")
+);
 
 const ClientHome: React.FC<ClientHomeProps> = ({ initialGuestPosts }) => {
   const pathname = usePathname();

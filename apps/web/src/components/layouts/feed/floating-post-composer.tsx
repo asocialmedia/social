@@ -1,10 +1,14 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import type React from "react";
 import { useCallback, useEffect } from "react";
 
-import PostEditor from "@/components/posts/editor/post-editor";
 import { useComposerStore } from "@/store/composer-store";
+
+const PostEditor = dynamic(
+  () => import("@/components/posts/editor/post-editor")
+);
 
 const FloatingPostComposer: React.FC = () => {
   const isOpen = useComposerStore((state) => state.isOpen);
