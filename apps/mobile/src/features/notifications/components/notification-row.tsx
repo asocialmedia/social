@@ -13,7 +13,6 @@ import type {
 } from "@asm/notifications/shared";
 import { presentNotification } from "@asm/notifications/shared";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
 import {
   AtSign,
   Captions,
@@ -44,6 +43,7 @@ import {
 } from "@/theme";
 
 import type { GroupedNotificationItem } from "../lib/notifications-api";
+import { CommunityRequestActions } from "./community-request-actions";
 
 // Lucide exposes identical names in the web and native bundles, so the shared
 // presenter's icon name resolves to the same glyph on both.
@@ -188,9 +188,8 @@ function NotificationAvatars({
   const visible = issuers.length <= 3 ? issuers : issuers.slice(0, 2);
   const remaining = issuers.length - visible.length;
   const step = 20;
-  const chipWidth = remaining > 0 ? 36 : 0;
-  const width =
-    (visible.length - 1) * step + 36 + (remaining > 0 ? 8 + chipWidth : 0);
+  // Web's -space-x-4: the +N chip is one more 36px circle in the same stack.
+  const width = (visible.length - (remaining > 0 ? 0 : 1)) * step + 36;
 
   return (
     <View style={[styles.stackWrap, { width }]}>
@@ -209,7 +208,7 @@ function NotificationAvatars({
               {
                 backgroundColor: theme.cardBg,
                 borderColor: theme.containerBg,
-                borderRadius: 12,
+                borderRadius: 9999,
                 borderWidth: 2,
                 height: 36,
                 left: index * step,
@@ -229,7 +228,7 @@ function NotificationAvatars({
             {
               backgroundColor: theme.cardBg,
               borderColor: theme.containerBg,
-              left: (visible.length - 1) * step + 36 + 8,
+              left: visible.length * step,
             },
           ]}
         >
@@ -253,7 +252,6 @@ export function NotificationRow({
   onOpen,
 }: NotificationRowProps) {
   const { isDark, theme } = useAppTheme();
-  const router = useRouter();
   const issuers =
     notification.issuers.length > 0
       ? notification.issuers
@@ -261,19 +259,9 @@ export function NotificationRow({
   const presentation = presentNotification(notification, issuers);
   const Icon = ICONS[presentation.icon];
 
+  // The screen resolves every target, posts included, so a tap navigates
+  // exactly once.
   const handlePress = () => {
-    // Community and user targets have no dedicated native screen yet, so they
-    // land on the feed or the notifications list rather than a dead route.
-    // Post targets open the detail screen, which the app already ships.
-    if (presentation.target.kind === "post") {
-      // Full id: truncated prefixes 404 when they match more than one post.
-      router.push({
-        params: { postId: presentation.target.postId },
-        pathname: "/posts/[postId]",
-      });
-      onOpen(presentation.target);
-      return;
-    }
     onOpen(presentation.target);
   };
 
@@ -283,57 +271,73 @@ export function NotificationRow({
     : "rgba(246, 107, 21, 0.07)";
 
   return (
-    <View
-      style={[
-        styles.row,
-        {
-          backgroundColor: unread ? unreadBackground : theme.containerBg,
-        },
-      ]}
-    >
-      <Pressable
-        accessibilityLabel={presentation.action}
-        accessibilityRole="button"
-        onPress={handlePress}
-        style={styles.pressable}
+    <View>
+      <View
+        style={[
+          styles.row,
+          {
+            backgroundColor: unread ? unreadBackground : theme.containerBg,
+          },
+        ]}
       >
-        <NotificationAvatars
-          badge={presentation.badge}
-          Icon={Icon}
-          issuers={issuers}
-          type={notification.type}
-        />
+        <Pressable
+          accessibilityLabel={presentation.action}
+          accessibilityRole="button"
+          onPress={handlePress}
+          style={styles.pressable}
+        >
+          <NotificationAvatars
+            badge={presentation.badge}
+            Icon={Icon}
+            issuers={issuers}
+            type={notification.type}
+          />
 
-        <View style={styles.body}>
-          <Text style={styles.headline} numberOfLines={2}>
-            {presentation.headline.map((segment, index) => (
-              <Text
-                key={`${notification.id}-seg-${index}`}
-                style={
-                  segment.emphasis === "name"
-                    ? { color: theme.inputText, fontFamily: "SofiaProBold" }
-                    : { color: theme.dividerText, fontFamily: "SofiaProReg" }
-                }
-              >
-                {segment.text}
-              </Text>
-            ))}
-          </Text>
-
-          {notification.post?.content ? (
-            <Text
-              numberOfLines={2}
-              style={[styles.snippet, { color: theme.dividerText }]}
-            >
-              {notification.post.content}
+          <View style={styles.body}>
+            <Text style={styles.headline}>
+              {presentation.headline.map((segment, index) => (
+                <Text
+                  key={`${notification.id}-seg-${index}`}
+                  style={
+                    segment.emphasis === "name"
+                      ? { color: theme.inputText, fontFamily: "SofiaProBold" }
+                      : { color: theme.dividerText, fontFamily: "SofiaProReg" }
+                  }
+                >
+                  {segment.text}
+                </Text>
+              ))}
             </Text>
-          ) : null}
 
-          <Text style={[styles.time, { color: theme.dividerText }]}>
-            {formatRelativeDate(notification.createdAt)}
-          </Text>
+            {notification.post?.content ? (
+              <Text
+                numberOfLines={2}
+                style={[styles.snippet, { color: theme.dividerText }]}
+              >
+                {notification.post.content}
+              </Text>
+            ) : null}
+
+            <Text style={[styles.time, { color: theme.dividerText }]}>
+              {formatRelativeDate(notification.createdAt)}
+            </Text>
+          </View>
+        </Pressable>
+      </View>
+      {notification.type === "COMMUNITY_JOIN_REQUEST" &&
+      notification.community &&
+      notification.membershipRequestId ? (
+        <View
+          style={{
+            backgroundColor: unread ? unreadBackground : theme.containerBg,
+          }}
+        >
+          <CommunityRequestActions
+            requestId={notification.membershipRequestId}
+            slug={notification.community.slug}
+          />
         </View>
-      </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -383,7 +387,7 @@ const styles = StyleSheet.create({
   },
   remainingText: {
     fontFamily: "SofiaProBold",
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "normal",
   },
   row: {
@@ -395,9 +399,9 @@ const styles = StyleSheet.create({
   },
   snippet: {
     fontFamily: "SofiaProReg",
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "normal",
-    lineHeight: 18,
+    lineHeight: 20,
     marginTop: 4,
   },
   stackBadge: {
@@ -414,10 +418,12 @@ const styles = StyleSheet.create({
     height: 40,
     position: "relative",
   },
+  // text-xs text-muted-foreground/70
   time: {
     fontFamily: "SofiaProReg",
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "normal",
     marginTop: 4,
+    opacity: 0.7,
   },
 });

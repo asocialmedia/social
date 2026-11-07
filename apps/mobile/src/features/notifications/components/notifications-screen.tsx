@@ -32,6 +32,11 @@ import {
   View,
   PanResponder,
 } from "react-native";
+import Reanimated, {
+  Easing as ReanimatedEasing,
+  FadeInLeft,
+  FadeInRight,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import errorImage from "@/assets/images/error.png";
@@ -40,6 +45,7 @@ import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
+import { communityChatUiEnabled } from "@/features/communities/lib/community-chat-features";
 import { FeedTabs } from "@/features/feed/components/feed-tabs";
 import {
   HEADER_BAR_HEIGHT,
@@ -83,6 +89,25 @@ const TAB_DEFS = [
   { label: "All", value: "all" as const },
   { label: "Mentions", value: "mentions" as const },
 ];
+// Swipe and slide order mirror the rendered tab strip order.
+const NOTIFICATION_TAB_ORDER: NotificationTab[] = TAB_DEFS.map(
+  (tab) => tab.value
+);
+// Web: motion `{ duration: 0.18, ease: "easeOut" }` from x = ±30, opacity 0.
+const TAB_SLIDE_MS = 180;
+const TAB_SLIDE_FROM_RIGHT = FadeInRight.duration(TAB_SLIDE_MS)
+  .easing(ReanimatedEasing.out(ReanimatedEasing.ease))
+  .withInitialValues({ opacity: 0, transform: [{ translateX: 30 }] });
+const TAB_SLIDE_FROM_LEFT = FadeInLeft.duration(TAB_SLIDE_MS)
+  .easing(ReanimatedEasing.out(ReanimatedEasing.ease))
+  .withInitialValues({ opacity: 0, transform: [{ translateX: -30 }] });
+
+function tabSlideEntering(direction: -1 | 0 | 1) {
+  if (direction === 0) {
+    return;
+  }
+  return direction > 0 ? TAB_SLIDE_FROM_RIGHT : TAB_SLIDE_FROM_LEFT;
+}
 
 interface TabState {
   cursor: string | null;
@@ -109,6 +134,24 @@ export function NotificationsScreen() {
   const viewerId = user?.id ?? null;
   const showUser = !isPending && Boolean(user);
   const [activeTab, setActiveTab] = useState<NotificationTab>("all");
+  // Web slides the incoming tab 30px in from the side it was reached from.
+  // 0 means the first paint, which web renders without the slide.
+  const [slideDirection, setSlideDirection] = useState<-1 | 0 | 1>(0);
+  const changeTab = useCallback(
+    (tab: NotificationTab) => {
+      if (tab === activeTab) {
+        return;
+      }
+      setSlideDirection(
+        NOTIFICATION_TAB_ORDER.indexOf(tab) >
+          NOTIFICATION_TAB_ORDER.indexOf(activeTab)
+          ? 1
+          : -1
+      );
+      setActiveTab(tab);
+    },
+    [activeTab]
+  );
   const [tabs, setTabs] = useState<Record<NotificationTab, TabState>>({
     all: emptyTab(),
     mentions: emptyTab(),
@@ -259,7 +302,9 @@ export function NotificationsScreen() {
       // A den notification arriving in a list with no den screen is the ordinary
       // case here, not an edge case, and a tap that silently did nothing would
       // read as a broken app rather than as a feature that lives on the web.
-      const action = nativeNotificationAction(target);
+      const action = nativeNotificationAction(target, {
+        communityChatEnabled: communityChatUiEnabled,
+      });
       if (action.notice) {
         toast(action.notice);
         return;
@@ -276,12 +321,12 @@ export function NotificationsScreen() {
   const handleSwipe = useCallback(
     (direction: "left" | "right") => {
       if (direction === "left" && activeTab === "all") {
-        setActiveTab("mentions");
+        changeTab("mentions");
       } else if (direction === "right" && activeTab === "mentions") {
-        setActiveTab("all");
+        changeTab("all");
       }
     },
-    [activeTab]
+    [activeTab, changeTab]
   );
 
   const panResponder = useMemo(
@@ -367,6 +412,14 @@ export function NotificationsScreen() {
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <MobileHeader
+        // Web's notifications page uses MobileTopBar with onBack.
+        onBack={() => {
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace("/");
+          }
+        }}
         unreadCount={unread}
         user={
           user
@@ -402,9 +455,23 @@ export function NotificationsScreen() {
         ]}
       >
         <View style={styles.tabs}>
+          {/* Web: centered All / Mentions at `px-6 py-3 text-base`. */}
           <FeedTabs
             active={activeTab}
-            onChange={(tab) => setActiveTab(tab)}
+            onChange={changeTab}
+            renderLabel={(tab, selected) => (
+              <Text
+                style={[
+                  styles.tabLabel,
+                  {
+                    color: selected ? theme.inputText : theme.dividerText,
+                    fontFamily: selected ? "SofiaProBold" : "SofiaProMed",
+                  },
+                ]}
+              >
+                {tab.label}
+              </Text>
+            )}
             tabs={TAB_DEFS}
           />
         </View>
@@ -440,7 +507,12 @@ export function NotificationsScreen() {
             ) : null}
           </View>
         ) : null}
-        <View {...panResponder.panHandlers} style={{ flex: 1 }}>
+        <Reanimated.View
+          {...panResponder.panHandlers}
+          entering={tabSlideEntering(slideDirection)}
+          key={activeTab}
+          style={styles.slide}
+        >
           <FlatList
             {...LIST_VIRTUALIZATION_PROPS}
             // flexGrow lets the empty/loading/error slot centre vertically instead
@@ -477,7 +549,7 @@ export function NotificationsScreen() {
             scrollEventThrottle={16}
             showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
           />
-        </View>
+        </Reanimated.View>
       </Animated.View>
       <MobileBottomNav onHeightChange={setDockHeight} />
     </View>
@@ -540,6 +612,15 @@ const styles = StyleSheet.create({
   },
   root: {
     flex: 1,
+  },
+  slide: {
+    flex: 1,
+  },
+  tabLabel: {
+    fontSize: 16,
+    fontWeight: "normal",
+    paddingHorizontal: 12,
+    paddingVertical: 2,
   },
   tabs: {
     // FeedTabs owns its own bottom hairline; the wrapper only reserves space.

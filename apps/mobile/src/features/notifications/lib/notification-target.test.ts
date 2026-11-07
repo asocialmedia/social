@@ -5,20 +5,39 @@ import type { NotificationTarget } from "@asm/notifications/shared";
 import { nativeNotificationAction } from "./notification-target";
 
 describe("nativeNotificationAction", () => {
-  test("leaves a post to the row, which owns the short-id convention", () => {
-    // Not "navigates to the post": the row pushes the detail screen itself,
-    // because only it knows that web paths carry a short id. Saying so explicitly
-    // beats letting the screen guess and push a second, wrong route.
-    const action = nativeNotificationAction({
+  test("opens a post by its full id, carrying the comment like web", () => {
+    const post = nativeNotificationAction({
       commentId: null,
       communitySlug: null,
       isGust: false,
       kind: "post",
       postId: "post-123",
     });
-    expect(action.handledByRow).toBe(true);
-    expect(action.path).toBeUndefined();
-    expect(action.notice).toBeUndefined();
+    expect(post.path).toEqual({
+      params: { postId: "post-123" },
+      pathname: "/posts/[postId]",
+    });
+    expect(post.notice).toBeUndefined();
+    const comment = nativeNotificationAction({
+      commentId: "c-9",
+      communitySlug: "anime",
+      isGust: false,
+      kind: "post",
+      postId: "post-123",
+    });
+    expect(comment.path).toEqual({
+      params: { comment: "c-9", postId: "post-123" },
+      pathname: "/posts/[postId]",
+    });
+  });
+
+  test("a chat notification opens the community while chat is flagged off", () => {
+    expect(
+      nativeNotificationAction(
+        { kind: "communityChat", slug: "anime" },
+        { communityChatEnabled: false }
+      ).path
+    ).toEqual({ params: { slug: "anime" }, pathname: "/a/[slug]" });
   });
 
   test("opens native profiles, communities, chat and den conversations", () => {
@@ -69,10 +88,7 @@ describe("nativeNotificationAction", () => {
     ];
     for (const target of targets) {
       const action = nativeNotificationAction(target);
-      const acts =
-        Boolean(action.path) ||
-        Boolean(action.notice) ||
-        Boolean(action.handledByRow);
+      const acts = Boolean(action.path) || Boolean(action.notice);
       expect(acts).toBe(true);
     }
   });
