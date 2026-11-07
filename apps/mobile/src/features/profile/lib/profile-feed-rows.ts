@@ -1,11 +1,14 @@
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 
+import type { ExternalProfileActivityItem } from "./profile-activity-schema";
 import type { ProfileMedia, ProfileReply } from "./profile-view-model";
 
+// "external" rows are Bluesky activity merged into the Amplified and Eddies tabs.
 export type ProfileFeedItem =
   | { kind: "post"; value: FeedPost }
   | { kind: "media"; value: ProfileMedia }
-  | { kind: "reply"; value: ProfileReply };
+  | { kind: "reply"; value: ProfileReply }
+  | { kind: "external"; value: ExternalProfileActivityItem };
 
 // Grid tabs are chunked into rows of two instead of using FlatList's numColumns.
 // Changing numColumns on a live list is what forced the keyed remount that used

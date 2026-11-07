@@ -81,6 +81,7 @@ import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
+import { mergeProfileActivity } from "../lib/profile-activity-order";
 import type { ProfileFeedItem, ProfileFeedRow } from "../lib/profile-feed-rows";
 import { chunkFeedRows, shouldPinTabs } from "../lib/profile-feed-rows";
 import type { ProfileViewTab } from "../lib/profile-tab-memory";
@@ -90,6 +91,12 @@ import type {
   ProfileReply,
 } from "../lib/profile-view-model";
 import { mediaTileAspect } from "../lib/profile-view-model";
+import type { ExternalProfileActivity } from "../lib/use-external-profile-activity";
+import { ExternalActivityCard } from "./external-activity-card";
+import {
+  ProfileExternalErrorLine,
+  ProfileFeedErrorNotice,
+} from "./profile-activity-notice";
 import { ProfileTabSkeleton } from "./profile-tab-skeleton";
 
 function isMediaFeed(
@@ -122,24 +129,36 @@ function openPostRoute(
   router.push({ params: { postId }, pathname: "/posts/[postId]" });
 }
 
+// The tab-wide states shown above the rows. Amplified and Eddies merge two
+// sources, so the screen works their state out (see profileActivityState) and
+// passes it in; every other tab reads it straight off the feed status.
+type ProfileTabStateKind = "error" | "none" | "skeleton";
+
+function tabStateOf(feed: ProfileFeedView): ProfileTabStateKind {
+  if (feed.status === "loading" || feed.status === "idle") {
+    return "skeleton";
+  }
+  return feed.status === "error" ? "error" : "none";
+}
+
 function ProfileTabState({
-  feed,
   onRetry,
+  state,
   tab,
 }: {
-  feed: ProfileFeedView;
   onRetry: () => void;
+  state: ProfileTabStateKind;
   tab: ProfileViewTab;
 }) {
   const { theme } = useAppTheme();
-  if (feed.status === "loading" || feed.status === "idle") {
+  if (state === "skeleton") {
     // A skeleton, not a spinner. This renders below an already-settled header
     // and a settled tab strip, so a spinner would blink in the middle of a
     // stable screen every time a tab is switched. The placeholder is shaped per
     // tab so the layout does not jump when the data lands.
     return <ProfileTabSkeleton tab={tab} />;
   }
-  if (feed.status === "error") {
+  if (state === "error") {
     return (
       <View style={styles.empty}>
         <Text style={[styles.emptyTitle, { color: theme.inputText }]}>
@@ -802,6 +821,7 @@ const ReplyRow = memo(
 ReplyRow.displayName = "ReplyRow";
 
 export function ProfileFeed({
+  external,
   feed,
   header,
   isOwnProfile = false,
@@ -816,6 +836,9 @@ export function ProfileFeed({
   topInset,
   viewerId,
 }: {
+  // Bluesky activity for this profile, merged into Amplified and Eddies the
+  // way web's UserAmplifiedFeed and UserRepliesFeed do. Ignored on other tabs.
+  external?: ExternalProfileActivity;
   feed: ProfileFeedView;
   header: React.ReactElement;
   isOwnProfile?: boolean;
@@ -846,6 +869,8 @@ export function ProfileFeed({
 }) {
   const router = useRouter();
   const { theme } = useAppTheme();
+  const activityExternal =
+    (tab === "amplified" || tab === "eddies") && external ? external : null;
 
   const gustsGrid = tab === "gusts";
   const [sharePost, setSharePost] = useState<FeedPost | null>(null);
@@ -890,6 +915,9 @@ export function ProfileFeed({
     offsetTop: topInset > 0 ? topInset + 10 : 12,
     onRefresh: () => {
       void feed.refresh();
+      if (activityExternal) {
+        void activityExternal.refresh();
+      }
       refreshProfile();
     },
     refreshing: feed.refreshing,
@@ -1045,6 +1073,9 @@ export function ProfileFeed({
 
   const renderCell = useCallback(
     (item: ProfileFeedItem) => {
+      if (item.kind === "external") {
+        return <ExternalActivityCard item={item.value} />;
+      }
       if (item.kind === "media") {
         return <MediaTile item={item.value} onOpen={openMedia} />;
       }
@@ -1209,17 +1240,165 @@ export function ProfileFeed({
 
   const keyExtractor = useCallback((item: ProfileFeedRow) => item.key, []);
 
+  // Amplified and Eddies interleave the native rows with Bluesky activity,
+  // newest first, holding back rows until both sources have read past them.
+  const nativePending = feed.status === "loading" || feed.status === "idle";
+  const activity = useMemo(
+    () =>
+      activityExternal
+        ? mergeProfileActivity({
+            external: {
+              boundary: activityExternal.boundary,
+              hasNextPage: activityExternal.hasNextPage,
+              items: activityExternal.items,
+              pending: activityExternal.loading,
+            },
+            native: {
+              boundary: feed.boundary,
+              hasNextPage: feed.hasMore,
+              items: feedItems(feed),
+              pending: nativePending,
+            },
+          })
+        : null,
+    [activityExternal, feed, nativePending]
+  );
   const items = useMemo(
-    () => chunkFeedRows(feedItems(feed), twoColumns && !isMediaFeed(feed)),
-    [feed, twoColumns]
+    () =>
+      chunkFeedRows(
+        activity ? activity.items : feedItems(feed),
+        twoColumns && !isMediaFeed(feed)
+      ),
+    [activity, feed, twoColumns]
   );
   const handleRetry = useCallback(() => feed.fetchNext(), [feed]);
 
+  // Mirrors the early returns in web's UserAmplifiedFeed / UserRepliesFeed.
+  // Amplified holds its skeleton until the Bluesky page lands too; Eddies only
+  // waits on its own replies and shows the footer loader for Bluesky.
+  let tabState = tabStateOf(feed);
+  if (activityExternal) {
+    const waiting =
+      tab === "amplified"
+        ? nativePending || activityExternal.loading
+        : nativePending;
+    if (waiting && items.length === 0) {
+      tabState = "skeleton";
+    } else if (
+      feed.status === "error" &&
+      !feed.hasData &&
+      !activityExternal.hasData
+    ) {
+      tabState = "error";
+    } else {
+      tabState = "none";
+    }
+  }
+  const activityEmpty =
+    activityExternal !== null &&
+    feed.status === "success" &&
+    !activityExternal.loading &&
+    !activityExternal.isError &&
+    !activityExternal.networkError &&
+    !feed.hasMore &&
+    !activityExternal.hasNextPage;
+  const showEmpty = activityExternal
+    ? activityEmpty
+    : feed.status === "success";
+
+  const handleEndReached = () => {
+    if (!activity || !activityExternal) {
+      if (feed.hasMore) {
+        feed.fetchNext();
+      }
+      return;
+    }
+    if (
+      activity.advanceExternal &&
+      !activityExternal.isFetching &&
+      !activityExternal.isError
+    ) {
+      void activityExternal.fetchNextPage();
+    }
+    if (
+      activity.advanceNative &&
+      feed.status !== "loading-more" &&
+      feed.status !== "error"
+    ) {
+      feed.fetchNext();
+    }
+  };
+
+  const renderActivityFooter = (source: ExternalProfileActivity) => {
+    if (tabState !== "none") {
+      return null;
+    }
+    const amplified = tab === "amplified";
+    return (
+      <>
+        {feed.status === "error" ? (
+          <ProfileFeedErrorNotice
+            message={
+              amplified
+                ? "Couldn’t load more amplified posts."
+                : "Couldn’t load more replies."
+            }
+            onRetry={handleRetry}
+          />
+        ) : null}
+        {source.networkError ? (
+          <ProfileFeedErrorNotice
+            message="Couldn’t load your content settings for Bluesky activity."
+            onRetry={() => {
+              void source.retryNetworkSettings();
+            }}
+          />
+        ) : null}
+        {source.isError ? (
+          <ProfileExternalErrorLine
+            message={
+              amplified
+                ? "Couldn’t load Bluesky amplifications."
+                : "Couldn’t load Bluesky eddies."
+            }
+            onRetry={() => {
+              void source.refetch();
+            }}
+          />
+        ) : null}
+        {feed.status === "loading-more" ||
+        source.loading ||
+        source.isFetchingNextPage ? (
+          <View
+            accessibilityLabel={
+              amplified ? "Loading more amplified posts" : undefined
+            }
+            style={styles.footer}
+          >
+            <Spinner3D size={32} />
+          </View>
+        ) : null}
+        {feed.status !== "error" &&
+        !feed.hasMore &&
+        !source.hasNextPage &&
+        !source.loading &&
+        !source.isError &&
+        !source.networkError &&
+        items.length > 0 ? (
+          <FeedCaughtUp note={CAUGHT_UP_NOTES[tab]} />
+        ) : null}
+      </>
+    );
+  };
+
   const renderFooter = () => {
+    if (activityExternal) {
+      return renderActivityFooter(activityExternal);
+    }
     if (feed.status === "loading-more") {
       return (
         <View style={styles.footer}>
-          <Spinner3D variant="general" size={32} />
+          <Spinner3D size={32} />
         </View>
       );
     }
@@ -1245,7 +1424,7 @@ export function ProfileFeed({
         <FlashList
           ItemSeparatorComponent={renderSeparator}
           ListEmptyComponent={
-            feed.status === "success" ? (
+            showEmpty ? (
               <EmptyProfileTab isOwnProfile={isOwnProfile} tab={tab} />
             ) : undefined
           }
@@ -1254,7 +1433,11 @@ export function ProfileFeed({
             <View>
               {header}
               {locked ? null : (
-                <ProfileTabState feed={feed} onRetry={handleRetry} tab={tab} />
+                <ProfileTabState
+                  onRetry={handleRetry}
+                  state={tabState}
+                  tab={tab}
+                />
               )}
             </View>
           }
@@ -1265,7 +1448,7 @@ export function ProfileFeed({
           numColumns={isMediaFeed(feed) ? 2 : 1}
           getItemType={(item) => item.cells[0].kind}
           maintainVisibleContentPosition={{ disabled: true }}
-          onEndReached={feed.hasMore ? feed.fetchNext : undefined}
+          onEndReached={handleEndReached}
           onEndReachedThreshold={0.6}
           onScroll={handleContentScroll}
           onScrollEndDrag={handleScrollEndDrag}

@@ -34,6 +34,7 @@ import {
   profileTabStorageKey,
 } from "../lib/profile-tab-memory";
 import type { ProfileViewTab } from "../lib/profile-tab-memory";
+import { useExternalProfileActivity } from "../lib/use-external-profile-activity";
 import { ProfileEditModal } from "./profile-edit-modal";
 import { ProfileFeed } from "./profile-feed";
 import { ProfileHeader } from "./profile-header";
@@ -43,7 +44,7 @@ import { ProfileTabs } from "./profile-tabs";
 function LoadingProfile() {
   return (
     <View style={styles.center}>
-      <Spinner3D variant="general" size={56} />
+      <Spinner3D size={56} />
       <Text style={styles.centerText}>Loading profile…</Text>
     </View>
   );
@@ -135,6 +136,15 @@ export function ProfileScreen() {
     tab,
     username,
   });
+  // Bluesky amplifications and eddies, merged into those two tabs by the feed.
+  let externalKind: "amplified" | "eddies" | null = null;
+  if (tab === "amplified" || tab === "eddies") {
+    externalKind = tab;
+  }
+  const external = useExternalProfileActivity(
+    profile?.id ?? null,
+    externalKind
+  );
 
   // The tab strip sits inside the header, which the feed renders as its
   // ListHeaderComponent, so it scrolls away with the banner. Measuring its
@@ -383,6 +393,7 @@ export function ProfileScreen() {
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <ProfileFeed
+        external={external}
         feed={feed}
         header={header}
         isOwnProfile={own}

@@ -10,9 +10,9 @@ import {
   CalendarDays,
   Flame,
   Globe,
+  Info,
   MessageCircle,
   Pencil,
-  UserPlus,
 } from "lucide-react-native";
 import { useCallback } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -82,7 +82,7 @@ function BannerContent({
       colors={["#ff9500", "#e65500", "#8b2f00"]}
       end={{ x: 1, y: 1 }}
       start={{ x: 0, y: 0 }}
-      style={styles.banner}
+      style={[styles.banner, styles.bannerGradient]}
     />
   );
 }
@@ -126,6 +126,13 @@ function getGrayButtonStyles(isDark: boolean) {
     textColor: isDark ? "#ffffff" : "#1f2430",
   };
 }
+
+// `.btn-3d-bluesky` from packages/ui/styles/globals.css.
+const BLUESKY_BUTTON = {
+  colors: ["#159dff", "#0866df"] as [string, string],
+  shadows:
+    "inset 0 0 0 1px rgba(255, 255, 255, 0.28), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px #0758bf, 0 1px 1px rgba(255, 255, 255, 0.45), 0 4px 10px -3px rgba(0, 70, 180, 0.35)",
+} as const;
 
 // Web's EditProfileButton, light + dark.
 function getEditButtonStyles(isDark: boolean) {
@@ -185,13 +192,13 @@ export function ProfileHeader({
 
   return (
     <View style={styles.root}>
-      <View style={[styles.bannerWrap, { height: 140 + insets.top }]}>
+      <View style={[styles.bannerWrap, { height: 128 + insets.top }]}>
         <BannerContent avatar={avatar} banner={banner} />
         <LinearGradient
           colors={["transparent", theme.containerBg]}
           end={{ x: 0.5, y: 1 }}
           pointerEvents="none"
-          start={{ x: 0.5, y: 0.45 }}
+          start={{ x: 0.5, y: 0 }}
           style={styles.bannerFade}
         />
       </View>
@@ -201,9 +208,9 @@ export function ProfileHeader({
             style={[styles.avatarOverlap, { borderColor: theme.containerBg }]}
           >
             <UserAvatar
-              radius={16}
+              radius={14}
               seed={profile.username || profile.id}
-              size={112}
+              size={96}
               url={profile.avatarUrl}
               userId={profile.id}
               username={profile.username}
@@ -256,8 +263,17 @@ export function ProfileHeader({
             <Text style={[styles.username, { color: theme.dividerText }]}>
               @{profile.username}
             </Text>
+            {/* Web keeps Joined inside the identity column, under the handle. */}
+            {joined ? (
+              <View style={styles.metaRow}>
+                <CalendarDays color={theme.dividerText} size={16} />
+                <Text style={[styles.meta, { color: theme.dividerText }]}>
+                  Joined {joined}
+                </Text>
+              </View>
+            ) : null}
           </View>
-          <View style={styles.actions}>
+          <View style={[styles.actions, external && styles.actionsStretch]}>
             {isOwnProfile ? (
               <Pressable
                 accessibilityLabel="Edit profile"
@@ -297,9 +313,6 @@ export function ProfileHeader({
                     shadows={followStyles.shadow}
                     style={styles.followButton}
                   >
-                    {isFollowing ? null : (
-                      <UserPlus color="#ffffff" size={14} />
-                    )}
                     <Text
                       style={[
                         styles.followText,
@@ -307,7 +320,6 @@ export function ProfileHeader({
                       ]}
                     >
                       {isFollowing ? "Following" : "Follow"}
-                      {external ? " in ASM" : ""}
                     </Text>
                   </Gradient3D>
                 </Pressable>
@@ -322,21 +334,35 @@ export function ProfileHeader({
                     { transform: [{ translateY: pressed ? 1 : 0 }] },
                   ]}
                 >
-                  <Gradient3D
-                    colors={grayStyles.colors}
-                    shadows={grayStyles.shadow}
-                    style={styles.messageButton}
-                  >
-                    <MessageCircle color={grayStyles.textColor} size={15} />
-                    <Text
-                      style={[
-                        styles.messageText,
-                        { color: grayStyles.textColor },
-                      ]}
+                  {external ? (
+                    // Web's `.btn-3d-bluesky` "Visit on Bluesky" link.
+                    <Gradient3D
+                      colors={BLUESKY_BUTTON.colors}
+                      shadows={BLUESKY_BUTTON.shadows}
+                      style={styles.messageButton}
                     >
-                      {external ? "Open on Bluesky" : "Message"}
-                    </Text>
-                  </Gradient3D>
+                      <BlueskyIcon color="#ffffff" />
+                      <Text style={[styles.messageText, { color: "#ffffff" }]}>
+                        Visit on Bluesky
+                      </Text>
+                    </Gradient3D>
+                  ) : (
+                    <Gradient3D
+                      colors={grayStyles.colors}
+                      shadows={grayStyles.shadow}
+                      style={styles.messageButton}
+                    >
+                      <MessageCircle color={grayStyles.textColor} size={16} />
+                      <Text
+                        style={[
+                          styles.messageText,
+                          { color: grayStyles.textColor },
+                        ]}
+                      >
+                        Message
+                      </Text>
+                    </Gradient3D>
+                  )}
                 </Pressable>
               </>
             )}
@@ -348,65 +374,87 @@ export function ProfileHeader({
             <BioContent
               apiBase={apiBase}
               bio={profile.bio}
-              textSize={{ fontSize: 15, lineHeight: 22 }}
+              textSize={{ fontSize: 14, lineHeight: 22 }}
             />
           </View>
         ) : null}
-        {joined ? (
-          <View style={styles.metaRow}>
-            <CalendarDays color={theme.dividerText} size={15} />
-            <Text style={[styles.meta, { color: theme.dividerText }]}>
-              Joined {joined}
-            </Text>
-          </View>
-        ) : null}
-        <View style={styles.stats}>
-          <InlineStat
-            label="Following"
-            mutuals={profile.mutuals?.following}
-            mutualCount={profile.mutuals?.counts.following}
-            kind="following"
-            onPress={() =>
-              external
-                ? undefined
-                : router.push({
-                    params: { username: profile.username },
-                    pathname: "/users/[username]/following",
-                  })
-            }
-            value={formatNumber(profile._count.following)}
-          />
-          <InlineStat
-            label="Followers"
-            mutuals={profile.mutuals?.followers}
-            mutualCount={profile.mutuals?.counts.followers}
-            kind="followers"
-            onPress={() =>
-              external
-                ? undefined
-                : router.push({
-                    params: { username: profile.username },
-                    pathname: "/users/[username]/followers",
-                  })
-            }
-            value={formatNumber(profile._count.followers)}
-          />
-          <View style={styles.auraStat}>
-            <Flame
-              color={flame.color}
-              fill={flame.filled ? flame.color : "none"}
-              size={18}
+        {external ? (
+          <>
+            {/* Web shows the upstream Bluesky counts as plain text, with no
+                aura and nothing to open. */}
+            <View style={styles.stats}>
+              {(
+                [
+                  ["Following", external.upstreamCounts.following],
+                  ["Followers", external.upstreamCounts.followers],
+                  ["Posts", external.upstreamCounts.posts],
+                ] as const
+              ).map(([label, value]) => (
+                <Text
+                  key={label}
+                  style={[styles.inlineLabel, { color: theme.inputText }]}
+                >
+                  <Text style={styles.inlineValue}>
+                    {formatNumber(value ?? 0)}
+                  </Text>{" "}
+                  {label}
+                </Text>
+              ))}
+            </View>
+            <View style={styles.externalNote}>
+              <Info color={theme.dividerText} size={14} />
+              <Text
+                numberOfLines={1}
+                style={[styles.externalNoteText, { color: theme.dividerText }]}
+              >
+                This profile is from Bluesky. Interactions here stay on
+                asocialmedia.
+              </Text>
+            </View>
+          </>
+        ) : (
+          <View style={styles.stats}>
+            <InlineStat
+              label="Following"
+              mutuals={profile.mutuals?.following}
+              mutualCount={profile.mutuals?.counts.following}
+              kind="following"
+              onPress={() =>
+                router.push({
+                  params: { username: profile.username },
+                  pathname: "/users/[username]/following",
+                })
+              }
+              value={formatNumber(profile._count.following)}
             />
-            <Text style={[styles.inlineValue, { color: theme.inputText }]}>
-              {formatNumber(
-                external ? (external.upstreamCounts.posts ?? 0) : profile.aura
-              )}
-            </Text>
-            <Text style={[styles.inlineLabel, { color: theme.dividerText }]}>
-              {external ? "Posts on Bluesky" : "Aura"}
-            </Text>
+            <InlineStat
+              label="Followers"
+              mutuals={profile.mutuals?.followers}
+              mutualCount={profile.mutuals?.counts.followers}
+              kind="followers"
+              onPress={() =>
+                router.push({
+                  params: { username: profile.username },
+                  pathname: "/users/[username]/followers",
+                })
+              }
+              value={formatNumber(profile._count.followers)}
+            />
+            <View style={styles.auraStat}>
+              <Flame
+                color={flame.color}
+                fill={flame.filled ? flame.color : "none"}
+                size={16}
+              />
+              <Text style={[styles.auraValue, { color: theme.inputText }]}>
+                {formatNumber(profile.aura)}
+              </Text>
+              <Text style={[styles.auraLabel, { color: theme.dividerText }]}>
+                Aura
+              </Text>
+            </View>
           </View>
-        </View>
+        )}
       </View>
     </View>
   );
@@ -454,14 +502,24 @@ const styles = StyleSheet.create({
     flexDirection: "column",
     gap: 8,
   },
+  // Web's `items-stretch`: the external pair shares one width.
+  actionsStretch: {
+    alignItems: "stretch",
+  },
+  auraLabel: { fontFamily: "SofiaProBold", fontSize: 13 },
   auraStat: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 4,
+    gap: 6,
+  },
+  auraValue: {
+    fontFamily: "SofiaProBold",
+    fontSize: 14,
+    fontVariant: ["tabular-nums"],
   },
   avatarOverlap: {
     alignSelf: "flex-start",
-    borderRadius: 20,
+    borderRadius: 18,
     borderWidth: 4,
     overflow: "hidden",
   },
@@ -469,15 +527,16 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: -56,
+    marginTop: -48,
   },
   banner: { height: "100%", width: "100%" },
   bannerFade: {
     ...StyleSheet.absoluteFill,
   },
+  bannerGradient: { opacity: 0.8 },
   bannerWrap: { overflow: "hidden" },
   bio: { marginTop: 12 },
-  blurred: { opacity: 0.72, transform: [{ scale: 1.15 }] },
+  blurred: { opacity: 0.75, transform: [{ scale: 1.15 }] },
   // The Pressable only carries the press feedback. The 3D surface itself is the
   // Gradient3D inside it, so this wrapper must not clip or round anything: the
   // recipe's outer ring (0 0 0 1px) is drawn outside the element's bounds and an
@@ -492,14 +551,25 @@ const styles = StyleSheet.create({
     height: 36,
     paddingHorizontal: 16,
   },
-  editText: { fontFamily: "SofiaProBold", fontSize: 14 },
+  editText: { fontFamily: "SofiaProBold", fontSize: 13 },
+  externalNote: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+    paddingBottom: 16,
+  },
+  externalNoteText: {
+    flexShrink: 1,
+    fontFamily: "SofiaProReg",
+    fontSize: 12,
+  },
   followButton: {
     flexDirection: "row",
     gap: 5,
     height: 36,
     paddingHorizontal: 16,
   },
-  followText: { fontFamily: "SofiaProBold", fontSize: 14 },
+  followText: { fontFamily: "SofiaProBold", fontSize: 13 },
   identity: {
     alignItems: "flex-start",
     flexDirection: "row",
@@ -508,7 +578,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   identityText: { flex: 1, minWidth: 0 },
-  inlineLabel: { fontFamily: "SofiaProMed", fontSize: 14 },
+  inlineLabel: { fontFamily: "SofiaProMed", fontSize: 13 },
   inlineStat: {
     alignItems: "center",
     borderRadius: 6,
@@ -517,26 +587,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     paddingVertical: 2,
   },
-  inlineValue: { fontFamily: "SofiaProBold", fontSize: 14 },
+  inlineValue: { fontFamily: "SofiaProBold", fontSize: 13 },
   messageButton: {
     flexDirection: "row",
     gap: 5,
     height: 36,
     paddingHorizontal: 14,
   },
-  messageText: { fontFamily: "SofiaProBold", fontSize: 14 },
-  meta: { fontFamily: "SofiaProReg", fontSize: 14 },
+  messageText: { fontFamily: "SofiaProBold", fontSize: 13 },
+  meta: { fontFamily: "SofiaProReg", fontSize: 13 },
   metaRow: {
     alignItems: "center",
     flexDirection: "row",
     gap: 6,
-    marginTop: 12,
+    marginTop: 8,
   },
   name: {
     flexShrink: 1,
     fontFamily: "SofiaProBold",
-    fontSize: 18,
-    lineHeight: 23,
+    fontSize: 16,
+    lineHeight: 20,
   },
   nameRow: {
     alignItems: "center",
@@ -558,7 +628,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
     justifyContent: "flex-end",
-    marginTop: 64,
+    marginTop: 48,
     paddingBottom: 8,
     paddingLeft: 12,
   },

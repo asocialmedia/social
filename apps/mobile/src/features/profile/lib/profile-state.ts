@@ -160,6 +160,7 @@ function mergePages(
       ],
       kind: "posts",
       nextCursor: next.nextCursor,
+      nextCursorAt: next.nextCursorAt,
     };
   }
   if (current.kind === "media" && next.kind === "media") {
@@ -171,6 +172,7 @@ function mergePages(
       ],
       kind: "media",
       nextCursor: next.nextCursor,
+      nextCursorAt: next.nextCursorAt,
     };
   }
   if (current.kind === "replies" && next.kind === "replies") {
@@ -182,6 +184,7 @@ function mergePages(
       ],
       kind: "replies",
       nextCursor: next.nextCursor,
+      nextCursorAt: next.nextCursorAt,
     };
   }
   return next;
@@ -448,7 +451,9 @@ export function useProfileFeed({
 
   const retryFetchNext = resource.status === "error" ? retry : fetchNext;
   const base = {
+    boundary: resource.data?.nextCursorAt ?? null,
     error: resource.error,
+    hasData: Boolean(resource.data),
     hasMore: Boolean(resource.data?.nextCursor),
     refresh,
     refreshing: isRefreshing,
