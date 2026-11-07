@@ -4,6 +4,18 @@ import { canAutoContinueFeed, feedContinuationDelay } from "./feed-pagination";
 
 const items = (page: { id: string }[]) => page;
 
+test("an idle sparse feed backs off repeated empty continuations and resets when content arrives", () => {
+  expect(feedContinuationDelay([[], [], []], items)).toBe(2000);
+  expect(feedContinuationDelay([[], [], [], []], items)).toBe(4000);
+  expect(
+    feedContinuationDelay(
+      Array.from({ length: 12 }, () => []),
+      items
+    )
+  ).toBe(30_000);
+  expect(feedContinuationDelay([[], [], [], [{ id: "fresh" }]], items)).toBe(0);
+});
+
 test("sparse feeds resume automatically with a delay instead of requiring a button", () => {
   expect(feedContinuationDelay([[{ id: "first" }], [], [], []], items)).toBe(
     2000

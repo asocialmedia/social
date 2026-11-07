@@ -14,6 +14,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -44,8 +45,8 @@ import {
 import { withViewTransition } from "@/lib/view-transition";
 
 import { AudioPreview } from "./audio-preview";
-// eslint-disable-next-line import/no-cycle -- media-previews renders inside post-card while the media viewer shows related posts via post-card
-import MediaViewer from "./media-viewer";
+
+const MediaViewer = dynamic(() => import("./media-viewer"), { ssr: false });
 
 interface MediaPreviewsProps {
   attachments?: Media[];
@@ -672,7 +673,15 @@ export const VideoPreview = ({
             ? getMediaVideoUrl(media.id)
             : undefined
         }
-      />
+      >
+        {!media.id.startsWith("https://") && media.transcript ? (
+          <track
+            kind="captions"
+            label="Captions"
+            src={`/api/media/${media.id}?captions=1`}
+          />
+        ) : null}
+      </video>
       {posterFailed ? null : (
         <Image
           alt="Video preview"
@@ -837,27 +846,6 @@ const SingleImagePreview = ({
       setIsLoading(false);
     }
   }, [media.id]);
-
-  // oxlint-disable-next-line react/exhaustive-effect-dependencies -- media/natural are the intended triggers
-  useEffect(() => {
-    if (hasStoredDims) {
-      return;
-    }
-    if (natural) {
-      return;
-    }
-    const img = new window.Image();
-    const handleLoad = () => {
-      if (img.naturalWidth > 0) {
-        setNatural({ h: img.naturalHeight, w: img.naturalWidth });
-      }
-    };
-    img.addEventListener("load", handleLoad);
-    img.src = getMediaImageUrl(media, "lg-webp.webp");
-    return () => {
-      img.removeEventListener("load", handleLoad);
-    };
-  }, [media, natural, hasStoredDims]);
 
   const dims = natural;
   const ratio = mediaAspect(

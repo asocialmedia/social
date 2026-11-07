@@ -12,14 +12,14 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@asm/ui/shadui/hover-card";
-import authorBadge from "@assets/roles/author.png";
-import devBadge from "@assets/roles/dev.png";
-import earlyBadge from "@assets/roles/early.png";
-import memberRoleBadge from "@assets/roles/member.png";
-import modRoleBadge from "@assets/roles/mod.png";
-import ownerRoleBadge from "@assets/roles/owner.png";
-import shitposterBadge from "@assets/roles/shitposter.png";
-import trendingBadge from "@assets/roles/trending.png";
+import authorBadge from "@assets/roles/author.webp";
+import devBadge from "@assets/roles/dev.webp";
+import earlyBadge from "@assets/roles/early.webp";
+import memberRoleBadge from "@assets/roles/member.webp";
+import modRoleBadge from "@assets/roles/mod.webp";
+import ownerRoleBadge from "@assets/roles/owner.webp";
+import shitposterBadge from "@assets/roles/shitposter.webp";
+import trendingBadge from "@assets/roles/trending.webp";
 import Image from "next/image";
 import Link from "next/link";
 import { memo, useState } from "react";

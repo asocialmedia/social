@@ -141,7 +141,7 @@ export function getMediaImageUrl(
   variant: string
 ): string {
   if (media.id.startsWith("https://")) {
-    if (variant.startsWith("thumb") && media.thumbnailKey) {
+    if (!variant.startsWith("orig") && media.thumbnailKey) {
       return media.thumbnailKey;
     }
     return media.id;
@@ -187,9 +187,6 @@ export function getMediaImageSrcSet(media: {
 }): string | undefined {
   if (media.id.startsWith("https://")) {
     return undefined;
-  }
-  if (media.id.startsWith("https://")) {
-    return media.id;
   }
   if (media.mimeType === "image/gif") {
     return undefined;

@@ -865,7 +865,7 @@ export const CustomVideoPlayer = ({
           <track
             default={false}
             key={caption.src}
-            kind="subtitles"
+            kind="captions"
             label={caption.label}
             src={caption.src}
             srcLang={caption.srclang}

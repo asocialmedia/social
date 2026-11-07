@@ -30,7 +30,6 @@ export default function CommunityAvatar({
     !hasError && typeof avatarUrl === "string" && avatarUrl.trim().length > 0;
   const resolvedSrc = hasAvatar ? avatarUrl : getDefaultAvatar(slug);
   const isProxy = resolvedSrc.startsWith("/api/");
-  const isDefault = resolvedSrc.startsWith("/avatars/");
 
   return (
     <Image
@@ -46,7 +45,7 @@ export default function CommunityAvatar({
       priority={priority}
       sizes="96px"
       src={resolvedSrc}
-      unoptimized={isProxy || isDefault}
+      unoptimized={isProxy}
       width={size}
     />
   );

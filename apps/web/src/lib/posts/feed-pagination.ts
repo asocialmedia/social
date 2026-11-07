@@ -21,11 +21,25 @@ export function canAutoContinueFeed<Page>(
   return emptyTail < 3;
 }
 
-// Sparse pages retain automatic continuation, with backoff instead of a permanent stop.
+// Sparse pages retain automatic continuation, with bounded exponential backoff.
 export function feedContinuationDelay<Page>(
   pages: readonly Page[] | undefined,
   items: (page: Page) => readonly { id: string }[],
   visibleIds?: ReadonlySet<string>
 ): number {
-  return canAutoContinueFeed(pages, items, visibleIds) ? 0 : 2000;
+  const known = new Set<string>();
+  let emptyTail = 0;
+  for (const page of pages ?? []) {
+    let fresh = false;
+    for (const item of items(page)) {
+      if ((!visibleIds || visibleIds.has(item.id)) && !known.has(item.id)) {
+        fresh = true;
+        known.add(item.id);
+      }
+    }
+    emptyTail = fresh ? 0 : emptyTail + 1;
+  }
+  return emptyTail < 3
+    ? 0
+    : Math.min(30_000, 2000 * 2 ** Math.min(4, emptyTail - 3));
 }

@@ -18,7 +18,7 @@ import { skipToken, useQuery } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 import { ChevronDown, Flame, Sparkles } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import { useState } from "react";
+import { useState, useId } from "react";
 
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import UserAvatar from "@/components/layouts/user/user-avatar";
@@ -86,6 +86,7 @@ export function HomeFeedControls({
 }) {
   const reducedMotion = useReducedMotion();
   const [menuOpen, setMenuOpen] = useState(false);
+  const controlsId = useId();
   const reselectDiscovery = useFeedReselect(active === discovery, () =>
     onChange(discovery)
   );
@@ -162,6 +163,7 @@ export function HomeFeedControls({
           className="data-[state=active]:px-3"
           layoutId="home-mobile-tab-indicator"
           value="latest"
+          id={`${controlsId}-latest`}
           onReselect={() => onChange("latest")}
         >
           Latest
@@ -171,6 +173,7 @@ export function HomeFeedControls({
           className="data-[state=active]:px-3"
           layoutId="home-mobile-tab-indicator"
           value="following"
+          id={`${controlsId}-following`}
           onReselect={() => onChange("following")}
           indicatorClassName="w-[60%] min-w-12"
         >

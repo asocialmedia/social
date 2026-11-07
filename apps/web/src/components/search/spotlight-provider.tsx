@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import type React from "react";
 import {
   createContext,
@@ -12,8 +13,9 @@ import {
 
 import { useSession } from "@/app/(main)/session-provider";
 
-import Spotlight from "./spotlight";
 import type { SpotlightResultItem } from "./spotlight";
+
+const Spotlight = dynamic(() => import("./spotlight"), { ssr: false });
 
 interface SpotlightContextValue {
   openSpotlight: (query?: string) => void;

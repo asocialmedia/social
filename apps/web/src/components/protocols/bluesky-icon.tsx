@@ -26,6 +26,8 @@ export function BlueskyIcon({
         <TooltipTrigger asChild>
           <span
             aria-label="From Bluesky, on the AT Protocol"
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- this tooltip contains an inline SVG mark rather than a raster image.
+            role="img"
             className="inline-flex shrink-0 items-center"
           >
             {icon}

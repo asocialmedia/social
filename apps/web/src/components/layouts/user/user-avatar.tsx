@@ -31,11 +31,17 @@ export default function UserAvatar({
   const avatarUrl = user?.avatarUrl ?? directAvatarUrl;
   const hasAvatar =
     !hasError && typeof avatarUrl === "string" && avatarUrl.trim().length > 0;
-  const resolvedSrc = hasAvatar
+  const source = hasAvatar
     ? getSecureImageUrl(avatarUrl)
     : getDefaultAvatar(user?.id || user?.username || seed);
+  const resolvedSrc =
+    (size ?? 48) <= 64
+      ? source.replace(
+          "https://cdn.bsky.app/img/avatar/plain/",
+          "https://cdn.bsky.app/img/avatar_thumbnail/plain/"
+        )
+      : source;
   const transparent = supportsTransparency(resolvedSrc);
-  const isDefaultAvatar = resolvedSrc.startsWith("/avatars/");
   // Storage avatars are served through our /api/users/avatar/{id}/image proxy
   // (already sized variants). The image optimizer rejects same-origin /api/
   // URLs, so skip optimization for those; static default avatars can keep it.
@@ -49,9 +55,8 @@ export default function UserAvatar({
   // default-avatar fallback, so they must render unoptimized too.
   const isBlobUrl = avatarUrl?.startsWith("blob:") === true;
   // Bluesky already serves sized avatar derivatives; avoid a second server-side CDN fetch and its timeout.
-  const isBlueskyAvatar = resolvedSrc.startsWith(
-    "https://cdn.bsky.app/img/avatar/"
-  );
+  const isBlueskyAvatar =
+    /^https:\/\/cdn\.bsky\.app\/img\/avatar(?:_thumbnail)?\//.test(resolvedSrc);
 
   return (
     <Image
@@ -67,11 +72,7 @@ export default function UserAvatar({
       priority={priority}
       src={resolvedSrc}
       unoptimized={
-        isDefaultAvatar ||
-        isProxyAvatar ||
-        isBlobUrl ||
-        isBlueskyAvatar ||
-        isGifUrl(avatarUrl)
+        isProxyAvatar || isBlobUrl || isBlueskyAvatar || isGifUrl(avatarUrl)
       }
       width={size ?? 48}
     />
