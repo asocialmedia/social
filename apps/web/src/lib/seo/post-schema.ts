@@ -1,8 +1,10 @@
 import { siteConfig } from "@asm/ui/meta/site";
 
 import { absoluteUrl } from "./seo";
+import { videoWatchUrl } from "./video";
 
 interface SocialPostSchemaInput {
+  id?: string;
   author: { name: string; url: string; username: string };
   commentCount: number;
   content: string;
@@ -23,6 +25,7 @@ export function buildSocialPostJsonLd(post: SocialPostSchemaInput) {
     .map((media) => ({
       "@type": "VideoObject",
       contentUrl: absoluteUrl(`/api/media/${media.id}`),
+      ...(post.id ? { embedUrl: videoWatchUrl(post.id, media.id) } : {}),
       name: post.headline,
       thumbnailUrl: absoluteUrl(`/api/media/${media.id}?thumb=1`),
       uploadDate: post.createdAt.toISOString(),

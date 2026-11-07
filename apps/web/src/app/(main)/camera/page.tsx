@@ -5,6 +5,7 @@ import ClientCamera from "@/components/camera/client-camera";
 
 export const metadata: Metadata = {
   description: "Capture fleets and gusts with your camera.",
+  robots: { follow: true, index: false },
   title: "Camera",
 };
 

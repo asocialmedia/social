@@ -1,5 +1,6 @@
 "use client";
 
+import type { ExternalPost } from "@asm/protocols/contracts";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -23,11 +24,15 @@ import { ExternalDiscussion } from "./external-discussion";
 import { useBlueskyProfile } from "./use-bluesky-profile";
 import { useExternalPost } from "./use-external-post";
 
-export function ExternalPostPage() {
+export function ExternalPostPage({
+  initialPost,
+}: {
+  initialPost?: ExternalPost;
+}) {
   const params = useSearchParams();
   const uri = params.get("uri") ?? "";
   const router = useRouter();
-  const query = useExternalPost(uri);
+  const query = useExternalPost(uri, initialPost);
 
   const session = useSession();
   const isLoggedIn = Boolean(session.user);

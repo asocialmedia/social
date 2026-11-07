@@ -244,7 +244,8 @@ export async function readBlueskyPosts(
   signal?: AbortSignal,
   requestId?: string,
   recommendations = false,
-  requireComplete = false
+  requireComplete = false,
+  includeExplicit?: boolean
 ) {
   const service = process.env.PROTOCOLS_SERVICE_URL;
   const token = process.env.PROTOCOLS_INTERNAL_TOKEN;
@@ -268,7 +269,7 @@ export async function readBlueskyPosts(
   if (requireComplete) {
     url.searchParams.set("presence", "1");
   }
-  await applyViewerMediaPolicy(url);
+  await applyViewerMediaPolicy(url, includeExplicit);
   const boundedSignal = signal
     ? AbortSignal.any([signal, AbortSignal.timeout(15_000)])
     : AbortSignal.timeout(15_000);

@@ -14,7 +14,10 @@ import { cacheLife, cacheTag } from "next/cache";
 import { getPostUrl } from "@/lib/seo/seo";
 import { profilePath } from "@/lib/users/profile-path";
 
+import { getPublicBlueskyDiscovery } from "./bluesky-discovery";
+import { blueskyPostPath } from "./bluesky-metadata";
 import { publicPostReadable } from "./public-post-readability";
+import { videoWatchUrl } from "./video";
 
 // Sitemap architecture
 // ────────────────────
@@ -40,6 +43,8 @@ export const SITEMAP_IDS = [
   "users",
   "tags",
   "communities",
+  "bluesky",
+  "videos",
 ] as const;
 
 export type SitemapId = (typeof SITEMAP_IDS)[number];
@@ -52,6 +57,13 @@ const SITEMAP_URL_LIMIT = 20_000;
 
 export interface SitemapEntry {
   images?: string[];
+  videos?: {
+    title: string;
+    description: string;
+    thumbnailUrl: string;
+    contentUrl: string;
+    publicationDate: Date;
+  }[];
   lastModified?: Date;
   url: string;
 }
@@ -83,15 +95,15 @@ function formatW3cDate(date: Date): string {
 
 export function buildSitemapXml(entries: SitemapEntry[]): string {
   const urls = entries.map(
-    ({ images, lastModified, url }) =>
+    ({ images, videos, lastModified, url }) =>
       `<url><loc>${escapeXml(url)}</loc>${
         lastModified ? `<lastmod>${formatW3cDate(lastModified)}</lastmod>` : ""
-      }${renderImages(images)}</url>`
+      }${renderImages(images)}${(videos ?? []).map((video) => `<video:video><video:thumbnail_loc>${escapeXml(video.thumbnailUrl)}</video:thumbnail_loc><video:title>${escapeXml(video.title)}</video:title><video:description>${escapeXml(video.description)}</video:description><video:content_loc>${escapeXml(video.contentUrl)}</video:content_loc><video:publication_date>${formatW3cDate(video.publicationDate)}</video:publication_date></video:video>`).join("")}</url>`
   );
 
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">${urls.join(
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1" xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">${urls.join(
       ""
     )}</urlset>`
   );
@@ -407,8 +419,67 @@ async function getCommunityEntries(): Promise<SitemapEntry[]> {
   }));
 }
 
+async function getVideoEntries(): Promise<SitemapEntry[]> {
+  const posts = await prisma.orm.public.Posts.select(
+    "id",
+    "content",
+    "createdAt",
+    "semanticTags",
+    "embeds"
+  )
+    .include("postToTags", (links) =>
+      links.include("tag", (tag) => tag.select("name"))
+    )
+    .include("postMedias", (media) =>
+      media.where({ _type: "VIDEO", status: "READY" }).select("id", "altText")
+    )
+    .where((post) =>
+      and(
+        post.moderated.eq(false),
+        post.explicitContent.eq(false),
+        post.user.some((user) => user.banned.eq(false)),
+        communityVisibilityWhere("")(post),
+        post.postMedias.some((media) =>
+          and(media.status.eq("READY"), media._type.eq("VIDEO"))
+        )
+      )
+    )
+    .orderBy((post) => post.createdAt.desc())
+    .limit(SITEMAP_URL_LIMIT)
+    .all();
+  return posts.filter(publicPostReadable).flatMap((post) =>
+    post.postMedias.map((media) => ({
+      lastModified: fromPrismaDateTime(post.createdAt),
+      url: videoWatchUrl(post.id, media.id),
+      videos: [
+        {
+          contentUrl: `${siteConfig.url}/api/media/${media.id}`,
+          description: (
+            post.content ||
+            media.altText ||
+            "Watch this video on asocialmedia."
+          ).slice(0, 2048),
+          publicationDate: fromPrismaDateTime(post.createdAt),
+          thumbnailUrl: `${siteConfig.url}/api/media/${media.id}?thumb=1`,
+          title: (post.content || "Video on asocialmedia").slice(0, 100),
+        },
+      ],
+    }))
+  );
+}
+
 export function getSitemapEntries(id: SitemapId): Promise<SitemapEntry[]> {
   switch (id) {
+    case "bluesky": {
+      return getPublicBlueskyDiscovery().then((posts) =>
+        posts.map((post) => ({
+          url: `${siteConfig.url}${blueskyPostPath(post.id)}`,
+        }))
+      );
+    }
+    case "videos": {
+      return getVideoEntries();
+    }
     case "posts": {
       return getPostEntries();
     }

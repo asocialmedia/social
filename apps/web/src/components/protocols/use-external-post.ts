@@ -1,5 +1,6 @@
 "use client";
 
+import type { ExternalPost } from "@asm/protocols/contracts";
 import {
   externalCommentPageSchema,
   externalPostSchema,
@@ -14,7 +15,7 @@ import {
 } from "@/lib/protocols/external-cache";
 import { readProtocolResource } from "@/lib/protocols/read-resource";
 
-export function useExternalPost(uri: string) {
+export function useExternalPost(uri: string, initialPost?: ExternalPost) {
   const { user } = useSession();
   const viewer = user?.id ?? "guest";
   const client = useQueryClient();
@@ -29,6 +30,7 @@ export function useExternalPost(uri: string) {
           return post;
         }
       }
+      return initialPost?.id === uri ? initialPost : undefined;
     },
     initialDataUpdatedAt: 0,
     queryFn: async ({ signal }) => {
