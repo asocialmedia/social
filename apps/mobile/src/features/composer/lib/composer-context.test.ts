@@ -7,6 +7,7 @@ import {
   draftWithContext,
   hasFleetContent,
   removeHnStory,
+  resolveComposerMode,
 } from "./composer-context";
 
 const draft: ComposerDraft = { mentions: [], tags: [], text: "" };
@@ -112,4 +113,13 @@ test("posting inside a community and removing that destination match web", () =>
     composerPublishContext(draftWithContext(next, { kind: "global" }))
       .communityId
   ).toBeUndefined();
+});
+
+test("a reply pins post mode: setMode(gust) with a replyTo is a no-op", () => {
+  // Responses are always posts, so mode=="gust" with a reply set is an
+  // unrepresentable combination the store must never hold.
+  expect(resolveComposerMode(true, "gust")).toBe("post");
+  expect(resolveComposerMode(true, "post")).toBe("post");
+  expect(resolveComposerMode(false, "gust")).toBe("gust");
+  expect(resolveComposerMode(false, "post")).toBe("post");
 });

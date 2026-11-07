@@ -73,136 +73,167 @@ export async function flushGustAlt(localId: string): Promise<void> {
   }
 }
 
+// Queued behind any in-flight op for the same draft (audit S0-2): a second
+// gust asset used to be silently dropped by the `busy` early-return while a
+// thumbnail or sound upload was running.
+const opTails = new Map<string, Promise<void>>();
+
+function enqueueGustOp(
+  localId: string,
+  task: () => Promise<void>
+): Promise<void> {
+  const tail = opTails.get(localId) ?? Promise.resolve();
+  const run = (async () => {
+    try {
+      await tail;
+    } catch {
+      // Predecessors own their errors; the queue still advances.
+    }
+    await task();
+  })();
+  opTails.set(localId, run);
+  void (async () => {
+    try {
+      await run;
+    } catch {
+      // Task errors surface through the draft's error field, not the queue.
+    } finally {
+      if (opTails.get(localId) === run) {
+        opTails.delete(localId);
+      }
+    }
+  })();
+  return run;
+}
+
 // Lives outside React so the inline and modal composers share one upload and one patch.
-export async function setGustAsset(
+export function setGustAsset(
   localId: string,
   videoId: string,
   kind: GustAssetKind,
   file: PickedMedia
 ): Promise<void> {
-  if (useOptions.getState().drafts[localId]?.busy) {
-    return;
-  }
-  const controller = new AbortController();
-  operations.set(localId, controller);
-  const previous = useOptions.getState().drafts[localId]?.[kind];
-  let draft: GustAssetDraft = {
-    file,
-    percent: 0,
-    readyMediaId:
-      previous?.file.uri === file.uri ? previous.readyMediaId : undefined,
-    status: "uploading",
-  };
-  update(localId, { [kind]: draft, busy: true, error: undefined });
-  let uploadedId: string | undefined;
-  const isCurrent = () =>
-    operations.get(localId) === controller && !controller.signal.aborted;
-  try {
-    const mediaId = await prepareGustAsset({
-      existingReadyId: draft.readyMediaId,
-      isCurrent,
-      onUploaded: (id) => {
-        uploadedId = id;
-        draft = { ...draft, readyMediaId: id };
-        if (isCurrent()) {
-          update(localId, { [kind]: draft });
-        }
-      },
-      patch: (id) =>
-        apiJson(gustAssetRoute(videoId, kind), {
-          body: gustAssetPatch(kind, id),
-          method: "PATCH",
-          signal: controller.signal,
-        }),
-      upload: () =>
-        uploadMedia(file, {
-          onBytes: (percent) => {
-            draft = { ...draft, percent };
-            if (isCurrent()) {
-              update(localId, { [kind]: draft });
-            }
-          },
-          onMediaId: (id) => {
-            uploadedId = id;
-          },
-          purpose: "post",
-          signal: controller.signal,
-          waitForProcessing: true,
-        }),
-    });
-    if (mediaId && isCurrent()) {
-      update(localId, {
-        [kind]: {
-          ...draft,
-          percent: 100,
-          readyMediaId: mediaId,
-          status: "ready",
+  return enqueueGustOp(localId, async () => {
+    const controller = new AbortController();
+    operations.set(localId, controller);
+    const previous = useOptions.getState().drafts[localId]?.[kind];
+    let draft: GustAssetDraft = {
+      file,
+      percent: 0,
+      readyMediaId:
+        previous?.file.uri === file.uri ? previous.readyMediaId : undefined,
+      status: "uploading",
+    };
+    update(localId, { [kind]: draft, busy: true, error: undefined });
+    let uploadedId: string | undefined;
+    const isCurrent = () =>
+      operations.get(localId) === controller && !controller.signal.aborted;
+    try {
+      const mediaId = await prepareGustAsset({
+        existingReadyId: draft.readyMediaId,
+        isCurrent,
+        onUploaded: (id) => {
+          uploadedId = id;
+          draft = { ...draft, readyMediaId: id };
+          if (isCurrent()) {
+            update(localId, { [kind]: draft });
+          }
         },
-        busy: false,
-        thumbRevision: Date.now(),
+        patch: (id) =>
+          apiJson(gustAssetRoute(videoId, kind), {
+            body: gustAssetPatch(kind, id),
+            method: "PATCH",
+            signal: controller.signal,
+          }),
+        upload: () =>
+          uploadMedia(file, {
+            onBytes: (percent) => {
+              draft = { ...draft, percent };
+              if (isCurrent()) {
+                update(localId, { [kind]: draft });
+              }
+            },
+            onMediaId: (id) => {
+              uploadedId = id;
+            },
+            purpose: "post",
+            signal: controller.signal,
+            waitForProcessing: true,
+          }),
       });
-    } else if (uploadedId) {
-      await discardDraftMedia(uploadedId);
+      if (mediaId && isCurrent()) {
+        update(localId, {
+          [kind]: {
+            ...draft,
+            percent: 100,
+            readyMediaId: mediaId,
+            status: "ready",
+          },
+          busy: false,
+          thumbRevision: Date.now(),
+        });
+      } else if (uploadedId) {
+        await discardDraftMedia(uploadedId);
+      }
+    } catch (error) {
+      if (isCurrent() && !isAbortError(error)) {
+        update(localId, {
+          [kind]: { ...draft, status: "error" },
+          busy: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Couldn't attach that file. Try again.",
+        });
+      } else if (uploadedId) {
+        await discardDraftMedia(uploadedId);
+      }
     }
-  } catch (error) {
-    if (isCurrent() && !isAbortError(error)) {
-      update(localId, {
-        [kind]: { ...draft, status: "error" },
-        busy: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Couldn't attach that file. Try again.",
-      });
-    } else if (uploadedId) {
-      await discardDraftMedia(uploadedId);
+    if (operations.get(localId) === controller) {
+      operations.delete(localId);
     }
-  }
-  if (operations.get(localId) === controller) {
-    operations.delete(localId);
-  }
+  });
 }
 
-export async function removeGustAsset(
+export function removeGustAsset(
   localId: string,
   videoId: string,
   kind: GustAssetKind
 ): Promise<void> {
-  if (useOptions.getState().drafts[localId]?.busy) {
-    return;
-  }
-  const controller = new AbortController();
-  operations.set(localId, controller);
-  const isCurrent = () =>
-    operations.get(localId) === controller && !controller.signal.aborted;
-  update(localId, { busy: true, error: undefined });
-  try {
-    await apiJson(gustAssetRoute(videoId, kind), {
-      body: gustAssetPatch(kind, null),
-      method: "PATCH",
-      signal: controller.signal,
-    });
-    if (isCurrent()) {
-      update(localId, {
-        [kind]: undefined,
-        busy: false,
-        thumbRevision: Date.now(),
+  return enqueueGustOp(localId, async () => {
+    const controller = new AbortController();
+    operations.set(localId, controller);
+    const isCurrent = () =>
+      operations.get(localId) === controller && !controller.signal.aborted;
+    update(localId, { busy: true, error: undefined });
+    try {
+      await apiJson(gustAssetRoute(videoId, kind), {
+        body: gustAssetPatch(kind, null),
+        method: "PATCH",
+        signal: controller.signal,
       });
+      if (isCurrent()) {
+        update(localId, {
+          [kind]: undefined,
+          busy: false,
+          thumbRevision: Date.now(),
+        });
+      }
+    } catch (error) {
+      if (isCurrent() && !isAbortError(error)) {
+        update(localId, {
+          busy: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Couldn't remove that option. Try again.",
+        });
+      }
     }
-  } catch (error) {
-    if (isCurrent() && !isAbortError(error)) {
-      update(localId, {
-        busy: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Couldn't remove that option. Try again.",
-      });
+    if (operations.get(localId) === controller) {
+      operations.delete(localId);
     }
-  }
-  if (operations.get(localId) === controller) {
-    operations.delete(localId);
-  }
+  });
 }
 
 export function clearGustOptions(localId: string) {

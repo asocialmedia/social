@@ -1,15 +1,15 @@
 // Web's publish gate for draft attachments, pure for unit tests:
-// - anything errored blocks until retried or removed
-// - anything still uploading blocks
+// - anything errored or detached blocks until retried or removed
+// - uploading always blocks
 // - posts attach before READY (web's waitForProcessing:false), so a tile
 //   already finalized and "processing in background" does NOT block
 // - eddies wait for READY (waitForProcessing:true)
-import type { UploadStage } from "./upload-status";
+import type { AttachmentStatus } from "../state/attachment-store";
 
 export interface ReadinessItem {
-  isProcessing: boolean;
+  error: string | null;
   mediaId: string | null;
-  stage: UploadStage;
+  status: AttachmentStatus;
   waitForProcessing: boolean;
 }
 
@@ -18,15 +18,20 @@ export function scopeReadiness(items: readonly ReadinessItem[]): {
   isBusy: boolean;
   mediaIds: string[];
 } {
-  const hasError = items.some((item) => item.stage === "error");
+  const hasError = items.some(
+    (item) => item.status === "error" || item.status === "detached"
+  );
   const isBusy = items.some((item) => {
-    if (item.stage === "error") {
+    if (item.status === "error" || item.status === "detached") {
+      return false;
+    }
+    if (item.status === "ready") {
       return false;
     }
     if (item.waitForProcessing) {
-      return item.stage !== "ready";
+      return true;
     }
-    return !item.isProcessing && item.stage !== "ready";
+    return item.status === "uploading";
   });
   return {
     hasError,

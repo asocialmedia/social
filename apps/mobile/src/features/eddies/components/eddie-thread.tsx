@@ -592,12 +592,15 @@ export function EddieThread({
     [postId]
   );
 
-  // Web holds an SSE connection open for the thread and applies created and
-  // deleted events as they land, so an eddie posted elsewhere appears without
-  // waiting for a tick. The poll below stays as the fallback: the stream and
-  // the poll both re-read on reconnect, so they cannot disagree.
+  // Web holds an SSE connection open for every mounted thread (card included:
+  // a standalone Comments opens its own connection when no shared provider
+  // exists) and applies created and deleted events as they land, so an eddie
+  // posted elsewhere appears without waiting for a tick. The poll below stays
+  // as the fallback: the stream and the poll both re-read on reconnect, so
+  // they cannot disagree. Guests get the poll only (web's `!user` rule): the
+  // stream endpoint is auth-gated and stops on 401.
   usePostStream({
-    enabled: pagesInPlace,
+    enabled: true,
     kind: "comments",
     onCountDelta: (delta, eventPostId) => {
       applyCountDelta({ field: "comments", postId: eventPostId }, delta);
@@ -614,11 +617,8 @@ export function EddieThread({
     postId,
   });
 
-  // Web polls the post page's thread (and the open gust drawer) every 8s.
+  // Web refetches every mounted thread every 8s, card included.
   useEffect(() => {
-    if (!pagesInPlace) {
-      return;
-    }
     const poller = createExpoPoller({
       intervalMs: POLL_MS,
       onPoll: async () => {
@@ -636,7 +636,7 @@ export function EddieThread({
     });
     poller.start();
     return () => poller.stop();
-  }, [apiBase, pagesInPlace, postId]);
+  }, [apiBase, postId]);
 
   const loadMore = async () => {
     if (loadingMore || !hasMore) {

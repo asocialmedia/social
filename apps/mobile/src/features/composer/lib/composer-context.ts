@@ -65,6 +65,16 @@ export function draftWithContext(
   }
 }
 
+// A reply target forces post mode (responses are always posts): opening with
+// a reply pins the mode, so a later setMode("gust") — including the
+// draft-hydration path — must not produce mode=="gust" with a reply set.
+export function resolveComposerMode(
+  replying: boolean,
+  requested: ComposerMode
+): ComposerMode {
+  return replying ? "post" : requested;
+}
+
 export function hasFleetContent(
   draft: ComposerDraft,
   mediaCount: number

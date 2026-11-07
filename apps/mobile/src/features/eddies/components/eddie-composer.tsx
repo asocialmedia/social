@@ -30,10 +30,16 @@ import {
   themeText,
 } from "@/components/surface/recipes";
 import { useSessionContext } from "@/features/auth/state/session";
+import { InlineSuggestions } from "@/features/composer/components/inline-suggestions";
+import {
+  activeTrigger,
+  applySuggestion,
+} from "@/features/composer/lib/inline-relations";
 import type { FeedComment } from "@/features/feed/lib/feed-api";
 import { useAppTheme } from "@/theme";
 
 import { EddieAttachmentTile } from "./eddie-attachment-tile";
+import { EddieLinkPreviews } from "./eddie-link-previews";
 import {
   MAX_EDDIE_CHARS,
   MAX_EDDIE_WORDS,
@@ -184,6 +190,14 @@ export function EddieComposer({
   const sender = useEddieSender(postId, parentId);
   const [focused, setFocused] = useState(false);
   const [gifOpen, setGifOpen] = useState(false);
+  // Caret tracking for the @/# suggestion trigger, mirroring the fleet
+  // composer's focused + selection gate. The pick writes the caret back
+  // through `selection` once, then releases it on the next native update.
+  const [cursor, setCursor] = useState(0);
+  const [forcedSelection, setForcedSelection] = useState<{
+    end: number;
+    start: number;
+  } | null>(null);
   const input = premiumInput(isDark, focused);
   const reelsField = reelsInput(isDark);
   const boxSurface = reels
@@ -242,6 +256,17 @@ export function EddieComposer({
   };
 
   const busy = sender.isBusy || sender.sending;
+  const trigger =
+    focused && !sender.sending ? activeTrigger(sender.text, cursor) : null;
+  const pickToken = (token: string) => {
+    if (!trigger) {
+      return;
+    }
+    const next = applySuggestion(sender.text, cursor, trigger, token);
+    sender.setText(next.text);
+    setCursor(next.cursor);
+    setForcedSelection({ end: next.cursor, start: next.cursor });
+  };
   const counter = sender.nearLimit ? (
     <Text
       style={[
@@ -301,14 +326,22 @@ export function EddieComposer({
               editable={!sender.sending}
               multiline
               onBlur={() => setFocused(false)}
-              onChangeText={(value) => sender.setText(value)}
+              onChangeText={(value) => {
+                sender.setText(value);
+                setForcedSelection(null);
+              }}
               onFocus={() => setFocused(true)}
+              onSelectionChange={(event) => {
+                setCursor(event.nativeEvent.selection.start);
+                setForcedSelection(null);
+              }}
               onSubmitEditing={() => {
                 void submit();
               }}
               placeholder={placeholder}
               placeholderTextColor={input.placeholder}
               returnKeyType="send"
+              selection={forcedSelection ?? undefined}
               style={[styles.field, { color: input.text }]}
               submitBehavior="submit"
               value={sender.text}
@@ -352,6 +385,18 @@ export function EddieComposer({
               </>
             )}
           </View>
+          {/* @/# mention + tag suggestions and live link previews, ported from
+              web's CommentInput (comment-suggestions + LinkEmbedComposer).
+              The floating bar already has both; the inline composer matches
+              it so replies from the thread get the same affordances. */}
+          <InlineSuggestions
+            active={trigger}
+            excludedTags={[]}
+            excludedUserIds={[]}
+            onPickTag={(tag) => pickToken(tag)}
+            onPickUser={(pick) => pickToken(pick.username)}
+          />
+          <EddieLinkPreviews content={sender.text} />
           {gifOpen ? (
             <View
               style={[

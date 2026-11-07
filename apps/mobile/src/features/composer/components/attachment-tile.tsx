@@ -308,9 +308,9 @@ export function AttachmentTile({
   const panel = isDark ? APPLE_PANEL_TOKENS.dark : APPLE_PANEL_TOKENS.light;
   const [availableWidth, setAvailableWidth] = useState(1);
   const [previewFailed, setPreviewFailed] = useState(false);
-  const hasError = attachment.stage === "error";
-  const isUploading =
-    !hasError && !attachment.isProcessing && attachment.stage !== "ready";
+  const hasError =
+    attachment.status === "error" || attachment.status === "detached";
+  const isUploading = attachment.status === "uploading";
 
   let preview: React.ReactNode;
   if (previewFailed) {
@@ -394,7 +394,7 @@ export function AttachmentTile({
           >
             {attachment.error ?? "Upload failed"}
           </Text>
-          {attachment.failedStage ? (
+          {attachment.status === "error" && attachment.failedStage ? (
             <Text
               numberOfLines={1}
               style={[styles.errorSub, { color: text.muted }]}
@@ -422,7 +422,7 @@ export function AttachmentTile({
         </Pressable>
       </View>
     );
-  } else if (attachment.isProcessing) {
+  } else if (attachment.status === "processing") {
     actionBar = (
       <View
         style={[

@@ -13,6 +13,10 @@ import { apiJson } from "@/features/media-upload/lib/upload-api";
 import { useAppTheme } from "@/theme";
 
 import type { ActiveTrigger, MentionPick } from "../lib/inline-relations";
+import {
+  readCachedSuggestions,
+  writeCachedSuggestions,
+} from "../lib/suggestion-cache";
 
 const MAX_SUGGESTIONS = 6;
 
@@ -52,33 +56,47 @@ export function InlineSuggestions({
     }
     const key = `${trigger}${query}`;
     latestQuery.current = key;
+    const applyRows = (rows: { tags: string[]; users: SearchUser[] }) => {
+      if (latestQuery.current !== key) {
+        return;
+      }
+      const matchedUsers = rows.users
+        .filter((user) => !excludedUserIds.includes(user.id))
+        .slice(0, MAX_SUGGESTIONS);
+      const matchedTags = rows.tags
+        .filter((tag) => !excludedTags.includes(tag))
+        .slice(0, MAX_SUGGESTIONS);
+      if (trigger === "@") {
+        setUsers(matchedUsers);
+        setTags([]);
+      } else {
+        setTags(matchedTags);
+        setUsers([]);
+      }
+    };
+    const cached = readCachedSuggestions(key);
+    if (cached) {
+      applyRows(cached);
+      return;
+    }
     const timer = setTimeout(() => {
       setLoading(true);
       void (async () => {
         try {
+          let rows: { tags: string[]; users: SearchUser[] };
           if (trigger === "@") {
             const data = await apiJson<{ users?: SearchUser[] }>(
               `/api/users/search?q=${encodeURIComponent(query)}`
             );
-            if (latestQuery.current === key) {
-              setUsers(
-                (data.users ?? [])
-                  .filter((user) => !excludedUserIds.includes(user.id))
-                  .slice(0, MAX_SUGGESTIONS)
-              );
-            }
+            rows = { tags: [], users: data.users ?? [] };
           } else {
             const data = await apiJson<{ tags?: string[] }>(
               `/api/tags?q=${encodeURIComponent(query)}`
             );
-            if (latestQuery.current === key) {
-              setTags(
-                (data.tags ?? [])
-                  .filter((tag) => !excludedTags.includes(tag))
-                  .slice(0, MAX_SUGGESTIONS)
-              );
-            }
+            rows = { tags: data.tags ?? [], users: [] };
           }
+          writeCachedSuggestions(key, rows);
+          applyRows(rows);
         } catch {
           if (latestQuery.current === key) {
             setUsers([]);
