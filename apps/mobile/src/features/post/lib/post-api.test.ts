@@ -2,7 +2,47 @@
 // excludes gusts and the current post from recommendations under "View more content".
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { fetchRelatedPosts } from "./post-api";
+import { fetchRelatedPosts, recordExternalPostVisit } from "./post-api";
+
+describe("recordExternalPostVisit", () => {
+  test("posts web's external visit body with the session cookie", async () => {
+    const calls: { body: unknown; method: string; url: string }[] = [];
+    const baseFetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({
+        body: JSON.parse(String(init?.body)),
+        method: String(init?.method),
+        url: String(input),
+      });
+      return Promise.resolve(Response.json({ success: true }));
+    }) as unknown as typeof fetch;
+    const externalPost = { id: "at://did:plc:a/app.bsky.feed.post/1" };
+    await recordExternalPostVisit(externalPost, {
+      apiBase: "https://example.com",
+      baseFetch,
+      cookie: "session=1",
+    });
+    expect(calls).toEqual([
+      {
+        body: {
+          externalPost,
+          postId: externalPost.id,
+          uri: externalPost.id,
+        },
+        method: "POST",
+        url: "https://example.com/api/posts/visit",
+      },
+    ]);
+  });
+
+  test("swallows network failures", async () => {
+    const baseFetch = (() =>
+      Promise.reject(new Error("offline"))) as unknown as typeof fetch;
+    await recordExternalPostVisit(
+      { id: "at://did:plc:a/app.bsky.feed.post/1" },
+      { apiBase: "https://example.com", baseFetch }
+    );
+  });
+});
 
 describe("fetchRelatedPosts", () => {
   const originalFetch = globalThis.fetch;

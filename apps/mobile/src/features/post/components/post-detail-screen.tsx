@@ -57,6 +57,7 @@ import { normalizePostData } from "@/features/feed/lib/feed-types";
 import { viewBatcher } from "@/features/feed/lib/view-batcher";
 import { findCachedFeedPost } from "@/features/feed/state/feed-store";
 import { GuestAuthBar } from "@/features/home/components/guest-auth-bar";
+import { resolveProfileImageUrl } from "@/features/home/components/profile-utils";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
 import { getApiBaseUrl } from "@/lib/network/api-env";
@@ -68,6 +69,7 @@ import {
   recordPostVisit,
 } from "../lib/post-api";
 import { postDetailCache, postDetailKey } from "../lib/post-cache";
+import { postHeaderImage, postHeaderTitles } from "../lib/post-header";
 import { PostDetailCard } from "./post-detail-card";
 import { PostDetailHeader } from "./post-detail-header";
 import { PostDetailSkeleton } from "./post-detail-skeleton";
@@ -501,7 +503,13 @@ export function PostDetailScreen({ postId }: { postId: string }) {
     );
   }
 
-  if (!post) {
+  const headerTitles = post ? postHeaderTitles(post) : null;
+  const rawHeaderImage = post ? postHeaderImage(post) : null;
+  const headerImage = rawHeaderImage
+    ? resolveProfileImageUrl(rawHeaderImage, getApiBaseUrl())
+    : null;
+
+  if (!post || !headerTitles) {
     return (
       <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
         <View style={styles.centerWrap}>
@@ -517,7 +525,12 @@ export function PostDetailScreen({ postId }: { postId: string }) {
       ref={viewportRef}
       style={[styles.root, { backgroundColor: theme.containerBg }]}
     >
-      <PostDetailHeader onBack={handleGoBack} />
+      <PostDetailHeader
+        bannerUrl={headerImage}
+        onBack={handleGoBack}
+        subtitle={headerTitles.subtitle}
+        title={headerTitles.title}
+      />
       <ScrollView
         contentContainerStyle={{ paddingBottom: feedBottomPad }}
         onMomentumScrollEnd={(event) => {
