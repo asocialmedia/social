@@ -22,6 +22,7 @@ import { FeedMediaScope } from "@/features/feed/components/post-media";
 import { ShareSheet } from "@/features/feed/components/share-sheet";
 import { usePostOverflow } from "@/features/feed/components/use-post-overflow";
 import { externalPostView } from "@/features/feed/lib/external-post-view";
+import { FEED_LOAD_MORE_SKELETON_COUNT } from "@/features/feed/lib/feed-skeleton-layout";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { orderByIndex } from "@/features/feed/lib/feed-types";
 import { hasVideoAttachment } from "@/features/feed/lib/media-kind";
@@ -320,10 +321,10 @@ export function HashtagFeed({ tag }: { tag: string }) {
       />
     );
   } else if (fetching || waitingForContent) {
-    // Web's LoadMoreSkeleton: two post skeletons rather than a spinner.
+    // Web's LoadMoreSkeleton: four post skeletons rather than a spinner.
     footer = (
       <View>
-        {[0, 1].map((index) => (
+        {Array.from({ length: FEED_LOAD_MORE_SKELETON_COUNT }, (_, index) => (
           <View
             key={index}
             style={{

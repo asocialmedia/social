@@ -41,16 +41,18 @@ export function drainSseFrames(buffer: string): {
     const raw = rest.slice(0, boundary);
     rest = rest.slice(boundary + 2);
     let event = "message";
-    let data: string | null = null;
+    const dataLines: string[] = [];
     for (const line of raw.split("\n")) {
       if (line.startsWith("event:")) {
         event = line.slice("event:".length).trim();
       } else if (line.startsWith("data:")) {
-        data = line.slice("data:".length).trim();
+        // The SSE spec joins multi-line data with "\n"; the last `data:`
+        // used to win, silently truncating multi-line payloads.
+        dataLines.push(line.slice("data:".length).trim());
       }
     }
-    if (data !== null) {
-      frames.push({ data, event });
+    if (dataLines.length > 0) {
+      frames.push({ data: dataLines.join("\n"), event });
     }
   }
   return { frames, rest };
@@ -133,6 +135,7 @@ export async function readSseStream({
     controller?.abort();
     if (retryTimer !== null) {
       clearTimeoutFn(retryTimer);
+      retryTimer = null;
     }
     updateStatus("closed");
   };
@@ -142,8 +145,11 @@ export async function readSseStream({
       return;
     }
     updateStatus("connecting");
-    controller = new AbortController();
-    const onAbort = () => controller?.abort();
+    const attempt = new AbortController();
+    controller = attempt;
+    // Closes over this attempt's controller: a later attempt replacing the
+    // module-level slot must not abort (or be aborted through) this one.
+    const onAbort = () => attempt.abort();
     signal?.addEventListener("abort", onAbort);
     try {
       const headers: Record<string, string> = { accept: "text/event-stream" };
@@ -212,6 +218,9 @@ export async function readSseStream({
     const delay = retryDelay;
     retryDelay = Math.min(retryDelay * 2, SSE_MAX_RETRY_MS);
     retryTimer = setTimeoutFn(() => {
+      // Null the slot when the timer fires: stop() after a fired timer must
+      // not clearTimeout a dead handle while a newer attempt owns the slot.
+      retryTimer = null;
       void connect();
     }, delay);
   };
