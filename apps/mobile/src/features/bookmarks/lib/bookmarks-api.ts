@@ -103,3 +103,90 @@ export async function fetchBookmarkedHn(
   }
   return parseHnStories(await readJson(response));
 }
+
+export interface BookmarkCounts {
+  gustCount: number;
+  hnCount: number;
+  postCount: number;
+}
+
+function countOf(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : 0;
+}
+
+export function parseBookmarkCounts(payload: unknown): BookmarkCounts {
+  const row = objectOf(payload) ?? {};
+  return {
+    gustCount: countOf(row.gustCount),
+    hnCount: countOf(row.hnCount),
+    postCount: countOf(row.postCount),
+  };
+}
+
+// Web's useBookmarkCount source: the per-tab totals behind the tab badges.
+export async function fetchBookmarkCounts(
+  options: ApiCallOptions
+): Promise<BookmarkCounts> {
+  const response = await get("/api/bookmarks/count", options);
+  if (!response.ok) {
+    throw new Error(`Bookmark count request failed (${response.status})`);
+  }
+  return parseBookmarkCounts(await readJson(response));
+}
+
+export type BookmarkTab = "gusts" | "hackernews" | "likes" | "posts";
+
+// Web's per-tab empty and error copy (bookmarks.tsx, bookmarked-gusts.tsx,
+// liked-posts.tsx). Posts and HackerNews show the illustration, gusts and
+// likes a small glyph.
+export const BOOKMARK_TAB_COPY: Record<
+  BookmarkTab,
+  { description: string; error: string; illustrated: boolean; title: string }
+> = {
+  gusts: {
+    description: "Gusts you bookmark will show up here.",
+    error: "An error occurred while loading bookmarked gusts.",
+    illustrated: false,
+    title: "No bookmarked gusts yet.",
+  },
+  hackernews: {
+    description: "Bookmark HackerNews stories to read them later.",
+    error: "An error occurred while loading HackerNews bookmarks.",
+    illustrated: true,
+    title: "No bookmarked HackerNews stories.",
+  },
+  likes: {
+    description: "Posts you amplify will show up here.",
+    error: "An error occurred while loading liked posts.",
+    illustrated: false,
+    title: "No liked posts yet.",
+  },
+  posts: {
+    description: "Bookmark fleets to read them later.",
+    error: "An error occurred while loading bookmarked fleets.",
+    illustrated: true,
+    title: "You don't have any bookmarks yet.",
+  },
+};
+
+// The badge count web shows beside a tab label (Likes has none).
+export function bookmarkTabCount(
+  tab: BookmarkTab,
+  counts: BookmarkCounts | null
+): number {
+  if (!counts) {
+    return 0;
+  }
+  if (tab === "posts") {
+    return counts.postCount;
+  }
+  if (tab === "gusts") {
+    return counts.gustCount;
+  }
+  if (tab === "hackernews") {
+    return counts.hnCount;
+  }
+  return 0;
+}
