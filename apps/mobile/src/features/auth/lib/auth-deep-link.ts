@@ -1,8 +1,11 @@
 // Maps the web auth links that arrive by email (verify-email and the reset
 // confirm page) onto the native auth routes. Returns null for anything else
-// so the caller can fall through to the general link table.
+// so the caller can fall through to the general link table. OAuth failures
+// also arrive as auth links: /login/error carries the provider's `?error=`
+// (and `?email=`) to the login-error screen, and /two-factor falls back to
+// the login screen that hosts the inline 2FA challenge.
 const HOSTS = new Set(["asocialmedia.cc", "www.asocialmedia.cc"]);
-const FORWARDED_PARAMS = ["token", "error", "verified"];
+const FORWARDED_PARAMS = ["token", "error", "verified", "email"];
 
 function toPathAndQuery(value: string): URL | null {
   try {
@@ -57,6 +60,14 @@ export function authDeepLinkPath(value: string): string | null {
   }
   if (pathname === "/signup") {
     return "/signup";
+  }
+  if (pathname === "/login/error") {
+    return `/login-error${forwardQuery(url)}`;
+  }
+  // Web's standalone 2FA page has no native counterpart; the login screen
+  // hosts the same challenge inline (email, authenticator and recovery code).
+  if (pathname === "/two-factor") {
+    return "/login";
   }
   return null;
 }

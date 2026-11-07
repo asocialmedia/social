@@ -227,7 +227,69 @@ export function describeOAuthRedirectError(
   );
 }
 
+// The (auth)/login/error page's own copy, keyed by its `?error=` search
+// param. Separate from the redirect toast map above: the page names the fix
+// (sign in first, then connect) rather than just the failure.
+const LOGIN_ERROR_MESSAGES: Record<string, string> = {
+  USERNAME_IS_ALREADY_TAKEN:
+    "Sign in to your existing asocialmedia account, then connect this provider in Settings.",
+  accountNotFound: "Account not found.",
+  account_not_linked:
+    "Sign in to your existing asocialmedia account, then connect this provider in Settings.",
+  emailExists: "This email is already registered.",
+  invalidCredentials: "Invalid email or password.",
+  oauthError: "Error connecting with social provider.",
+  oauth_email_not_verified:
+    "Verify your Google email before using it to sign in.",
+  serverError: "An unexpected error occurred.",
+  unauthorized: "You must be logged in to access this page.",
+};
+
+export function describeLoginError(code: string | null | undefined): string {
+  if (!code) {
+    return "An error occurred";
+  }
+  return (
+    LOGIN_ERROR_MESSAGES[code] ?? "Couldn't complete sign-in. Please try again."
+  );
+}
+
 const ERROR_PARAM = /[?&]error=(?<code>[^&#]*)/;
+
+// Pathname of a deep link without the URL class, which rejects some custom
+// schemes on Hermes. Returns "/" when the link carries no path.
+export function deepLinkPathname(url: string): string | null {
+  const match = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/?#]*(?<path>\/[^?#]*)?/.exec(
+    url
+  );
+  if (!match) {
+    return null;
+  }
+  return match.groups?.path ?? "/";
+}
+
+// Whether a deep link is one of the auth callbacks (`/login`, `/`), so a
+// global link listener can ignore verify-email, notification and other links
+// that happen to arrive mid-flow.
+export function isAuthCallbackUrl(
+  url: string | null | undefined,
+  allowedPaths: ReadonlySet<string> = new Set(["/", "/login"])
+): boolean {
+  if (!url) {
+    return false;
+  }
+  const pathname = deepLinkPathname(url);
+  if (pathname === null) {
+    return false;
+  }
+  if (allowedPaths.has(pathname)) {
+    return true;
+  }
+  // Expo Go wraps the route (`exp://host/--/login?error=`).
+  return [...allowedPaths].some(
+    (allowed) => allowed !== "/" && pathname.endsWith(allowed)
+  );
+}
 
 // Pulls the `error` query value off a deep link. Works for both the release
 // scheme (`asocialmedia:///login?error=x`) and Expo Go (`exp://h:p/--/?error=x`)

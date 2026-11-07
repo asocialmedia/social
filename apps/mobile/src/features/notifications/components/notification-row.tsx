@@ -65,7 +65,10 @@ const ICONS: Record<
 
 interface NotificationRowProps {
   notification: GroupedNotificationItem;
-  onOpen: (target: NotificationTarget) => void;
+  onOpen: (
+    target: NotificationTarget,
+    type: GroupedNotificationItem["type"]
+  ) => void;
 }
 
 // Web's type badge box-shadow, exact: a bright inner lip over the gradient plus
@@ -260,9 +263,10 @@ export function NotificationRow({
   const Icon = ICONS[presentation.icon];
 
   // The screen resolves every target, posts included, so a tap navigates
-  // exactly once.
+  // exactly once. The row's own type rides along so join-request rows can
+  // open the community with its requests panel showing.
   const handlePress = () => {
-    onOpen(presentation.target);
+    onOpen(presentation.target, notification.type);
   };
 
   const unread = !notification.read;

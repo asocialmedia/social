@@ -34,6 +34,7 @@ import {
   describeAuthError,
   describeOAuthRedirectError,
   extractRedirectError,
+  isAuthCallbackUrl,
 } from "@/features/auth/lib/auth-errors";
 import type { AuthErrorKind } from "@/features/auth/lib/auth-errors";
 import {
@@ -139,11 +140,19 @@ function needsInstallToken(result: SignInResult | SocialResult): boolean {
 // the user back. The expo client swallows that URL, so this is the only way
 // to see a provider's `?error=` code. Module-level on purpose: the React
 // Compiler does not analyse try/finally inside components.
+// Only an auth callback may set the captured code. The listener is global,
+// so without the path check a verify-email or notification link arriving
+// mid-flow would be misread as the provider's answer (or wipe it).
+const AUTH_CALLBACK_PATHS = new Set(["/", "/login"]);
+
 async function withRedirectCapture<T>(
   run: () => Promise<T>
 ): Promise<{ code: string | null; result: T }> {
   const captured = { code: null as string | null };
   const subscription = Linking.addEventListener("url", ({ url }) => {
+    if (!isAuthCallbackUrl(url, AUTH_CALLBACK_PATHS)) {
+      return;
+    }
     captured.code = extractRedirectError(url) ?? captured.code;
   });
   try {
@@ -180,10 +189,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     const flight = refreshNativeSession(refetch);
     refreshFlight.current = flight;
+    const clearFlight = () => {
+      // Identity-checked: a newer refresh may already own the slot.
+      if (refreshFlight.current === flight) {
+        refreshFlight.current = null;
+      }
+    };
+    // Rejection clears too: refreshNativeSession returns a status rather than
+    // throwing, but if that ever changes a stuck slot would stall every later
+    // refresh (and the 5-minute poller) forever.
     // oxlint-disable-next-line promise/prefer-await-to-then -- observe completion without awaiting the shared promise in this synchronous callback
-    void flight.then(() => {
-      refreshFlight.current = null;
-    });
+    void flight.then(clearFlight, clearFlight);
     return flight;
   }, [refetch]);
 

@@ -52,7 +52,7 @@ export function nativeNetworkPath(value: string): string | null {
       : `/posts/${post.groups?.postId}${url.search}`;
   }
   if (
-    /^\/(?:users\/[^/]+(?:\/(?:followers|following))?|a\/[^/]+|messages(?:\/[^/]+(?:\/[^/]+)?)?|external-(?:post|profile|media|library|following)|settings|gusts|discover|bookmarks|history|notifications|communities|hashtag\/[^/]+|login)$/.test(
+    /^\/(?:users\/[^/]+(?:\/(?:followers|following))?|a\/[^/]+|messages(?:\/[^/]+(?:\/[^/]+)?)?|external-(?:post|profile|media|library|following)|camera|settings|gusts|hackernews|discover|bookmarks|history|notifications|communities|support|login-error|hashtag\/[^/]+|login)$/.test(
       url.pathname
     ) ||
     url.pathname === "/"
@@ -76,6 +76,8 @@ export function nativeNetworkPath(value: string): string | null {
 // Web's appPaths (apps/web/src/lib/users/profile-path.ts): top-level routes
 // that are never a short profile URL.
 const WEB_APP_PATHS = new Set([
+  ".well-known",
+  "_next",
   "a",
   "about",
   "api",
@@ -84,22 +86,28 @@ const WEB_APP_PATHS = new Set([
   "client",
   "communities",
   "discover",
+  "feed.xml",
   "gusts",
   "hackernews",
   "hashtag",
+  "llms.txt",
   "login",
+  "login-error",
   "messages",
   "network",
   "notifications",
   "posts",
   "privacy",
+  "reset-password",
   "settings",
   "signup",
   "sitemaps",
   "soon",
   "support",
   "toc",
+  "two-factor",
   "users",
+  "verify-email",
 ]);
 
 export function externalShareUrl(

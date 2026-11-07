@@ -15,7 +15,7 @@ import {
   Mail,
   XCircle,
 } from "lucide-react-native";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -159,6 +159,11 @@ export default function SignupScreen() {
   const [tooltipDismissed, setTooltipDismissed] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  // One in-flight flag across verify/resend/link-send. The per-button states
+  // above only paint spinners; this ref is the actual gate, so a resend can
+  // never invalidate a code that is being verified in the same frame (or land
+  // a verify on a code the resend just replaced).
+  const otpFlightRef = useRef(false);
 
   const showOTPPanel = stage === "otp" || stage === "email-verify";
   const showEmailVerification = stage === "email-verify";
@@ -309,15 +314,24 @@ export default function SignupScreen() {
 
   const verifyOtp = useCallback(
     async (otpValue: string) => {
-      if (otpValue.length !== 6 || isVerifyingOtp || expiryCount === 0) {
+      if (
+        otpValue.length !== 6 ||
+        isVerifyingOtp ||
+        otpFlightRef.current ||
+        expiryCount === 0
+      ) {
         return;
       }
+      otpFlightRef.current = true;
       setIsVerifyingOtp(true);
       setOtpError(false);
       const result = await verifySignupOtp(
         currentEmail || email.trim(),
         otpValue
       );
+      // No finally: the React Compiler rejects try/finally, so the flight
+      // clears here, on the only path out of the await.
+      otpFlightRef.current = false;
       setIsVerifyingOtp(false);
       if (!result.ok) {
         setOtpError(true);
@@ -375,12 +389,16 @@ export default function SignupScreen() {
   );
 
   const handleResendOtp = useCallback(async () => {
-    if (isResending) {
+    if (isResending || otpFlightRef.current) {
       return;
     }
+    otpFlightRef.current = true;
     setIsResending(true);
     setTooltipDismissed(true);
     const result = await resendSignupOtp(currentEmail || email.trim());
+    // No finally: the React Compiler rejects try/finally, so the flight
+    // clears here, on the only path out of the await.
+    otpFlightRef.current = false;
     setIsResending(false);
     setTooltipDismissed(false);
     if (!result.ok) {
@@ -422,14 +440,18 @@ export default function SignupScreen() {
   }, [currentEmail, email, setOTPState]);
 
   const handleResendVerificationLink = useCallback(async () => {
-    if (isResending) {
+    if (isResending || otpFlightRef.current) {
       return;
     }
+    otpFlightRef.current = true;
     setIsResending(true);
     setFormError(null);
     const result = await sendSignupVerificationLink(
       currentEmail || email.trim()
     );
+    // No finally: the React Compiler rejects try/finally, so the flight
+    // clears here, on the only path out of the await.
+    otpFlightRef.current = false;
     setIsResending(false);
     if (!result.ok) {
       setFormError(result.error ?? "Couldn't send the verification link.");

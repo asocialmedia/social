@@ -22,6 +22,9 @@ export interface NativeNotificationOptions {
   // Community chat ships behind a flag. With it off the chat route redirects
   // home, so a chat notification opens the community page instead.
   communityChatEnabled?: boolean;
+  // A join-request row lands on the community with its requests panel open,
+  // matching web's `?requests=1` href.
+  requestsLink?: boolean;
 }
 
 export function nativeNotificationAction(
@@ -52,7 +55,14 @@ export function nativeNotificationAction(
       };
     }
     case "community": {
-      return { path: { params: { slug: target.slug }, pathname: "/a/[slug]" } };
+      return {
+        path: {
+          params: options.requestsLink
+            ? { requests: "1", slug: target.slug }
+            : { slug: target.slug },
+          pathname: "/a/[slug]",
+        },
+      };
     }
     case "communityChat": {
       if (!communityChatEnabled) {

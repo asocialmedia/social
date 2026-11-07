@@ -88,4 +88,10 @@ test("short profile URLs open the native profile", () => {
   expect(nativeNetworkPath("/about")).toBeNull();
   expect(nativeNetworkPath("/Privacy")).toBeNull();
   expect(nativeNetworkPath("/verify-email")).toBeNull();
+  // Every native top-level route survives the system-intent redirect instead
+  // of falling through to /notifications.
+  expect(nativeNetworkPath("asocialmedia://hackernews?sort=score")).toBe(
+    "/hackernews?sort=score"
+  );
+  expect(nativeNetworkPath("asocialmedia://camera")).toBe("/camera");
 });

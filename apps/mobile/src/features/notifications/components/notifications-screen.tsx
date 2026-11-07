@@ -297,13 +297,15 @@ export function NotificationsScreen() {
   );
 
   const handleOpen = useCallback(
-    (target: NotificationTarget) => {
+    (target: NotificationTarget, type: GroupedNotificationItem["type"]) => {
       // Every target the app cannot open names the gap instead of doing nothing.
       // A den notification arriving in a list with no den screen is the ordinary
       // case here, not an edge case, and a tap that silently did nothing would
       // read as a broken app rather than as a feature that lives on the web.
       const action = nativeNotificationAction(target, {
         communityChatEnabled: communityChatUiEnabled,
+        requestsLink:
+          target.kind === "community" && type === "COMMUNITY_JOIN_REQUEST",
       });
       if (action.notice) {
         toast(action.notice);
