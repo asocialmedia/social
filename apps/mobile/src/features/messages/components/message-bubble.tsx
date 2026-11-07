@@ -91,6 +91,7 @@ import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { MessageBubbleEntrance } from "./message-bubble-entrance";
+import { LinkifiedMessageText, MessageLinkEmbed } from "./message-link-embed";
 import { MessagePostPreview } from "./message-post-preview";
 import { MessageSearchHighlight } from "./message-search-highlight";
 import {
@@ -821,14 +822,18 @@ function MessageBubbleInner({
               </Text>
             </View>
           ) : null}
-          <Text
+          <LinkifiedMessageText
+            content={payload.content}
             style={[
               mine ? styles.textMine : styles.textTheirs,
               !mine && { color: isDark ? "#eeeeee" : "#202020" },
             ]}
-          >
-            {payload.content}
-          </Text>
+          />
+          <MessageLinkEmbed
+            content={payload.content}
+            mine={mine}
+            width={bubbleWidth - 28}
+          />
           {edited ? (
             <Text style={[styles.edited, mine && styles.editedMine]}>
               edited

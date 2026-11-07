@@ -81,3 +81,20 @@ export function conversationCounts(
   }
   return counts;
 }
+
+// Conversations with anything unread, per filter, for web's tab unread dot.
+export function unreadConversationCounts(
+  rows: readonly {
+    conversation: MessageConversationData;
+    unreadCount: number;
+  }[]
+) {
+  const counts = { ALL: 0, DEN: 0, DM: 0 };
+  for (const row of rows) {
+    if (row.unreadCount > 0) {
+      counts.ALL += 1;
+      counts[conversationKind(row.conversation)] += 1;
+    }
+  }
+  return counts;
+}

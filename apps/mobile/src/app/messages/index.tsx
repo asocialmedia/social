@@ -8,18 +8,43 @@
 // wraps both screens at once: background key recovery is shared between the
 // list and a thread. The layout still renders
 // above this screen, so a deep link into a thread resolves its key first.
-import { useRouter } from "expo-router";
+//
+// `?dm=<userId>` is web's profile deep link: the list creates or finds that DM
+// once the identity is ready, and the param is cleared so a back navigation to
+// the list does not open it again.
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback } from "react";
 
 import { ConversationListScreen } from "@/features/messages/components/conversation-list-screen";
 
 export default function MessagesRoute() {
   const router = useRouter();
+  const { dm } = useLocalSearchParams<{ dm?: string | string[] }>();
+  const dmUserId = Array.isArray(dm) ? dm[0] : dm;
   const open = useCallback(
     (conversationId: string) => {
       router.push(`/messages/${conversationId}`);
     },
     [router]
   );
-  return <ConversationListScreen onOpen={open} />;
+  const openMessage = useCallback(
+    (conversationId: string, messageId: string) => {
+      router.push({
+        params: { conversationId, mid: messageId },
+        pathname: "/messages/[conversationId]",
+      });
+    },
+    [router]
+  );
+  const clearDm = useCallback(() => {
+    router.setParams({ dm: undefined });
+  }, [router]);
+  return (
+    <ConversationListScreen
+      dmUserId={dmUserId ?? null}
+      onDmHandled={clearDm}
+      onOpen={open}
+      onOpenMessage={openMessage}
+    />
+  );
 }

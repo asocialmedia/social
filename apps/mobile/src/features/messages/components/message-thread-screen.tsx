@@ -168,6 +168,7 @@ const SELF_GROUP = {
 export function MessageThreadScreen(props: {
   conversationId: string;
   onBack: () => void;
+  requestedMessageId?: string;
 }) {
   return (
     <NativeChatLifecycleBoundary
@@ -183,9 +184,11 @@ export function MessageThreadScreen(props: {
 function NormalMessageThreadScreen({
   conversationId,
   onBack,
+  requestedMessageId,
 }: {
   conversationId: string;
   onBack: () => void;
+  requestedMessageId?: string;
 }) {
   const {
     snapshot: lifecycle,
@@ -897,6 +900,32 @@ function NormalMessageThreadScreen({
     scrollToIndex: scrollToSearchIndex,
     scrollToOffset: scrollToSearchOffset,
   });
+
+  // A global search hit opens the thread at that message (web's `mid`). The
+  // jump waits for the first page so the anchored window replaces a settled
+  // transcript, and fires once per requested id. The timer clears the search
+  // hook's mount-time highlight reset (150 ms) so the shimmer survives.
+  const jumpToRequested = useRef(search.handleJumpTo);
+  useEffect(() => {
+    jumpToRequested.current = search.handleJumpTo;
+  }, [search.handleJumpTo]);
+  const requestedJump = useRef<string | null>(null);
+  const transcriptReady = transcript.snapshot.initialLoaded;
+  useEffect(() => {
+    if (
+      !requestedMessageId ||
+      requestedJump.current === requestedMessageId ||
+      status !== "ready" ||
+      !transcriptReady
+    ) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      requestedJump.current = requestedMessageId;
+      jumpToRequested.current(requestedMessageId, false);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [requestedMessageId, status, transcriptReady]);
 
   const currentConversation = conversation ?? cachedPeer?.conversation ?? null;
   const isDen = currentConversation

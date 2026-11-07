@@ -17,6 +17,7 @@ import type { MessageReactionSummary } from "@asm/messages";
 //   `linkMessageMedia`/`discardMessageMedia` because those are message-specific,
 //   and the composer calls the native uploader with `purpose: "message"`.
 
+import type { CommunityData } from "@/features/communities/lib/communities-api";
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import { orderedCopy } from "@/lib/format/ordered-copy";
 import { withAuthHeaders } from "@/lib/network/auth-headers";
@@ -34,6 +35,16 @@ import {
 } from "./crypto";
 import type { EncryptedBlob, EncryptedMessage, MessagePayload } from "./crypto";
 import type { EcdhPrivateKey } from "./crypto-primitives";
+import {
+  GLOBAL_SEARCH_TIMEOUT_MS,
+  GlobalSearchRequestError,
+  globalSearchErrorForStatus,
+  parseGlobalSearchPage,
+} from "./global-message-search";
+import type {
+  GlobalMessageSearchFilter,
+  GlobalMessageSearchPage,
+} from "./global-message-search";
 import { HistoryThrottledError } from "./history-throttle";
 import type {
   MessageConversationData,
@@ -1409,4 +1420,97 @@ export function denPersonUnavailable(person: SearchUserResult) {
     return "Only lets people they follow add them";
   }
   return null;
+}
+
+// ---- global message search ----------------------------------------------------
+
+// POST /api/messages/search/global. The server matches the normalized query
+// against its term index and returns ciphertext only; previews are decrypted on
+// the device. Errors carry web's copy and a retry deadline, which is why this
+// does not go through `request` (that maps a 429 to a history throttle).
+export async function searchGlobalMessages(
+  input: {
+    conversationType: GlobalMessageSearchFilter;
+    cursor?: string | null;
+    query: string;
+    sessionToken?: string | null;
+  },
+  options: ApiCallOptions,
+  signal?: AbortSignal
+): Promise<GlobalMessageSearchPage> {
+  const baseFetch = options.baseFetch ?? fetch;
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  if (signal?.aborted) {
+    cancel();
+  } else {
+    signal?.addEventListener("abort", cancel, { once: true });
+  }
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, GLOBAL_SEARCH_TIMEOUT_MS);
+  try {
+    const response = await baseFetch(
+      `${options.apiBase}/api/messages/search/global`,
+      {
+        body: JSON.stringify({
+          conversationType: input.conversationType,
+          ...(input.cursor ? { cursor: input.cursor } : {}),
+          query: input.query,
+          ...(input.sessionToken ? { sessionToken: input.sessionToken } : {}),
+        }),
+        headers: withAuthHeaders(
+          {
+            "Content-Type": "application/json",
+            "X-Chat-Capability": LIFECYCLE_CAPABILITY,
+          },
+          options.cookie
+        ),
+        method: "POST",
+        signal: controller.signal,
+      }
+    );
+    if (!response.ok) {
+      throw globalSearchErrorForStatus(
+        response.status,
+        response.headers.get("retry-after")
+      );
+    }
+    return parseGlobalSearchPage(await response.json());
+  } catch (error) {
+    if (signal?.aborted) {
+      throw error;
+    }
+    if (timedOut) {
+      throw new GlobalSearchRequestError(
+        "Search took too long. Check your connection and try again."
+      );
+    }
+    if (error instanceof GlobalSearchRequestError) {
+      throw error;
+    }
+    throw new GlobalSearchRequestError(
+      "Search could not connect. Please try again."
+    );
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", cancel);
+  }
+}
+
+// ---- community chat inbox -----------------------------------------------------
+
+// The joined communities shown in the messages screen's left strip, each with a
+// server-computed unread flag. Same endpoint as web's useCommunityChatInboxQuery.
+export interface CommunityChatInboxEntry {
+  community: CommunityData;
+  hasUnread: boolean;
+}
+
+export function fetchCommunityChatInbox(
+  options: ApiCallOptions
+): Promise<{ communities: CommunityChatInboxEntry[] }> {
+  return request("/api/communities/chat-inbox", options);
 }

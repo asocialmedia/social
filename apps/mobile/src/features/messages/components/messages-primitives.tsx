@@ -69,6 +69,7 @@ function iconColor(input: {
 // treatment reads as.
 export function MessagesIconButton({
   icon: Icon,
+  iconSize,
   label,
   onPress,
   size = 34,
@@ -76,6 +77,7 @@ export function MessagesIconButton({
   disabled = false,
 }: {
   icon: ComponentType<{ color?: string; size?: number }>;
+  iconSize?: number;
   label: string;
   onPress: () => void;
   size?: number;
@@ -110,7 +112,7 @@ export function MessagesIconButton({
       {({ pressed }) => (
         <Icon
           color={iconColor({ danger: dangerColor, isDark, pressed, recipe })}
-          size={Math.round(size * 0.5)}
+          size={iconSize ?? Math.round(size * 0.5)}
         />
       )}
     </Pressable>
