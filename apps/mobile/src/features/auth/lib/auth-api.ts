@@ -6,6 +6,7 @@ import {
   describeAuthError,
   describeSignupError,
 } from "@/features/auth/lib/auth-errors";
+import { isVerifyEmailSuccess } from "@/features/auth/lib/email-verification";
 import { logError } from "@/lib/lifecycle/telemetry";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 
@@ -91,6 +92,26 @@ export async function validateResetToken(token: string): Promise<boolean> {
   } catch (error) {
     logError("auth.reset_token_check_failed", error);
     return false;
+  }
+}
+
+// Checks an emailed verification token through the web route, which also
+// completes a pending signup when the token belongs to one.
+export async function verifyEmailToken(token: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(
+      `${getApiBaseUrl()}/api/verify-email?token=${encodeURIComponent(token)}`,
+      { method: "GET", signal: controller.signal }
+    );
+    const body: unknown = await response.json().catch(() => null);
+    return isVerifyEmailSuccess(response.ok, body);
+  } catch (error) {
+    logError("auth.verify_email_failed", error);
+    return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

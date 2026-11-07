@@ -23,6 +23,7 @@ export default function AuthGroupLayout() {
         <Stack.Screen name="reset-password" />
         <Stack.Screen name="confirm-reset" />
         <Stack.Screen name="help" />
+        <Stack.Screen name="verify-email" />
       </Stack>
     </SignupStateProvider>
   );
