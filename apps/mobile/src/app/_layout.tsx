@@ -24,10 +24,7 @@ import { NetworkSettingsSync } from "@/features/network/state/use-network-settin
 import { PushRegistrar } from "@/features/notifications/components/push-registrar";
 import { loadInstallToken } from "@/lib/installation/install-credentials";
 import { installFetchInterceptor } from "@/lib/installation/install-fetch";
-import {
-  finishPostEnter,
-  postEnterAnimation,
-} from "@/lib/interaction/navigation-motion";
+import { postEnterAnimation } from "@/lib/interaction/navigation-motion";
 import { ResumeGate, ResumeSaver } from "@/lib/lifecycle/resume-gate";
 import {
   StartupPresentedContext,
@@ -64,6 +61,8 @@ const SupportGate = lazy(async () => {
     await import("@/features/support/components/support-gate");
   return { default: supportModule.SupportGate };
 });
+
+export const unstable_settings = { anchor: "index" };
 
 void SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ duration: 180, fade: true });
@@ -218,21 +217,18 @@ export default function RootLayout() {
                   >
                     <Stack.Screen
                       name="index"
+                      activityEnabled={false}
                       options={{ animation: "none" }}
                     />
                     <Stack.Screen
                       name="posts"
-                      options={{ animation: postEnterAnimation(presented) }}
-                      listeners={({ navigation }) => ({
-                        transitionEnd: (event) => {
-                          finishPostEnter(
-                            navigation.setOptions,
-                            event.data.closing,
-                            Platform.OS,
-                            reducedMotion
-                          );
-                        },
-                      })}
+                      options={{
+                        animation: postEnterAnimation(
+                          presented,
+                          Platform.OS,
+                          reducedMotion
+                        ),
+                      }}
                     />
                     <Stack.Screen name="notifications" />
                     <Stack.Screen name="bookmarks" />

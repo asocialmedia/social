@@ -48,8 +48,8 @@ import {
 } from "@/components/surface/recipes";
 import { useSessionContext } from "@/features/auth/state/session";
 import type { InlineRichInputRef } from "@/features/composer/components/inline-rich-input";
-import { formatNumber } from "@/lib/format/format-number";
 import {
+  composerContentHeight,
   keyboardOverlap,
   keyboardScreenTop,
 } from "@/lib/layout/keyboard-overlap";
@@ -159,19 +159,11 @@ function SendPill({
 }
 
 export function FloatingEddieBar({
-  commentCount,
   onHeightChange,
-  onOpenComments,
   postId,
   viewportBottom,
 }: {
-  // Live eddie count for the shortcut pill, like web's comment-count button.
-  // The owner reads it with withCountDelta so streamed eddies move it at once.
-  commentCount?: number;
   onHeightChange?: (height: number) => void;
-  // Scrolls the thread into view (post detail passes the measured thread
-  // offset), mirroring web's onOpenComments.
-  onOpenComments?: () => void;
   postId: string;
   viewportBottom: number;
 }) {
@@ -240,7 +232,13 @@ export function FloatingEddieBar({
     return (
       <View
         onLayout={(event) => {
-          onHeightChange?.(event.nativeEvent.layout.height);
+          onHeightChange?.(
+            composerContentHeight(
+              event.nativeEvent.layout.height,
+              viewportBottom,
+              keyboardTop
+            )
+          );
         }}
         style={[
           styles.anchor,
@@ -296,7 +294,13 @@ export function FloatingEddieBar({
   return (
     <View
       onLayout={(event) => {
-        onHeightChange?.(event.nativeEvent.layout.height);
+        onHeightChange?.(
+          composerContentHeight(
+            event.nativeEvent.layout.height,
+            viewportBottom,
+            keyboardTop
+          )
+        );
       }}
       style={[
         styles.anchor,
@@ -386,30 +390,14 @@ export function FloatingEddieBar({
               value={sender.text}
             />
             {expanded ? null : (
-              <>
-                {commentCount !== undefined && onOpenComments ? (
-                  <Pressable
-                    accessibilityLabel={`View comments (${formatNumber(commentCount)})`}
-                    accessibilityRole="button"
-                    hitSlop={6}
-                    onPress={onOpenComments}
-                    style={styles.countPill}
-                  >
-                    <MessageSquare color={text.muted} size={14} />
-                    <Text style={[styles.countText, { color: text.muted }]}>
-                      {formatNumber(commentCount)}
-                    </Text>
-                  </Pressable>
-                ) : null}
-                <SendPill
-                  disabled={!sender.canSubmit}
-                  height={36}
-                  onPress={() => {
-                    void submit();
-                  }}
-                  sending={sender.sending}
-                />
-              </>
+              <SendPill
+                disabled={!sender.canSubmit}
+                height={36}
+                onPress={() => {
+                  void submit();
+                }}
+                sending={sender.sending}
+              />
             )}
           </View>
           {expanded ? (
@@ -524,20 +512,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     boxShadow: "0 -4px 20px rgba(0, 0, 0, 0.15)",
     padding: 8,
-  },
-  countPill: {
-    alignItems: "center",
-    borderRadius: 9999,
-    flexDirection: "row",
-    gap: 4,
-    height: 36,
-    justifyContent: "center",
-    paddingHorizontal: 10,
-  },
-  countText: {
-    fontFamily: "SofiaProBold",
-    fontSize: 12,
-    fontVariant: ["tabular-nums"],
   },
   counter: {
     fontFamily: "SofiaProMed",
