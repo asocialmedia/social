@@ -8,6 +8,8 @@
 //
 // No React and no React Native imports, so the whole file runs under bun test.
 
+import { orderedCopy } from "@/lib/format/ordered-copy";
+
 import type { MessagePayload } from "./crypto";
 import { extractSearchableText, rankSearchResults } from "./message-search";
 import type { RankedSearchResult } from "./message-search";
@@ -433,8 +435,8 @@ export function rankProfileSearchResults<T extends RankableProfile>(
   if (!normalizedQuery) {
     return [...profiles];
   }
-  return profiles
-    .map((profile, index) => {
+  return orderedCopy(
+    profiles.map((profile, index) => {
       const displayName = normalizeProfileText(profile.displayName);
       const username = normalizeProfileText(profile.username);
       let rank = 2;
@@ -447,11 +449,9 @@ export function rankProfileSearchResults<T extends RankableProfile>(
         rank = 1;
       }
       return { index, profile, rank };
-    })
-    .toSorted(
-      (left, right) => left.rank - right.rank || left.index - right.index
-    )
-    .map(({ profile }) => profile);
+    }),
+    (left, right) => left.rank - right.rank || left.index - right.index
+  ).map(({ profile }) => profile);
 }
 
 export function visibleProfileResults<T>(

@@ -10,7 +10,7 @@ import type { IncognitoMessage, IncognitoSession } from "@asm/messages";
 // oxlint-disable no-await-in-loop -- Sequential cryptography, database mutations and bounded streams preserve ordering and memory limits.
 import { randomUUID } from "expo-crypto";
 import { Shield } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   Pressable,
@@ -44,7 +44,9 @@ import {
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/layout/list-virtualization";
 
+import type { ConversationTheme } from "../lib/conversation-theme";
 import { getMediaImages } from "../lib/crypto";
+import { nextExpiryDelayMs } from "../lib/incognito-expiry";
 import {
   getMessageGroupMeta,
   formatTimeDivider,
@@ -59,6 +61,100 @@ interface Row {
   message: IncognitoMessage;
   payload: MessagePayload | null;
 }
+
+const INCOGNITO_THEME: ConversationTheme = {
+  from: "#71717a",
+  key: "incognito",
+  label: "Incognito",
+  ring: "#a1a1aa",
+  to: "#52525b",
+};
+
+const FALLBACK_GROUP = {
+  isFirstInGroup: true,
+  isLastInGroup: true,
+  showTimeDivider: false,
+};
+
+// Memoized for the same reason as the main transcript row: the thread
+// re-renders when rows arrive or expire, and only the touched row should
+// rebuild its bubble.
+const MemoIncognitoRow = memo(
+  ({
+    conversationId,
+    entrances,
+    group,
+    message,
+    mine,
+    onCloseViewOnce,
+    onLongPress,
+    onOpenViewOnce,
+    onPressImage,
+    onReact,
+    payload,
+    peerAvatarUrl,
+    width,
+  }: {
+    conversationId: string;
+    entrances: BubbleEntranceRegistry;
+    group: ReturnType<typeof getMessageGroupMeta>;
+    message: IncognitoMessage;
+    mine: boolean;
+    onCloseViewOnce: (mediaId: string, grantId: string) => Promise<void>;
+    onLongPress: (messageId: string) => void;
+    onOpenViewOnce: (
+      mediaId: string,
+      grantId: string,
+      signal?: AbortSignal
+    ) => Promise<string>;
+    onPressImage: (messageId: string, imageIndex: number) => void;
+    onReact: (messageId: string, emoji: string) => void;
+    payload: MessagePayload | null;
+    peerAvatarUrl?: string | null;
+    width: number;
+  }) => (
+    <View>
+      {group.showTimeDivider ? (
+        <Text
+          style={{
+            color: "#a1a1aa",
+            fontSize: 11,
+            paddingVertical: 12,
+            textAlign: "center",
+          }}
+        >
+          {formatTimeDivider(message.createdAt)}
+        </Text>
+      ) : null}
+      <Pressable onLongPress={() => onLongPress(message.id)}>
+        <View>
+          <MessageBubble
+            entrances={entrances}
+            messageId={message.id}
+            ephemeral
+            deleted={false}
+            edited={false}
+            group={group}
+            mine={mine}
+            payload={payload}
+            failed={!payload}
+            peerAvatarUrl={peerAvatarUrl}
+            theme={INCOGNITO_THEME}
+            maxBubbleWidth={width - 32}
+            showReceipt={false}
+            onPressImage={(imageIndex) => onPressImage(message.id, imageIndex)}
+            onOpenViewOnce={onOpenViewOnce}
+            conversationId={conversationId}
+            onCloseViewOnce={onCloseViewOnce}
+            onReact={(emoji) => onReact(message.id, emoji)}
+            reactions={message.reactions ?? []}
+          />
+        </View>
+      </Pressable>
+    </View>
+  )
+);
+MemoIncognitoRow.displayName = "MemoIncognitoRow";
 export function NativeIncognitoThread({
   conversationId,
   session,
@@ -177,13 +273,28 @@ export function NativeIncognitoThread({
   }, [clock, serverOffset, rows]);
   useEffect(() => {
     mounted.current = true;
-    const timer = setInterval(() => setClock(Date.now()), 1000);
     return () => {
       mounted.current = false;
       generation.current += 1;
-      clearInterval(timer);
     };
   }, []);
+  // A single timeout aimed at the next expiry replaces the old one-second
+  // ticker: without it every open incognito thread re-rendered (and rebuilt
+  // every bubble) constantly, even with no traffic.
+  useEffect(() => {
+    if (!canView || rows.length === 0) {
+      return;
+    }
+    const delay = nextExpiryDelayMs(
+      rows.map((row) => incognitoMessageExpiresAt(row.message) - serverOffset),
+      clock
+    );
+    if (delay === null) {
+      return;
+    }
+    const timer = setTimeout(() => setClock(Date.now()), delay);
+    return () => clearTimeout(timer);
+  }, [canView, clock, rows, serverOffset]);
   const load = useCallback(
     async (signal: AbortSignal, before?: number) => {
       generation.current += 1;
@@ -416,13 +527,75 @@ export function NativeIncognitoThread({
       setLoading(false);
     }
   };
-  const visibleRows = rows.filter(
-    ({ message }) => incognitoMessageExpiresAt(message) > clock + serverOffset
+  const visibleRows = useMemo(
+    () =>
+      rows.filter(
+        ({ message }) =>
+          incognitoMessageExpiresAt(message) > clock + serverOffset
+      ),
+    [clock, rows, serverOffset]
   );
-  const messages = visibleRows.map(({ message }) => message);
+  const messages = useMemo(
+    () => visibleRows.map(({ message }) => message),
+    [visibleRows]
+  );
   const peer = conversation?.members.find(
     (member) => member.userId !== user?.id
   )?.user;
+  const groupMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof getMessageGroupMeta>>();
+    for (const [index, entry] of messages.entries()) {
+      map.set(entry.id, getMessageGroupMeta(messages, index));
+    }
+    return map;
+  }, [messages]);
+  const handlePressImage = useCallback(
+    (messageId: string, imageIndex: number) => {
+      setViewer({ index: imageIndex, messageId });
+    },
+    []
+  );
+  const handleReactRow = useCallback(
+    (messageId: string, emoji: string) => {
+      void reactToMessage(messageId, emoji);
+    },
+    [reactToMessage]
+  );
+  const handleLongPressRow = useCallback((messageId: string) => {
+    setReactionTarget(messageId);
+  }, []);
+  const renderRow = useCallback(
+    ({ item: { message, payload } }: { item: Row }) => (
+      <MemoIncognitoRow
+        conversationId={conversationId}
+        entrances={entrances}
+        group={groupMap.get(message.id) ?? FALLBACK_GROUP}
+        message={message}
+        mine={message.senderId === user?.id}
+        onCloseViewOnce={closeViewOnce}
+        onLongPress={handleLongPressRow}
+        onOpenViewOnce={openViewOnce}
+        onPressImage={handlePressImage}
+        onReact={handleReactRow}
+        payload={payload}
+        peerAvatarUrl={peer?.avatarUrl}
+        width={width}
+      />
+    ),
+    [
+      closeViewOnce,
+      conversationId,
+      entrances,
+      groupMap,
+      handleLongPressRow,
+      handlePressImage,
+      handleReactRow,
+      openViewOnce,
+      peer?.avatarUrl,
+      user?.id,
+      width,
+    ]
+  );
   const viewed =
     canView && viewer
       ? visibleRows.find(({ message }) => message.id === viewer.messageId)
@@ -497,65 +670,7 @@ export function NativeIncognitoThread({
                   </Text>
                 </View>
               }
-              renderItem={({ item: { message, payload }, index }) => {
-                const group = getMessageGroupMeta(messages, index);
-                return (
-                  <View>
-                    {group.showTimeDivider ? (
-                      <Text
-                        style={{
-                          color: "#a1a1aa",
-                          fontSize: 11,
-                          paddingVertical: 12,
-                          textAlign: "center",
-                        }}
-                      >
-                        {formatTimeDivider(message.createdAt)}
-                      </Text>
-                    ) : null}
-                    <Pressable
-                      onLongPress={() => setReactionTarget(message.id)}
-                    >
-                      <View>
-                        <MessageBubble
-                          entrances={entrances}
-                          messageId={message.id}
-                          ephemeral
-                          deleted={false}
-                          edited={false}
-                          group={group}
-                          mine={message.senderId === user?.id}
-                          payload={payload}
-                          failed={!payload}
-                          peerAvatarUrl={peer?.avatarUrl}
-                          theme={{
-                            from: "#71717a",
-                            key: "incognito",
-                            label: "Incognito",
-                            ring: "#a1a1aa",
-                            to: "#52525b",
-                          }}
-                          maxBubbleWidth={width - 32}
-                          showReceipt={false}
-                          onPressImage={(imageIndex) =>
-                            setViewer({
-                              index: imageIndex,
-                              messageId: message.id,
-                            })
-                          }
-                          onOpenViewOnce={openViewOnce}
-                          conversationId={conversationId}
-                          onCloseViewOnce={closeViewOnce}
-                          onReact={(emoji) => {
-                            void reactToMessage(message.id, emoji);
-                          }}
-                          reactions={message.reactions ?? []}
-                        />
-                      </View>
-                    </Pressable>
-                  </View>
-                );
-              }}
+              renderItem={renderRow}
             />
           );
         }

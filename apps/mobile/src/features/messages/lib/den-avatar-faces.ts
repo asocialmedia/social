@@ -6,6 +6,8 @@
 // stop reading as a group) rather than a membership one; the roster itself is a
 // separate read. The drawing lives in components/den-avatar.tsx; this only
 // decides the order.
+import { orderedCopy } from "@/lib/format/ordered-copy";
+
 export interface DenAvatarFaceMember {
   role?: string | null;
 }
@@ -25,9 +27,9 @@ export function denAvatarFaces<T extends DenAvatarFaceMember>(
   _myUserId?: string,
   limit: number = DEN_AVATAR_FACES_MAX
 ): T[] {
-  return members
-    .map((member, index) => ({ index, member }))
-    .toSorted((left, right) => {
+  return orderedCopy(
+    members.map((member, index) => ({ index, member })),
+    (left, right) => {
       const rank =
         (ROLE_ORDER[left.member.role ?? "MEMBER"] ?? 2) -
         (ROLE_ORDER[right.member.role ?? "MEMBER"] ?? 2);
@@ -37,7 +39,8 @@ export function denAvatarFaces<T extends DenAvatarFaceMember>(
         return rank;
       }
       return left.index - right.index;
-    })
+    }
+  )
     .slice(0, Math.max(0, limit))
     .map(({ member }) => member);
 }

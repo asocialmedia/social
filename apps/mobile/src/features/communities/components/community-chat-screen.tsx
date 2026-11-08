@@ -1663,7 +1663,6 @@ function CommunityChatTimelineScreen() {
             keyExtractor={messageKeyExtractor}
             ListEmptyComponent={listEmpty}
             ListFooterComponent={loadingOlder ? listFooter : undefined}
-            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
             onViewableItemsChanged={onViewableMessagesChanged}
             viewabilityConfig={CHAT_VIEWABILITY_CONFIG}
             onContentSizeChange={handleContentSizeChange}
@@ -2276,6 +2275,7 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: "center",
     paddingVertical: 30,
+    transform: [{ scaleY: -1 }],
   },
   eyebrow: {
     fontFamily: "SofiaProMed",

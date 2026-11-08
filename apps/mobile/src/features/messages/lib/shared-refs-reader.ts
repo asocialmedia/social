@@ -11,6 +11,8 @@
 
 // Rows per read. Large enough that a few fills cover a scrolling grid, small
 // enough that the first paint of a tab is one cheap range read.
+import { orderedCopy } from "@/lib/format/ordered-copy";
+
 export const SHARED_REFS_PAGE_SIZE = 60;
 
 export type SharedRefKind = "link" | "media" | "post";
@@ -55,7 +57,8 @@ export function mergeRefs<T extends { flatKey: string; createdAt: number }>(
   const fresh = page.filter((item) => !held.has(item.flatKey));
   return fresh.length === 0
     ? current
-    : [...current, ...fresh].toSorted(
+    : orderedCopy(
+        [...current, ...fresh],
         (a, b) =>
           b.createdAt - a.createdAt || a.flatKey.localeCompare(b.flatKey)
       );
@@ -109,7 +112,8 @@ export function classifyRefs(
     classifiedLinks,
     // Newest first overall, and the two sources are already each ordered, so a
     // merge by time is enough.
-    classifiedPosts: [...posts, ...extraPosts].toSorted(
+    classifiedPosts: orderedCopy(
+      [...posts, ...extraPosts],
       (a, b) => b.createdAt - a.createdAt
     ),
   };

@@ -1,3 +1,5 @@
+import { orderedCopy } from "@/lib/format/ordered-copy";
+
 import { getMediaImages } from "./crypto";
 import type { DecryptEntry } from "./decryptor";
 import type { MessageData } from "./types";
@@ -71,7 +73,8 @@ export function buildViewerMediaItems(
       });
     }
   }
-  return items.toSorted(
+  return orderedCopy(
+    items,
     (a, b) => a.createdAt - b.createdAt || a.flatKey.localeCompare(b.flatKey)
   );
 }
@@ -112,7 +115,8 @@ export function mergeConversationMediaPage<T extends ConversationMediaItem>(
   for (const item of [...incoming, ...current]) {
     byKey.set(item.flatKey, item);
   }
-  const sorted = [...byKey.values()].toSorted(
+  const sorted = orderedCopy(
+    [...byKey.values()],
     (a, b) => a.createdAt - b.createdAt || a.flatKey.localeCompare(b.flatKey)
   );
   if (sorted.length <= capped) {

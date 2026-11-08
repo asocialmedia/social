@@ -29,7 +29,7 @@ import {
 // READY, so a message that went out early would hand the peer a broken image. It
 // also means one slow photo does not send the rest out of order, and the ratchet
 // chain stays in step with what the peer can actually read.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { TextInputInstance } from "react-native";
 import {
   Image,
@@ -97,875 +97,894 @@ export interface ComposerTarget {
   text: string;
 }
 
-export function MessageComposer({
-  stickersEnabled,
-  conversationId,
-  incognitoSessionId,
-  disabled,
-  editing,
-  onCancelEdit,
-  onCancelReply,
-  onSend,
-  onSaveEdit,
-  onTyping,
-  replyTo,
-  peerName,
-}: {
-  conversationId: string;
-  stickersEnabled: boolean;
-  incognitoSessionId?: string;
-  disabled?: boolean;
-  editing: ComposerTarget | null;
-  onCancelEdit: () => void;
-  onCancelReply: () => void;
-  onSend: (payload: MessagePayload) => Promise<void>;
-  onSaveEdit?: (text: string) => Promise<void>;
-  onTyping: () => void;
-  replyTo: ComposerTarget | null;
-  peerName: string;
-}) {
-  const { isDark, theme } = useAppTheme();
-  const insets = useSafeAreaInsets();
-  const fieldRef = useRef<TextInputInstance>(null);
-  useEffect(() => {
-    if (replyTo?.id) {
-      fieldRef.current?.focus();
-    }
-  }, [replyTo?.id]);
-  const [keyboardVisible, setKeyboardVisible] = useState(Keyboard.isVisible());
-  const [expressionKeyboardOpen, setExpressionKeyboardOpen] = useState(false);
-  const [expressionTab, setExpressionTab] = useState<
-    "emoji" | "gifs" | "stickers"
-  >("emoji");
-  const [selection, setSelection] = useState({ end: 0, start: 0 });
-  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
-  useEffect(() => {
-    const show = Keyboard.addListener("keyboardDidShow", () =>
-      setKeyboardVisible(true)
+export const MessageComposer = memo(
+  ({
+    stickersEnabled,
+    conversationId,
+    incognitoSessionId,
+    disabled,
+    editing,
+    onCancelEdit,
+    onCancelReply,
+    onSend,
+    onSaveEdit,
+    onTyping,
+    replyTo,
+    peerName,
+  }: {
+    conversationId: string;
+    stickersEnabled: boolean;
+    incognitoSessionId?: string;
+    disabled?: boolean;
+    editing: ComposerTarget | null;
+    onCancelEdit: () => void;
+    onCancelReply: () => void;
+    onSend: (payload: MessagePayload) => Promise<void>;
+    onSaveEdit?: (text: string) => Promise<void>;
+    onTyping: () => void;
+    replyTo: ComposerTarget | null;
+    peerName: string;
+  }) => {
+    const { isDark, theme } = useAppTheme();
+    const insets = useSafeAreaInsets();
+    const fieldRef = useRef<TextInputInstance>(null);
+    useEffect(() => {
+      if (replyTo?.id) {
+        fieldRef.current?.focus();
+      }
+    }, [replyTo?.id]);
+    const [keyboardVisible, setKeyboardVisible] = useState(
+      Keyboard.isVisible()
     );
-    const hide = Keyboard.addListener("keyboardDidHide", () =>
-      setKeyboardVisible(false)
-    );
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
-  const incognito = Boolean(incognitoSessionId);
-  const input = reelsInput(incognito ? true : isDark);
-  const button = sendButton(incognito ? true : isDark);
-  // The draft the user is typing, and the text the field shows. They differ only
-  // while an edit is being loaded, which is why this is not a plain `useState`.
-  // What the user has typed this session, keyed by nothing: it survives a cancel so
-  // cancelling an edit restores what they had before it.
-  const { user } = useSessionContext();
-  const draftKey = `${user?.id ?? ""}:${conversationId}`;
-  const [draft, setDraft] = useState(() =>
-    incognitoSessionId
-      ? ""
-      : (useMessageTextDraft.getState().drafts[draftKey] ?? "")
-  );
-  const sharedPostId = useSharedPostDraft((state) =>
-    incognitoSessionId ? undefined : state.drafts[conversationId]
-  );
-  const { crop, cropper } = useProfileMediaCropper();
-  const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
-  // Explicit send state (see lib/composer-send-state.ts): a send starts only
-  // from idle or failed, and a failure keeps its error so the send stays
-  // retryable instead of collapsing back to idle.
-  const [sendState, setSendState] = useState<ComposerSendState>(idleSendState);
-  // Synchronous in-flight guard. State commits on the next render, so two rapid
-  // taps would both read `idle` from the closure; the ref flips in the same
-  // tick as the first tap and the second tap no-ops.
-  const sendFlight = useRef<string | null>(null);
-  const viewOnceMode = attachments.some((attachment) => attachment.viewOnce);
-  const typingSent = useRef(false);
-  const lastTypedAt = useRef(0);
-  const foreground = useMessagesForeground();
-  const typingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const aborts = useRef(new Map<string, AbortController>());
-  const composerMounted = useRef(true);
-  const discardBaseRef = useRef<{
-    apiBase: string;
-    cookie?: string;
-  } | null>(null);
-
-  // The cookie is needed by the unmount sweep and by nothing else, so it is read
-  // once on mount rather than threaded through every call site.
-  useEffect(() => {
-    void (async () => {
-      const cookie = await authClient.getCookie().catch(() => null);
-      discardBaseRef.current = {
-        apiBase: getApiBaseUrl(),
-        cookie: cookie ?? undefined,
+    const [expressionKeyboardOpen, setExpressionKeyboardOpen] = useState(false);
+    const [expressionTab, setExpressionTab] = useState<
+      "emoji" | "gifs" | "stickers"
+    >("emoji");
+    const [selection, setSelection] = useState({ end: 0, start: 0 });
+    const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+    useEffect(() => {
+      const show = Keyboard.addListener("keyboardDidShow", () =>
+        setKeyboardVisible(true)
+      );
+      const hide = Keyboard.addListener("keyboardDidHide", () =>
+        setKeyboardVisible(false)
+      );
+      return () => {
+        show.remove();
+        hide.remove();
       };
-    })();
-  }, []);
-
-  // Every staged upload is aborted on unmount. The rows themselves are reclaimed by
-  // the server's own abandoned-upload sweep for non-message media; message media
-  // has no such sweep, so a discard is attempted for rows this send created.
-  const attachmentsRef = useRef<StagedAttachment[]>([]);
-  // Mirrored in an effect rather than during render: writing a ref while rendering
-  // leaves it describing state the render may never commit.
-  useEffect(() => {
-    attachmentsRef.current = attachments;
-  }, [attachments]);
-  useEffect(() => {
-    composerMounted.current = true;
-    const uploadControllers = aborts.current;
-    return () => {
-      composerMounted.current = false;
-      for (const controller of uploadControllers.values()) {
-        controller.abort();
-      }
-      uploadControllers.clear();
-      const discardBase = discardBaseRef.current;
-      if (!discardBase) {
-        return;
-      }
-      for (const item of attachmentsRef.current) {
-        if (item.mediaId && item.owned) {
-          void discardMessageMedia(item.mediaId, discardBase);
-        }
-      }
-    };
-  }, []);
-
-  // While an edit is active and the user has not typed anything into it, the field
-  // shows the message being edited. Derived during render rather than seeded by an
-  // effect, which is what the react/set-state-in-effect rule is asking for.
-  const fieldValue = editing && draft.length === 0 ? editing.text : draft;
-
-  const isUploading = attachments.some((item) => item.progress !== null);
-  const canSend =
-    !disabled &&
-    canStartSend(sendState) &&
-    !isUploading &&
-    (!viewOnceMode || attachments.length > 0) &&
-    (fieldValue.trim().length > 0 ||
-      attachments.length > 0 ||
-      Boolean(sharedPostId)) &&
-    attachments.every((item) => item.error === null && item.mediaId !== null);
-
-  const stopTyping = useCallback(() => {
-    if (typingTimer.current) {
-      clearInterval(typingTimer.current);
-      typingTimer.current = null;
-    }
-    typingSent.current = false;
-  }, []);
-
-  useEffect(() => stopTyping, [stopTyping]);
-  useEffect(() => {
-    if (!foreground) {
-      stopTyping();
-    }
-  }, [foreground, stopTyping]);
-
-  const noteTyping = useCallback(() => {
-    lastTypedAt.current = Date.now();
-    if (typingSent.current) {
-      return;
-    }
-    typingSent.current = true;
-    onTyping();
-    typingTimer.current = setInterval(() => {
-      if (Date.now() - lastTypedAt.current > 4000) {
-        stopTyping();
-        return;
-      }
-      onTyping();
-    }, TYPING_HEARTBEAT_MS);
-  }, [onTyping, stopTyping]);
-
-  const update = useCallback((id: string, patch: Partial<StagedAttachment>) => {
-    setAttachments((current) =>
-      current.map((item) => (item.id === id ? { ...item, ...patch } : item))
+    }, []);
+    const incognito = Boolean(incognitoSessionId);
+    const input = reelsInput(incognito ? true : isDark);
+    const button = sendButton(incognito ? true : isDark);
+    // The draft the user is typing, and the text the field shows. They differ only
+    // while an edit is being loaded, which is why this is not a plain `useState`.
+    // What the user has typed this session, keyed by nothing: it survives a cancel so
+    // cancelling an edit restores what they had before it.
+    const { user } = useSessionContext();
+    const draftKey = `${user?.id ?? ""}:${conversationId}`;
+    const [draft, setDraft] = useState(() =>
+      incognitoSessionId
+        ? ""
+        : (useMessageTextDraft.getState().drafts[draftKey] ?? "")
     );
-  }, []);
+    const sharedPostId = useSharedPostDraft((state) =>
+      incognitoSessionId ? undefined : state.drafts[conversationId]
+    );
+    const { crop, cropper } = useProfileMediaCropper();
+    const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
+    // Explicit send state (see lib/composer-send-state.ts): a send starts only
+    // from idle or failed, and a failure keeps its error so the send stays
+    // retryable instead of collapsing back to idle.
+    const [sendState, setSendState] =
+      useState<ComposerSendState>(idleSendState);
+    // Synchronous in-flight guard. State commits on the next render, so two rapid
+    // taps would both read `idle` from the closure; the ref flips in the same
+    // tick as the first tap and the second tap no-ops.
+    const sendFlight = useRef<string | null>(null);
+    const viewOnceMode = attachments.some((attachment) => attachment.viewOnce);
+    const typingSent = useRef(false);
+    const lastTypedAt = useRef(0);
+    const foreground = useMessagesForeground();
+    const typingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+    const aborts = useRef(new Map<string, AbortController>());
+    const composerMounted = useRef(true);
+    const discardBaseRef = useRef<{
+      apiBase: string;
+      cookie?: string;
+    } | null>(null);
 
-  const insertEmoji = useCallback(
-    (emoji: string) => {
-      const start = Math.min(selection.start, fieldValue.length);
-      const end = Math.min(Math.max(start, selection.end), fieldValue.length);
-      const next = `${fieldValue.slice(0, start)}${emoji}${fieldValue.slice(end)}`;
-      const caret = start + emoji.length;
-      setDraft(next);
-      setSelection({ end: caret, start: caret });
-      if (!incognitoSessionId) {
-        if (next) {
-          useMessageTextDraft.getState().save(draftKey, next);
-        } else {
-          useMessageTextDraft.getState().clear(draftKey);
+    // The cookie is needed by the unmount sweep and by nothing else, so it is read
+    // once on mount rather than threaded through every call site.
+    useEffect(() => {
+      void (async () => {
+        const cookie = await authClient.getCookie().catch(() => null);
+        discardBaseRef.current = {
+          apiBase: getApiBaseUrl(),
+          cookie: cookie ?? undefined,
+        };
+      })();
+    }, []);
+
+    // Every staged upload is aborted on unmount. The rows themselves are reclaimed by
+    // the server's own abandoned-upload sweep for non-message media; message media
+    // has no such sweep, so a discard is attempted for rows this send created.
+    const attachmentsRef = useRef<StagedAttachment[]>([]);
+    // Mirrored in an effect rather than during render: writing a ref while rendering
+    // leaves it describing state the render may never commit.
+    useEffect(() => {
+      attachmentsRef.current = attachments;
+    }, [attachments]);
+    useEffect(() => {
+      composerMounted.current = true;
+      const uploadControllers = aborts.current;
+      return () => {
+        composerMounted.current = false;
+        for (const controller of uploadControllers.values()) {
+          controller.abort();
         }
-      }
-      if (next.trim().length > 0) {
-        noteTyping();
-      }
-    },
-    [draftKey, fieldValue, incognitoSessionId, noteTyping, selection]
-  );
-
-  const handleGifSelect = useCallback(
-    async (gif: Parameters<typeof downloadGif>[0]) => {
-      setExpressionKeyboardOpen(false);
-      try {
-        const file = await downloadGif(gif);
-        if (attachmentsRef.current.length >= MAX_MESSAGE_ATTACHMENTS) {
+        uploadControllers.clear();
+        const discardBase = discardBaseRef.current;
+        if (!discardBase) {
           return;
         }
-        const staged: StagedAttachment = {
-          error: null,
-          file,
-          id: `${file.uri}-${Date.now()}`,
-          mediaId: null,
-          owned: false,
-          progress: 0,
-        };
-        setAttachments((current) => [...current, staged]);
-        await uploadStagedAttachments([staged], {
-          aborts,
-          conversationId,
-          incognitoSessionId,
-          onPatch: update,
-        });
-      } catch {
-        toast({
-          description: "Please try again.",
-          title: "Couldn't add GIF",
-          variant: "destructive",
-        });
-      }
-    },
-    [conversationId, incognitoSessionId, update]
-  );
-
-  const handleStickerSend = useCallback(
-    async (payload: MessagePayload) => {
-      await onSend({
-        ...payload,
-        replyToId: replyTo?.id,
-        replyToSenderId: replyTo?.senderId,
-      });
-      onCancelReply();
-    },
-    [onCancelReply, onSend, replyTo?.id, replyTo?.senderId]
-  );
-
-  const editAttachment = useCallback(
-    async (item: StagedAttachment) => {
-      Keyboard.dismiss();
-      try {
-        const result = await crop(
-          { purpose: "message", source: item.file },
-          "post",
-          {
-            canViewOnce:
-              attachmentsRef.current.length === 1 &&
-              !fieldValue.trim() &&
-              !sharedPostId,
-            viewOnce: item.viewOnce ?? false,
+        for (const item of attachmentsRef.current) {
+          if (item.mediaId && item.owned) {
+            void discardMessageMedia(item.mediaId, discardBase);
           }
+        }
+      };
+    }, []);
+
+    // While an edit is active and the user has not typed anything into it, the field
+    // shows the message being edited. Derived during render rather than seeded by an
+    // effect, which is what the react/set-state-in-effect rule is asking for.
+    const fieldValue = editing && draft.length === 0 ? editing.text : draft;
+
+    const isUploading = attachments.some((item) => item.progress !== null);
+    const canSend =
+      !disabled &&
+      canStartSend(sendState) &&
+      !isUploading &&
+      (!viewOnceMode || attachments.length > 0) &&
+      (fieldValue.trim().length > 0 ||
+        attachments.length > 0 ||
+        Boolean(sharedPostId)) &&
+      attachments.every((item) => item.error === null && item.mediaId !== null);
+
+    const stopTyping = useCallback(() => {
+      if (typingTimer.current) {
+        clearInterval(typingTimer.current);
+        typingTimer.current = null;
+      }
+      typingSent.current = false;
+    }, []);
+
+    useEffect(() => stopTyping, [stopTyping]);
+    useEffect(() => {
+      if (!foreground) {
+        stopTyping();
+      }
+    }, [foreground, stopTyping]);
+
+    const noteTyping = useCallback(() => {
+      lastTypedAt.current = Date.now();
+      if (typingSent.current) {
+        return;
+      }
+      typingSent.current = true;
+      onTyping();
+      typingTimer.current = setInterval(() => {
+        if (Date.now() - lastTypedAt.current > 4000) {
+          stopTyping();
+          return;
+        }
+        onTyping();
+      }, TYPING_HEARTBEAT_MS);
+    }, [onTyping, stopTyping]);
+
+    const update = useCallback(
+      (id: string, patch: Partial<StagedAttachment>) => {
+        setAttachments((current) =>
+          current.map((item) => (item.id === id ? { ...item, ...patch } : item))
         );
-        if (
-          !composerMounted.current ||
-          !result ||
-          !attachmentsRef.current.some((entry) => entry.id === item.id)
-        ) {
+      },
+      []
+    );
+
+    const insertEmoji = useCallback(
+      (emoji: string) => {
+        const start = Math.min(selection.start, fieldValue.length);
+        const end = Math.min(Math.max(start, selection.end), fieldValue.length);
+        const next = `${fieldValue.slice(0, start)}${emoji}${fieldValue.slice(end)}`;
+        const caret = start + emoji.length;
+        setDraft(next);
+        setSelection({ end: caret, start: caret });
+        if (!incognitoSessionId) {
+          if (next) {
+            useMessageTextDraft.getState().save(draftKey, next);
+          } else {
+            useMessageTextDraft.getState().clear(draftKey);
+          }
+        }
+        if (next.trim().length > 0) {
+          noteTyping();
+        }
+      },
+      [draftKey, fieldValue, incognitoSessionId, noteTyping, selection]
+    );
+
+    const handleGifSelect = useCallback(
+      async (gif: Parameters<typeof downloadGif>[0]) => {
+        setExpressionKeyboardOpen(false);
+        try {
+          const file = await downloadGif(gif);
+          if (attachmentsRef.current.length >= MAX_MESSAGE_ATTACHMENTS) {
+            return;
+          }
+          const staged: StagedAttachment = {
+            error: null,
+            file,
+            id: `${file.uri}-${Date.now()}`,
+            mediaId: null,
+            owned: false,
+            progress: 0,
+          };
+          setAttachments((current) => [...current, staged]);
+          await uploadStagedAttachments([staged], {
+            aborts,
+            conversationId,
+            incognitoSessionId,
+            onPatch: update,
+          });
+        } catch {
+          toast({
+            description: "Please try again.",
+            title: "Couldn't add GIF",
+            variant: "destructive",
+          });
+        }
+      },
+      [conversationId, incognitoSessionId, update]
+    );
+
+    const handleStickerSend = useCallback(
+      async (payload: MessagePayload) => {
+        await onSend({
+          ...payload,
+          replyToId: replyTo?.id,
+          replyToSenderId: replyTo?.senderId,
+        });
+        onCancelReply();
+      },
+      [onCancelReply, onSend, replyTo?.id, replyTo?.senderId]
+    );
+
+    const editAttachment = useCallback(
+      async (item: StagedAttachment) => {
+        Keyboard.dismiss();
+        try {
+          const result = await crop(
+            { purpose: "message", source: item.file },
+            "post",
+            {
+              canViewOnce:
+                attachmentsRef.current.length === 1 &&
+                !fieldValue.trim() &&
+                !sharedPostId,
+              viewOnce: item.viewOnce ?? false,
+            }
+          );
+          if (
+            !composerMounted.current ||
+            !result ||
+            !attachmentsRef.current.some((entry) => entry.id === item.id)
+          ) {
+            return false;
+          }
+          const previous = attachmentsRef.current.find(
+            (entry) => entry.id === item.id
+          );
+          const staged: StagedAttachment = {
+            error: null,
+            file: { ...result.source, size: result.source.size ?? 0 },
+            id: `${item.id}-edit-${result.source.uri}`,
+            mediaId: null,
+            owned: false,
+            progress: 0,
+            viewOnce: result.viewOnce ?? false,
+          };
+          aborts.current.get(item.id)?.abort();
+          aborts.current.delete(item.id);
+          attachmentsRef.current = attachmentsRef.current.map((entry) =>
+            entry.id === item.id ? staged : entry
+          );
+          setAttachments(attachmentsRef.current);
+          await uploadStagedAttachments([staged], {
+            aborts,
+            conversationId,
+            incognitoSessionId,
+            onPatch: update,
+          });
+          if (previous?.mediaId && previous.owned) {
+            void discardMessageMedia(previous.mediaId, {
+              apiBase: getApiBaseUrl(),
+              baseFetch: fetch,
+            });
+          }
+          return true;
+        } catch (error) {
+          toast({
+            description:
+              error instanceof Error ? error.message : "Try another image",
+            title: "Couldn't edit image",
+            variant: "destructive",
+          });
           return false;
         }
-        const previous = attachmentsRef.current.find(
-          (entry) => entry.id === item.id
+      },
+      [
+        crop,
+        fieldValue,
+        sharedPostId,
+        conversationId,
+        incognitoSessionId,
+        update,
+      ]
+    );
+
+    const stagePickedFiles = useCallback(
+      async (picked: PickedMedia[], viewOnce = false) => {
+        if (!composerMounted.current) {
+          return;
+        }
+        if (!viewOnce && attachmentsRef.current.some((item) => item.viewOnce)) {
+          return;
+        }
+        if (
+          viewOnce &&
+          (attachmentsRef.current.length > 0 ||
+            picked.length !== 1 ||
+            !["image/jpeg", "image/png", "image/webp", "image/avif"].includes(
+              picked[0]?.mimeType.toLowerCase() ?? ""
+            ))
+        ) {
+          toast({
+            description: "Choose one JPEG, PNG, WebP, or AVIF photo.",
+            title: "View once photo",
+            variant: "destructive",
+          });
+          return;
+        }
+        let totalBytes = attachmentsRef.current.reduce(
+          (total, item) => total + item.file.size,
+          0
         );
-        const staged: StagedAttachment = {
-          error: null,
-          file: { ...result.source, size: result.source.size ?? 0 },
-          id: `${item.id}-edit-${result.source.uri}`,
-          mediaId: null,
+        const accepted: PickedMedia[] = [];
+        let rejected = 0;
+        let tooLarge = 0;
+        for (const candidate of picked) {
+          const mimeType = messageAttachmentMimeType(
+            candidate.mimeType,
+            candidate.name
+          );
+          const { size } = candidate;
+          const typeLimit = maxMessageAttachmentBytes(mimeType);
+          if (!messageAttachmentKind(mimeType)) {
+            rejected += 1;
+            continue;
+          }
+          if (
+            size <= 0 ||
+            size > typeLimit ||
+            totalBytes + size > MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES
+          ) {
+            tooLarge += 1;
+            continue;
+          }
+          totalBytes += size;
+          accepted.push({ ...candidate, mimeType, size });
+        }
+        if (rejected > 0) {
+          toast({
+            description: "Choose photos, videos, audio, PDF, or Office files.",
+            title: "Unsupported file",
+            variant: "destructive",
+          });
+        }
+        if (tooLarge > 0) {
+          toast({
+            description: "One or more files exceed the message size limit.",
+            title: "Attachment too large",
+            variant: "destructive",
+          });
+        }
+        const available = Math.max(
+          0,
+          MAX_MESSAGE_ATTACHMENTS - attachmentsRef.current.length
+        );
+        if (accepted.length > available) {
+          toast({
+            description: `You can send up to ${MAX_MESSAGE_ATTACHMENTS} attachments at a time.`,
+            title: "Attachment limit",
+            variant: "destructive",
+          });
+        }
+        const staged = accepted.slice(0, available).map((file, index) => ({
+          error: null as string | null,
+          file,
+          id: `${file.uri}-${index}-${attachmentsRef.current.length}`,
+          mediaId: null as string | null,
           owned: false,
-          progress: 0,
-          viewOnce: result.viewOnce ?? false,
-        };
-        aborts.current.get(item.id)?.abort();
-        aborts.current.delete(item.id);
-        attachmentsRef.current = attachmentsRef.current.map((entry) =>
-          entry.id === item.id ? staged : entry
-        );
+          progress: 0 as number | null,
+          viewOnce,
+        }));
+        if (staged.length === 0) {
+          return;
+        }
+        attachmentsRef.current = [...attachmentsRef.current, ...staged];
         setAttachments(attachmentsRef.current);
-        await uploadStagedAttachments([staged], {
+        if (
+          picked.length === 1 &&
+          staged.length === 1 &&
+          attachmentsRef.current.length === 1 &&
+          messageAttachmentKind(staged[0].file.mimeType) === "image"
+        ) {
+          const edited = await editAttachment(staged[0]);
+          if (
+            edited ||
+            !composerMounted.current ||
+            !attachmentsRef.current.some((entry) => entry.id === staged[0].id)
+          ) {
+            return;
+          }
+        }
+        await uploadStagedAttachments(staged, {
           aborts,
           conversationId,
           incognitoSessionId,
           onPatch: update,
         });
-        if (previous?.mediaId && previous.owned) {
-          void discardMessageMedia(previous.mediaId, {
+      },
+      [conversationId, incognitoSessionId, update, editAttachment]
+    );
+
+    const choosePhotosAndVideos = useCallback(() => {
+      setAttachmentMenuOpen(false);
+      if (viewOnceMode) {
+        return;
+      }
+      const remaining = MAX_MESSAGE_ATTACHMENTS - attachmentsRef.current.length;
+      if (remaining <= 0) {
+        return;
+      }
+      runMessageAttachmentPicker(
+        () => pickPhotosAndVideos({ remaining }),
+        stagePickedFiles,
+        "Couldn't open photos"
+      );
+    }, [stagePickedFiles, viewOnceMode]);
+
+    const chooseFiles = useCallback(() => {
+      setAttachmentMenuOpen(false);
+      if (viewOnceMode) {
+        return;
+      }
+      const remaining = MAX_MESSAGE_ATTACHMENTS - attachmentsRef.current.length;
+      if (remaining <= 0) {
+        return;
+      }
+      runMessageAttachmentPicker(
+        () => pickMessageFiles(remaining),
+        stagePickedFiles,
+        "Couldn't open files"
+      );
+    }, [stagePickedFiles, viewOnceMode]);
+
+    const attach = useCallback(() => {
+      Keyboard.dismiss();
+      setAttachmentMenuOpen(true);
+    }, []);
+
+    const remove = useCallback((id: string) => {
+      aborts.current.get(id)?.abort();
+      aborts.current.delete(id);
+      setAttachments((current) => {
+        const target = current.find((item) => item.id === id);
+        if (target?.mediaId && target.owned) {
+          void discardMessageMedia(target.mediaId, {
             apiBase: getApiBaseUrl(),
             baseFetch: fetch,
           });
         }
-        return true;
-      } catch (error) {
-        toast({
-          description:
-            error instanceof Error ? error.message : "Try another image",
-          title: "Couldn't edit image",
-          variant: "destructive",
-        });
-        return false;
-      }
-    },
-    [crop, fieldValue, sharedPostId, conversationId, incognitoSessionId, update]
-  );
-
-  const stagePickedFiles = useCallback(
-    async (picked: PickedMedia[], viewOnce = false) => {
-      if (!composerMounted.current) {
-        return;
-      }
-      if (!viewOnce && attachmentsRef.current.some((item) => item.viewOnce)) {
-        return;
-      }
-      if (
-        viewOnce &&
-        (attachmentsRef.current.length > 0 ||
-          picked.length !== 1 ||
-          !["image/jpeg", "image/png", "image/webp", "image/avif"].includes(
-            picked[0]?.mimeType.toLowerCase() ?? ""
-          ))
-      ) {
-        toast({
-          description: "Choose one JPEG, PNG, WebP, or AVIF photo.",
-          title: "View once photo",
-          variant: "destructive",
-        });
-        return;
-      }
-      let totalBytes = attachmentsRef.current.reduce(
-        (total, item) => total + item.file.size,
-        0
-      );
-      const accepted: PickedMedia[] = [];
-      let rejected = 0;
-      let tooLarge = 0;
-      for (const candidate of picked) {
-        const mimeType = messageAttachmentMimeType(
-          candidate.mimeType,
-          candidate.name
-        );
-        const { size } = candidate;
-        const typeLimit = maxMessageAttachmentBytes(mimeType);
-        if (!messageAttachmentKind(mimeType)) {
-          rejected += 1;
-          continue;
-        }
-        if (
-          size <= 0 ||
-          size > typeLimit ||
-          totalBytes + size > MAX_MESSAGE_ATTACHMENT_TOTAL_BYTES
-        ) {
-          tooLarge += 1;
-          continue;
-        }
-        totalBytes += size;
-        accepted.push({ ...candidate, mimeType, size });
-      }
-      if (rejected > 0) {
-        toast({
-          description: "Choose photos, videos, audio, PDF, or Office files.",
-          title: "Unsupported file",
-          variant: "destructive",
-        });
-      }
-      if (tooLarge > 0) {
-        toast({
-          description: "One or more files exceed the message size limit.",
-          title: "Attachment too large",
-          variant: "destructive",
-        });
-      }
-      const available = Math.max(
-        0,
-        MAX_MESSAGE_ATTACHMENTS - attachmentsRef.current.length
-      );
-      if (accepted.length > available) {
-        toast({
-          description: `You can send up to ${MAX_MESSAGE_ATTACHMENTS} attachments at a time.`,
-          title: "Attachment limit",
-          variant: "destructive",
-        });
-      }
-      const staged = accepted.slice(0, available).map((file, index) => ({
-        error: null as string | null,
-        file,
-        id: `${file.uri}-${index}-${attachmentsRef.current.length}`,
-        mediaId: null as string | null,
-        owned: false,
-        progress: 0 as number | null,
-        viewOnce,
-      }));
-      if (staged.length === 0) {
-        return;
-      }
-      attachmentsRef.current = [...attachmentsRef.current, ...staged];
-      setAttachments(attachmentsRef.current);
-      if (
-        picked.length === 1 &&
-        staged.length === 1 &&
-        attachmentsRef.current.length === 1 &&
-        messageAttachmentKind(staged[0].file.mimeType) === "image"
-      ) {
-        const edited = await editAttachment(staged[0]);
-        if (
-          edited ||
-          !composerMounted.current ||
-          !attachmentsRef.current.some((entry) => entry.id === staged[0].id)
-        ) {
-          return;
-        }
-      }
-      await uploadStagedAttachments(staged, {
-        aborts,
-        conversationId,
-        incognitoSessionId,
-        onPatch: update,
+        return current.filter((item) => item.id !== id);
       });
-    },
-    [conversationId, incognitoSessionId, update, editAttachment]
-  );
+    }, []);
 
-  const choosePhotosAndVideos = useCallback(() => {
-    setAttachmentMenuOpen(false);
-    if (viewOnceMode) {
-      return;
-    }
-    const remaining = MAX_MESSAGE_ATTACHMENTS - attachmentsRef.current.length;
-    if (remaining <= 0) {
-      return;
-    }
-    runMessageAttachmentPicker(
-      () => pickPhotosAndVideos({ remaining }),
-      stagePickedFiles,
-      "Couldn't open photos"
-    );
-  }, [stagePickedFiles, viewOnceMode]);
-
-  const chooseFiles = useCallback(() => {
-    setAttachmentMenuOpen(false);
-    if (viewOnceMode) {
-      return;
-    }
-    const remaining = MAX_MESSAGE_ATTACHMENTS - attachmentsRef.current.length;
-    if (remaining <= 0) {
-      return;
-    }
-    runMessageAttachmentPicker(
-      () => pickMessageFiles(remaining),
-      stagePickedFiles,
-      "Couldn't open files"
-    );
-  }, [stagePickedFiles, viewOnceMode]);
-
-  const attach = useCallback(() => {
-    Keyboard.dismiss();
-    setAttachmentMenuOpen(true);
-  }, []);
-
-  const remove = useCallback((id: string) => {
-    aborts.current.get(id)?.abort();
-    aborts.current.delete(id);
-    setAttachments((current) => {
-      const target = current.find((item) => item.id === id);
-      if (target?.mediaId && target.owned) {
-        void discardMessageMedia(target.mediaId, {
-          apiBase: getApiBaseUrl(),
-          baseFetch: fetch,
-        });
+    const handleSend = useCallback(() => {
+      if (!canSend || sendFlight.current) {
+        return;
       }
-      return current.filter((item) => item.id !== id);
-    });
-  }, []);
-
-  const handleSend = useCallback(() => {
-    if (!canSend || sendFlight.current) {
-      return;
-    }
-    // The flight ref is the double-tap guard; the union is the state machine.
-    // Both must agree before a send starts.
-    const clientId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    let next: ComposerSendState;
-    try {
-      next = beginSend(sendState, clientId);
-    } catch {
-      return;
-    }
-    sendFlight.current = clientId;
-    setSendState(next);
-    // An edit rewrites the targeted message in place instead of sending a new
-    // one. The same state machine guards it: a failure keeps the draft and the
-    // failed state so the user can retry.
-    if (editing && onSaveEdit) {
-      const text = fieldValue.trim();
-      void (async () => {
-        try {
-          await onSaveEdit(text);
+      // The flight ref is the double-tap guard; the union is the state machine.
+      // Both must agree before a send starts.
+      const clientId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      let next: ComposerSendState;
+      try {
+        next = beginSend(sendState, clientId);
+      } catch {
+        return;
+      }
+      sendFlight.current = clientId;
+      setSendState(next);
+      // An edit rewrites the targeted message in place instead of sending a new
+      // one. The same state machine guards it: a failure keeps the draft and the
+      // failed state so the user can retry.
+      if (editing && onSaveEdit) {
+        const text = fieldValue.trim();
+        void (async () => {
+          try {
+            await onSaveEdit(text);
+            if (sendFlight.current !== clientId) {
+              return;
+            }
+            sendFlight.current = null;
+            setSendState(idleSendState());
+            if (!incognitoSessionId) {
+              useMessageTextDraft.getState().clear(draftKey);
+            }
+            setDraft("");
+            onCancelEdit();
+            stopTyping();
+          } catch (error) {
+            if (sendFlight.current !== clientId) {
+              return;
+            }
+            sendFlight.current = null;
+            const message =
+              error instanceof Error ? error.message : "Couldn't save edit";
+            toast({
+              description: message,
+              title: "Edit not saved",
+              variant: "destructive",
+            });
+            setSendState(failSend(clientId, message));
+          }
+        })();
+        return;
+      }
+      void runSend({
+        attachments,
+        caption: fieldValue.trim(),
+        onFailure: (message) => {
+          if (sendFlight.current !== clientId) {
+            return;
+          }
+          sendFlight.current = null;
+          setSendState(failSend(clientId, message));
+        },
+        onSuccess: () => {
           if (sendFlight.current !== clientId) {
             return;
           }
           sendFlight.current = null;
           setSendState(idleSendState());
+          useSharedPostDraft.getState().clear(conversationId);
           if (!incognitoSessionId) {
             useMessageTextDraft.getState().clear(draftKey);
           }
           setDraft("");
+          setAttachments([]);
           onCancelEdit();
+          onCancelReply();
           stopTyping();
-        } catch (error) {
-          if (sendFlight.current !== clientId) {
-            return;
-          }
-          sendFlight.current = null;
-          const message =
-            error instanceof Error ? error.message : "Couldn't save edit";
-          toast({
-            description: message,
-            title: "Edit not saved",
-            variant: "destructive",
-          });
-          setSendState(failSend(clientId, message));
-        }
-      })();
-      return;
-    }
-    void runSend({
-      attachments,
-      caption: fieldValue.trim(),
-      onFailure: (message) => {
-        if (sendFlight.current !== clientId) {
-          return;
-        }
-        sendFlight.current = null;
-        setSendState(failSend(clientId, message));
-      },
-      onSuccess: () => {
-        if (sendFlight.current !== clientId) {
-          return;
-        }
-        sendFlight.current = null;
-        setSendState(idleSendState());
-        useSharedPostDraft.getState().clear(conversationId);
-        if (!incognitoSessionId) {
-          useMessageTextDraft.getState().clear(draftKey);
-        }
-        setDraft("");
-        setAttachments([]);
-        onCancelEdit();
-        onCancelReply();
-        stopTyping();
-      },
-      postId: sharedPostId,
-      replyTo,
-      send: onSend,
-    });
-  }, [
-    conversationId,
-    incognitoSessionId,
-    sharedPostId,
-    attachments,
-    canSend,
-    sendState,
-    onCancelEdit,
-    fieldValue,
-    onCancelReply,
-    onSend,
-    onSaveEdit,
-    editing,
-    replyTo,
-    stopTyping,
-    draftKey,
-  ]);
-
-  const atCapacity = attachments.length >= MAX_MESSAGE_ATTACHMENTS;
-
-  return (
-    <View
-      style={[
-        styles.root,
-        {
-          backgroundColor: incognito ? "#09090b" : undefined,
-          borderTopColor: incognito ? "#3f3f46" : theme.dividerLine,
-          paddingBottom: 10 + (keyboardVisible ? 0 : insets.bottom),
         },
-      ]}
-    >
-      {cropper}
-      {sharedPostId ? (
-        <View
-          style={{
-            alignSelf: "flex-start",
-            marginBottom: 8,
-            maxWidth: 320,
-            width: "100%",
-          }}
-        >
-          <MessagePostPreview postId={sharedPostId} />
-          <View style={{ position: "absolute", right: 8, top: 8 }}>
-            <IconButton3D
-              accessibilityLabel="Remove shared post"
-              icon={X}
-              size={28}
-              onPress={() =>
-                useSharedPostDraft.getState().clear(conversationId)
-              }
-            />
-          </View>
-        </View>
-      ) : null}
-      {editing ? (
-        <ContextBar
-          label="Editing message"
-          onDismiss={onCancelEdit}
-          text={editing.text}
-        />
-      ) : null}
-      {replyTo && !editing ? (
-        <ContextBar
-          label="Replying to"
-          onDismiss={onCancelReply}
-          text={replyTo.text}
-        />
-      ) : null}
-      {attachments.length > 0 ? (
-        <ScrollView
-          contentContainerStyle={styles.strip}
-          horizontal
-          keyboardShouldPersistTaps="handled"
-          showsHorizontalScrollIndicator={false}
-          style={{ flexGrow: 0, height: 72 }}
-        >
-          {attachments.map((item) => (
-            <AttachmentTile
-              attachment={item}
-              key={item.id}
-              onRemove={() => remove(item.id)}
-              onEdit={() => {
-                void editAttachment(item);
-              }}
-            />
-          ))}
-        </ScrollView>
-      ) : null}
-      {expressionKeyboardOpen ? (
-        <MessageExpressionKeyboard
-          canCreate={!incognito && !editing}
-          conversationId={conversationId}
-          disabled={Boolean(disabled) || Boolean(editing) || viewOnceMode}
-          incognitoSessionId={incognitoSessionId}
-          onEmoji={insertEmoji}
-          onGifSelect={handleGifSelect}
-          onSendSticker={handleStickerSend}
-          onTabChange={setExpressionTab}
-          stickersEnabled={stickersEnabled}
-          tab={expressionTab}
-        />
-      ) : null}
-      {sendState.kind === "failed" ? (
-        <Pressable
-          accessibilityLabel="Retry sending message"
-          accessibilityRole="button"
-          onPress={handleSend}
-          style={styles.retryRow}
-        >
-          <Text style={styles.retryText}>
-            Couldn&apos;t send. Tap to try again.
-          </Text>
-        </Pressable>
-      ) : null}
+        postId: sharedPostId,
+        replyTo,
+        send: onSend,
+      });
+    }, [
+      conversationId,
+      incognitoSessionId,
+      sharedPostId,
+      attachments,
+      canSend,
+      sendState,
+      onCancelEdit,
+      fieldValue,
+      onCancelReply,
+      onSend,
+      onSaveEdit,
+      editing,
+      replyTo,
+      stopTyping,
+      draftKey,
+    ]);
+
+    const atCapacity = attachments.length >= MAX_MESSAGE_ATTACHMENTS;
+
+    return (
       <View
         style={[
-          styles.field,
+          styles.root,
           {
-            backgroundColor: input.background,
-            borderColor: input.border,
-            boxShadow: input.shadows,
+            backgroundColor: incognito ? "#09090b" : undefined,
+            borderTopColor: incognito ? "#3f3f46" : theme.dividerLine,
+            paddingBottom: 10 + (keyboardVisible ? 0 : insets.bottom),
           },
         ]}
       >
-        <Pressable
-          accessibilityLabel="Add attachment"
-          accessibilityRole="button"
-          disabled={
-            disabled ||
-            atCapacity ||
-            Boolean(sharedPostId) ||
-            viewOnceMode ||
-            Boolean(editing)
-          }
-          hitSlop={6}
-          onPress={attach}
-          style={styles.attachButton}
-        >
-          <Plus color={theme.dividerText} size={21} />
-        </Pressable>
-        <Pressable
-          accessibilityLabel={
-            expressionKeyboardOpen
-              ? "Close expression keyboard"
-              : "Open expression keyboard"
-          }
-          accessibilityRole="button"
-          disabled={Boolean(disabled) || viewOnceMode}
-          hitSlop={6}
-          onPress={() => {
-            if (expressionKeyboardOpen) {
-              setExpressionKeyboardOpen(false);
-              return;
-            }
-            Keyboard.dismiss();
-            setExpressionTab("emoji");
-            setExpressionKeyboardOpen(true);
-          }}
-          style={styles.attachButton}
-        >
-          <Smile color={theme.dividerText} size={20} />
-        </Pressable>
-        <TextInput
-          ref={fieldRef}
-          accessibilityLabel="Message"
-          editable={!disabled && !viewOnceMode}
-          multiline
-          onFocus={() => setExpressionKeyboardOpen(false)}
-          onChangeText={(value) => {
-            setDraft(value);
-            if (!incognitoSessionId) {
-              if (value) {
-                useMessageTextDraft.getState().save(draftKey, value);
-              } else {
-                useMessageTextDraft.getState().clear(draftKey);
-              }
-            }
-            if (value.trim().length > 0) {
-              noteTyping();
-            } else {
-              stopTyping();
-            }
-          }}
-          onSelectionChange={(event) =>
-            setSelection(event.nativeEvent.selection)
-          }
-          placeholder={(() => {
-            if (viewOnceMode) {
-              return "View once photo";
-            }
-            if (incognitoSessionId) {
-              return "Message in incognito…";
-            }
-            if (editing) {
-              return "Edit message…";
-            }
-            return `Message${peerName ? ` ${peerName}` : ""}…`;
-          })()}
-          placeholderTextColor={incognito || isDark ? "#6b6b6b" : "#9a9a9a"}
-          style={[
-            styles.fieldInput,
-            { color: incognito || isDark ? "#eeeeee" : "#202020" },
-          ]}
-          selection={selection}
-          value={fieldValue}
-        />
-        <Pressable
-          accessibilityLabel="Send"
-          accessibilityRole="button"
-          disabled={!canSend}
-          hitSlop={8}
-          onPress={handleSend}
-          style={styles.sendWrap}
-        >
-          {({ pressed }) => (
-            <Gradient3D
-              colors={pressed ? button.pressedGradient : button.restingGradient}
-              radius={9999}
-              shadows={button.shadows}
-              style={[styles.send, !canSend && styles.sendDisabled]}
-            >
-              <ArrowUp
-                color={canSend ? "#ffffff" : "#ffffff99"}
-                size={16}
-                strokeWidth={2.4}
+        {cropper}
+        {sharedPostId ? (
+          <View
+            style={{
+              alignSelf: "flex-start",
+              marginBottom: 8,
+              maxWidth: 320,
+              width: "100%",
+            }}
+          >
+            <MessagePostPreview postId={sharedPostId} />
+            <View style={{ position: "absolute", right: 8, top: 8 }}>
+              <IconButton3D
+                accessibilityLabel="Remove shared post"
+                icon={X}
+                size={28}
+                onPress={() =>
+                  useSharedPostDraft.getState().clear(conversationId)
+                }
               />
-            </Gradient3D>
-          )}
-        </Pressable>
-      </View>
-      <Modal
-        animationType="slide"
-        onRequestClose={() => setAttachmentMenuOpen(false)}
-        transparent
-        visible={attachmentMenuOpen}
-      >
-        <Pressable
-          accessibilityLabel="Close attachment menu"
-          onPress={() => setAttachmentMenuOpen(false)}
-          style={styles.attachmentScrim}
+            </View>
+          </View>
+        ) : null}
+        {editing ? (
+          <ContextBar
+            label="Editing message"
+            onDismiss={onCancelEdit}
+            text={editing.text}
+          />
+        ) : null}
+        {replyTo && !editing ? (
+          <ContextBar
+            label="Replying to"
+            onDismiss={onCancelReply}
+            text={replyTo.text}
+          />
+        ) : null}
+        {attachments.length > 0 ? (
+          <ScrollView
+            contentContainerStyle={styles.strip}
+            horizontal
+            keyboardShouldPersistTaps="handled"
+            showsHorizontalScrollIndicator={false}
+            style={{ flexGrow: 0, height: 72 }}
+          >
+            {attachments.map((item) => (
+              <AttachmentTile
+                attachment={item}
+                key={item.id}
+                onRemove={() => remove(item.id)}
+                onEdit={() => {
+                  void editAttachment(item);
+                }}
+              />
+            ))}
+          </ScrollView>
+        ) : null}
+        {expressionKeyboardOpen ? (
+          <MessageExpressionKeyboard
+            canCreate={!incognito && !editing}
+            conversationId={conversationId}
+            disabled={Boolean(disabled) || Boolean(editing) || viewOnceMode}
+            incognitoSessionId={incognitoSessionId}
+            onEmoji={insertEmoji}
+            onGifSelect={handleGifSelect}
+            onSendSticker={handleStickerSend}
+            onTabChange={setExpressionTab}
+            stickersEnabled={stickersEnabled}
+            tab={expressionTab}
+          />
+        ) : null}
+        {sendState.kind === "failed" ? (
+          <Pressable
+            accessibilityLabel="Retry sending message"
+            accessibilityRole="button"
+            onPress={handleSend}
+            style={styles.retryRow}
+          >
+            <Text style={styles.retryText}>
+              Couldn&apos;t send. Tap to try again.
+            </Text>
+          </Pressable>
+        ) : null}
+        <View
+          style={[
+            styles.field,
+            {
+              backgroundColor: input.background,
+              borderColor: input.border,
+              boxShadow: input.shadows,
+            },
+          ]}
         >
           <Pressable
-            onPress={(event) => event.stopPropagation()}
-            style={[
-              styles.attachmentSheet,
-              {
-                backgroundColor: input.background,
-                borderColor: input.border,
-                paddingBottom: Math.max(insets.bottom, 16),
-              },
-            ]}
+            accessibilityLabel="Add attachment"
+            accessibilityRole="button"
+            disabled={
+              disabled ||
+              atCapacity ||
+              Boolean(sharedPostId) ||
+              viewOnceMode ||
+              Boolean(editing)
+            }
+            hitSlop={6}
+            onPress={attach}
+            style={styles.attachButton}
           >
-            <Text
+            <Plus color={theme.dividerText} size={21} />
+          </Pressable>
+          <Pressable
+            accessibilityLabel={
+              expressionKeyboardOpen
+                ? "Close expression keyboard"
+                : "Open expression keyboard"
+            }
+            accessibilityRole="button"
+            disabled={Boolean(disabled) || viewOnceMode}
+            hitSlop={6}
+            onPress={() => {
+              if (expressionKeyboardOpen) {
+                setExpressionKeyboardOpen(false);
+                return;
+              }
+              Keyboard.dismiss();
+              setExpressionTab("emoji");
+              setExpressionKeyboardOpen(true);
+            }}
+            style={styles.attachButton}
+          >
+            <Smile color={theme.dividerText} size={20} />
+          </Pressable>
+          <TextInput
+            ref={fieldRef}
+            accessibilityLabel="Message"
+            editable={!disabled && !viewOnceMode}
+            multiline
+            onFocus={() => setExpressionKeyboardOpen(false)}
+            onChangeText={(value) => {
+              setDraft(value);
+              if (!incognitoSessionId) {
+                if (value) {
+                  useMessageTextDraft.getState().save(draftKey, value);
+                } else {
+                  useMessageTextDraft.getState().clear(draftKey);
+                }
+              }
+              if (value.trim().length > 0) {
+                noteTyping();
+              } else {
+                stopTyping();
+              }
+            }}
+            onSelectionChange={(event) =>
+              setSelection(event.nativeEvent.selection)
+            }
+            placeholder={(() => {
+              if (viewOnceMode) {
+                return "View once photo";
+              }
+              if (incognitoSessionId) {
+                return "Message in incognito…";
+              }
+              if (editing) {
+                return "Edit message…";
+              }
+              return `Message${peerName ? ` ${peerName}` : ""}…`;
+            })()}
+            placeholderTextColor={incognito || isDark ? "#6b6b6b" : "#9a9a9a"}
+            style={[
+              styles.fieldInput,
+              { color: incognito || isDark ? "#eeeeee" : "#202020" },
+            ]}
+            selection={selection}
+            value={fieldValue}
+          />
+          <Pressable
+            accessibilityLabel="Send"
+            accessibilityRole="button"
+            disabled={!canSend}
+            hitSlop={8}
+            onPress={handleSend}
+            style={styles.sendWrap}
+          >
+            {({ pressed }) => (
+              <Gradient3D
+                colors={
+                  pressed ? button.pressedGradient : button.restingGradient
+                }
+                radius={9999}
+                shadows={button.shadows}
+                style={[styles.send, !canSend && styles.sendDisabled]}
+              >
+                <ArrowUp
+                  color={canSend ? "#ffffff" : "#ffffff99"}
+                  size={16}
+                  strokeWidth={2.4}
+                />
+              </Gradient3D>
+            )}
+          </Pressable>
+        </View>
+        <Modal
+          animationType="slide"
+          onRequestClose={() => setAttachmentMenuOpen(false)}
+          transparent
+          visible={attachmentMenuOpen}
+        >
+          <Pressable
+            accessibilityLabel="Close attachment menu"
+            onPress={() => setAttachmentMenuOpen(false)}
+            style={styles.attachmentScrim}
+          >
+            <Pressable
+              onPress={(event) => event.stopPropagation()}
               style={[
-                styles.attachmentSheetTitle,
-                { color: isDark ? "#a0a0a0" : "#646464" },
+                styles.attachmentSheet,
+                {
+                  backgroundColor: input.background,
+                  borderColor: input.border,
+                  paddingBottom: Math.max(insets.bottom, 16),
+                },
               ]}
             >
-              Add to your message
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              disabled={viewOnceMode}
-              onPress={choosePhotosAndVideos}
-              style={styles.attachmentSheetRow}
-            >
-              <ImagePlus color={theme.dividerText} size={19} />
               <Text
                 style={[
-                  styles.attachmentSheetLabel,
-                  { color: isDark ? "#f1f1f1" : "#202020" },
+                  styles.attachmentSheetTitle,
+                  { color: isDark ? "#a0a0a0" : "#646464" },
                 ]}
               >
-                Photos & videos
+                Add to your message
               </Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              disabled={viewOnceMode}
-              onPress={chooseFiles}
-              style={styles.attachmentSheetRow}
-            >
-              <FileText color={theme.dividerText} size={19} />
-              <Text
-                style={[
-                  styles.attachmentSheetLabel,
-                  { color: isDark ? "#f1f1f1" : "#202020" },
-                ]}
+              <Pressable
+                accessibilityRole="button"
+                disabled={viewOnceMode}
+                onPress={choosePhotosAndVideos}
+                style={styles.attachmentSheetRow}
               >
-                Files
-              </Text>
+                <ImagePlus color={theme.dividerText} size={19} />
+                <Text
+                  style={[
+                    styles.attachmentSheetLabel,
+                    { color: isDark ? "#f1f1f1" : "#202020" },
+                  ]}
+                >
+                  Photos & videos
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={viewOnceMode}
+                onPress={chooseFiles}
+                style={styles.attachmentSheetRow}
+              >
+                <FileText color={theme.dividerText} size={19} />
+                <Text
+                  style={[
+                    styles.attachmentSheetLabel,
+                    { color: isDark ? "#f1f1f1" : "#202020" },
+                  ]}
+                >
+                  Files
+                </Text>
+              </Pressable>
             </Pressable>
           </Pressable>
-        </Pressable>
-      </Modal>
-    </View>
-  );
-}
+        </Modal>
+      </View>
+    );
+  }
+);
+
+MessageComposer.displayName = "MessageComposer";
 
 function runMessageAttachmentPicker(
   pick: () => Promise<PickedMedia[]>,

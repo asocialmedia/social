@@ -94,6 +94,7 @@ import {
 } from "@/features/messages/lib/message-delete";
 import type { PendingMessageDelete } from "@/features/messages/lib/message-delete";
 import { getMessageGroupMeta } from "@/features/messages/lib/message-grouping";
+import type { MessageGroupMeta } from "@/features/messages/lib/message-grouping";
 import { getMessageReceipt } from "@/features/messages/lib/message-receipts";
 import { messageReadRetryDelay } from "@/features/messages/lib/read-retry";
 import { buildTranscriptRows } from "@/features/messages/lib/transcript-rows";
@@ -159,7 +160,6 @@ import { ConversationGreeting } from "./conversation-greeting";
 import { DenAvatar } from "./den-avatar";
 import { NativeIncognitoThread } from "./incognito-thread";
 import { NativeIncognitoUsageNotice } from "./incognito-usage-notice";
-import { MessageBubble } from "./message-bubble";
 import { MessageComposer, reclaimOwnMedia } from "./message-composer";
 import type { ComposerTarget } from "./message-composer";
 import { MessageDeleteDialog } from "./message-delete-dialog";
@@ -174,7 +174,7 @@ import { MessageSharePicker } from "./message-share-picker";
 import { MessageSheet } from "./message-sheet";
 import { MessagesIconButton } from "./messages-primitives";
 import { ThreadSkeleton } from "./messages-skeleton";
-import { SelectableMessageRow } from "./selectable-message-row";
+import { TranscriptMessageRow } from "./transcript-message-row";
 import { TypingDots } from "./typing-dots";
 import { useTranscriptGestures } from "./use-transcript-gestures";
 
@@ -583,17 +583,6 @@ function NormalMessageThreadScreen({
   const items = useMemo(
     () => buildTranscriptRows(messages, unreadId, lifecycle?.notices),
     [messages, unreadId, lifecycle?.notices]
-  );
-
-  const groupMetaFor = useCallback(
-    (messageId: string) => {
-      const forwardIndex = messages.findIndex((row) => row.id === messageId);
-      if (forwardIndex === -1) {
-        return SELF_GROUP;
-      }
-      return getMessageGroupMeta(messages, forwardIndex);
-    },
-    [messages]
   );
 
   // ---- send ------------------------------------------------------------------
@@ -1223,6 +1212,48 @@ function NormalMessageThreadScreen({
   const headerName = currentConversation
     ? conversationName(currentConversation, userId)
     : (peer?.displayName ?? "Chat");
+  // The bubble entrance registry is a stable store object per conversation, so
+  // it is read once per render instead of inside every row.
+  const entrances = transcriptStore.getEntrances(conversationId);
+  // Group metadata is referentially stable per message list: without this every
+  // row gets a fresh group object on each decrypt flush and the memo below
+  // never bails out.
+  const groupMap = useMemo(() => {
+    const map = new Map<string, MessageGroupMeta>();
+    for (const [index, entry] of messages.entries()) {
+      map.set(entry.id, getMessageGroupMeta(messages, index));
+    }
+    return map;
+  }, [messages]);
+  const handlePressImageRow = useCallback(
+    (messageId: string, index: number) => {
+      if (selectionActive) {
+        toggleSelected(messageId);
+        return;
+      }
+      const target = messages.find((row) => row.id === messageId);
+      if (!target) {
+        return;
+      }
+      openViewer(target, decrypted.get(messageId), index);
+    },
+    [decrypted, messages, openViewer, selectionActive, toggleSelected]
+  );
+  const handleRetryRow = useCallback(
+    (messageId: string) => {
+      const target = messages.find((row) => row.id === messageId);
+      if (target) {
+        retryRow(target);
+      }
+    },
+    [messages, retryRow]
+  );
+  const handleReactRow = useCallback(
+    (messageId: string, emoji: string) => {
+      void handleMessageReaction(messageId, emoji);
+    },
+    [handleMessageReaction]
+  );
   // ---- render ----------------------------------------------------------------
 
   const renderItem = useCallback(
@@ -1254,122 +1285,98 @@ function NormalMessageThreadScreen({
       const quotedMessage = replyId
         ? messages.find((row) => row.id === replyId)
         : undefined;
-      let quoteText = "Message";
-      if (quotedMessage?.deletedAt) {
-        quoteText = "Message deleted";
-      } else if (isPayload(quoted)) {
-        quoteText = messageSummary(quoted);
+      let quoteText: string | null = null;
+      if (replyId) {
+        quoteText = "Message";
+        if (quotedMessage?.deletedAt) {
+          quoteText = "Message deleted";
+        } else if (isPayload(quoted)) {
+          quoteText = messageSummary(quoted);
+        }
       }
       const receipt = getMessageReceipt({
         createdAt: message.createdAt,
         mine,
         watermarks: transcript.snapshot.peerWatermarks,
       });
+      const group = groupMap.get(message.id) ?? SELF_GROUP;
+      const denSenderName =
+        isDen && !mine && group.isFirstInGroup
+          ? (message.sender?.displayName ??
+            currentConversation?.members.find(
+              (member) => member.userId === message.senderId
+            )?.user.displayName ??
+            "Member")
+          : null;
       return (
-        <SelectableMessageRow
-          id={message.id}
+        <TranscriptMessageRow
+          conversationId={conversationId}
+          denSenderName={denSenderName}
+          entrances={entrances}
+          entry={entry}
+          group={group}
+          maxBubbleWidth={width - 32}
+          message={message}
           mine={mine}
+          onOpenViewOnce={openViewOnce}
+          onCloseViewOnce={closeViewOnce}
+          onPressImage={handlePressImageRow}
+          onReact={handleReactRow}
+          onRetry={handleRetryRow}
+          onToggle={toggleSelected}
+          peerAvatarUrl={
+            isDen
+              ? (message.sender?.avatarUrl ??
+                currentConversation?.members.find(
+                  (member) => member.userId === message.senderId
+                )?.user.avatarUrl)
+              : (peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null)
+          }
+          quotedSenderId={quotedMessage?.senderId ?? ""}
+          quotedText={quoteText}
+          reactionPending={reactionPendingIds.has(message.id)}
+          reactions={message.reactions}
+          receiptAt={receipt?.at ?? null}
+          receiptStatus={receipt?.status ?? null}
+          searchJump={search.activeId === message.id ? search.jump : 0}
           selected={selectedIds.has(message.id)}
           selectionActive={selectionActive}
-          onToggle={toggleSelected}
+          showReceipt={group.isLastInGroup}
           swipeId={swipeId}
           swipeX={swipeX}
-        >
-          <View style={{ width: "100%" }}>
-            {isDen && !mine && groupMetaFor(message.id).isFirstInGroup ? (
-              <Text
-                style={{
-                  color: theme.dividerText,
-                  fontFamily: "SofiaProMed",
-                  fontSize: 12,
-                  marginBottom: 4,
-                  marginLeft: 44,
-                }}
-              >
-                {message.sender?.displayName ??
-                  currentConversation?.members.find(
-                    (member) => member.userId === message.senderId
-                  )?.user.displayName ??
-                  "Member"}
-              </Text>
-            ) : null}
-            <MessageBubble
-              entrances={transcriptStore.getEntrances(conversationId)}
-              messageId={message.id}
-              searchJump={search.activeId === message.id ? search.jump : 0}
-              deleted={Boolean(message.deletedAt)}
-              edited={Boolean(message.editedAt)}
-              failed={entry === "error"}
-              group={groupMetaFor(message.id)}
-              maxBubbleWidth={width - 32}
-              mine={mine}
-              onPressImage={(index) =>
-                selectionActive
-                  ? toggleSelected(message.id)
-                  : openViewer(message, entry, index)
-              }
-              onOpenViewOnce={openViewOnce}
-              conversationId={conversationId}
-              onCloseViewOnce={closeViewOnce}
-              onRetry={() => retryRow(message)}
-              onReact={(emoji) => {
-                void handleMessageReaction(message.id, emoji);
-              }}
-              reactionPending={reactionPendingIds.has(message.id)}
-              payload={isPayload(entry) ? entry : null}
-              reactions={message.reactions ?? []}
-              peerAvatarUrl={
-                isDen
-                  ? (message.sender?.avatarUrl ??
-                    currentConversation?.members.find(
-                      (member) => member.userId === message.senderId
-                    )?.user.avatarUrl)
-                  : (peer?.avatarUrl ?? cachedPeer?.avatarUrl ?? null)
-              }
-              receipt={receipt}
-              replyPreview={
-                replyId
-                  ? {
-                      senderId: quotedMessage?.senderId ?? "",
-                      text: quoteText,
-                    }
-                  : null
-              }
-              showReceipt={groupMetaFor(message.id).isLastInGroup}
-              theme={chatTheme}
-            />
-          </View>
-        </SelectableMessageRow>
+          theme={chatTheme}
+        />
       );
     },
     [
-      conversationId,
-      search.activeId,
-      search.jump,
-      currentConversation,
-      isDen,
-      chatTheme,
-      cachedPeer?.avatarUrl,
-      peer?.avatarUrl,
-      width,
-      decrypted,
-      groupMetaFor,
-      handleMessageReaction,
-      openViewer,
-      retryRow,
-      theme.dividerText,
-      transcript.snapshot.peerWatermarks,
-      userId,
-      selectedIds,
-      reactionPendingIds,
-      selectionActive,
-      toggleSelected,
-      swipeId,
-      swipeX,
-      messages,
-      openViewOnce,
-      closeViewOnce,
-    ]
+	conversationId,
+	entrances,
+	groupMap,
+	search.activeId,
+	search.jump,
+	currentConversation,
+	isDen,
+	chatTheme,
+	cachedPeer?.avatarUrl,
+	peer?.avatarUrl,
+	width,
+	decrypted,
+	handleReactRow,
+	handlePressImageRow,
+	handleRetryRow,
+	theme.dividerText,
+	transcript.snapshot.peerWatermarks,
+	userId,
+	selectedIds,
+	reactionPendingIds,
+	selectionActive,
+	toggleSelected,
+	swipeId,
+	swipeX,
+	messages,
+	openViewOnce,
+	closeViewOnce
+]
   );
 
   // Checked here rather than before the hooks above: an early return above them
