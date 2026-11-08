@@ -1,7 +1,8 @@
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { Text, View } from "react-native";
 
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { readExternal } from "@/features/feed/lib/external-interactions";
 import { externalPostView } from "@/features/feed/lib/external-post-view";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
@@ -51,7 +52,7 @@ export default function ExternalMediaRoute() {
       {failed ? (
         <Text className="text-white">Couldn't load this media.</Text>
       ) : (
-        <ActivityIndicator color="white" />
+        <Spinner3D size={24} />
       )}
     </View>
   );

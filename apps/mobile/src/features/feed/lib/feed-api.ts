@@ -4,10 +4,12 @@
 // (authClient.getCookie). Pure and injectable for testing: cookie, apiBase
 // and baseFetch come from the caller, mirroring profile-data.ts.
 
+import { abortable } from "@asm/protocols/discovery";
+
 import type { NetworkRequestContext } from "@/features/network/lib/network-query";
 import { appendNetworkQuery } from "@/features/network/lib/network-query";
 import { withAuthHeaders } from "@/lib/network/auth-headers";
-import { getWithTimeout } from "@/lib/network/http-get";
+import { getWithTimeout, RequestTimeoutError } from "@/lib/network/http-get";
 
 import type { FeedPost, PostsPage } from "./feed-types";
 import { mediaCaptionsPath, mediaWavePeaksPath } from "./media-url";
@@ -68,6 +70,31 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+async function readFeedJson(
+  response: Response,
+  timeoutMs = 15_000
+): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await abortable(readJson(response), controller.signal);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      void (async () => {
+        try {
+          await response.body?.cancel();
+        } catch {
+          // Body cancellation is best effort; the deadline must still reject.
+        }
+      })();
+      throw new RequestTimeoutError(timeoutMs);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export type FeedVariant = "following" | "latest" | "personalized" | "trending";
 
 const FEED_ENDPOINTS: Record<FeedVariant, string> = {
@@ -109,7 +136,7 @@ export async function fetchFeedPage(
       response.status
     );
   }
-  return parsePostsPage(await readJson(response));
+  return parsePostsPage(await readFeedJson(response, options.timeoutMs));
 }
 
 // Head page only, for the new-content probe (never touches list state).
@@ -151,7 +178,10 @@ export async function fetchFeedHeadId(
       response.status
     );
   }
-  return parsePostsPage(await readJson(response)).posts[0]?.id ?? null;
+  return (
+    parsePostsPage(await readFeedJson(response, options.timeoutMs)).posts[0]
+      ?.id ?? null
+  );
 }
 
 // Routes that accept ?take= and can therefore answer with a single row. Checked

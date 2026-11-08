@@ -8,6 +8,7 @@ import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useNetworkSettings } from "@/features/network/state/use-network-settings";
 import { getApiBaseUrl } from "@/lib/network/api-env";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
 
 import type { BlueskyReadContext } from "../lib/bluesky-feed";
 import { createBlueskyFeed } from "../lib/bluesky-feed";
@@ -37,10 +38,13 @@ export function useBlueskyFeed(
           const cookie = viewer ? await authClient.getCookie() : null;
           return fetch(url, {
             ...init,
-            headers: {
-              "x-asm-client": "mobile",
-              ...(cookie ? { cookie } : {}),
-            },
+            headers: withAuthHeaders(
+              {
+                ...Object.fromEntries(new Headers(init.headers)),
+                "x-asm-client": "mobile",
+              },
+              cookie
+            ),
           });
         },
         following,

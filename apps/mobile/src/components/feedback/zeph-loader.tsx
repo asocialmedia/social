@@ -1,22 +1,16 @@
-import { Image } from "expo-image";
 import type { ActivityIndicatorProps } from "react-native";
 import { View } from "react-native";
 
-import mediaArtwork from "@/assets/images/zeph-loading-media.webp";
-import messagesArtwork from "@/assets/images/zeph-loading-messages.webp";
-import searchArtwork from "@/assets/images/zeph-loading-search.webp";
-import securityArtwork from "@/assets/images/zeph-loading-security.webp";
-import waitingArtwork from "@/assets/images/zeph-loading-waiting.webp";
+import { Spinner3D } from "./spinner-3d";
 
-const ARTWORK = {
-  general: waitingArtwork,
-  media: mediaArtwork,
-  messages: messagesArtwork,
-  search: searchArtwork,
-  security: securityArtwork,
-};
 const SIZES = { large: 56, small: 24 };
-export type ZephLoaderVariant = keyof typeof ARTWORK;
+// Retain the existing call-site contract while all loading uses Spinner3D.
+export type ZephLoaderVariant =
+  | "general"
+  | "media"
+  | "messages"
+  | "search"
+  | "security";
 
 export function ZephLoader({
   animating = true,
@@ -24,7 +18,7 @@ export function ZephLoader({
   hidesWhenStopped = true,
   size = "small",
   style,
-  variant = "general",
+  variant: _variant,
   ...props
 }: ActivityIndicatorProps & { variant?: ZephLoaderVariant }) {
   if (!animating && hidesWhenStopped) {
@@ -47,12 +41,7 @@ export function ZephLoader({
       ]}
       {...props}
     >
-      <Image
-        accessible={false}
-        contentFit="contain"
-        source={ARTWORK[variant]}
-        style={{ height: dimension, width: dimension }}
-      />
+      <Spinner3D accessible={false} animating={animating} size={dimension} />
     </View>
   );
 }

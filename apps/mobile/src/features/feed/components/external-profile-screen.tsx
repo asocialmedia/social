@@ -5,9 +5,10 @@ import {
 } from "@asm/protocols/discovery";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, FlatList, Linking, Text, View } from "react-native";
+import { FlatList, Linking, Text, View } from "react-native";
 import { z } from "zod";
 
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { useSessionContext } from "@/features/auth/state/session";
 import { networkRequest } from "@/features/network/lib/network-api";
 import { useNetworkSettings } from "@/features/network/state/use-network-settings";
@@ -133,9 +134,7 @@ function ExternalProfileContent({ actor }: { actor: string }) {
                 router.canGoBack() ? router.back() : router.replace("/")
               }
             />
-            {profile.loading && !author ? (
-              <ActivityIndicator color={theme.dividerText} />
-            ) : null}
+            {profile.loading && !author ? <Spinner3D size={24} /> : null}
             {profile.error ? (
               <>
                 <Text selectable style={{ color: theme.dividerText }}>
@@ -191,9 +190,7 @@ function ExternalProfileContent({ actor }: { actor: string }) {
         )}
         ListEmptyComponent={
           <>
-            {feed.loading ? (
-              <ActivityIndicator color={theme.dividerText} />
-            ) : null}
+            {feed.loading ? <Spinner3D size={24} /> : null}
             {!feed.loading && author && !feed.error ? (
               <Text className="p-6" style={{ color: theme.dividerText }}>
                 No {tab} to show.

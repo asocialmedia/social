@@ -1,12 +1,117 @@
 import { expect, test } from "bun:test";
 
+import type { ExternalPost } from "@asm/protocols/contracts";
 import { readDiscoveryPage } from "@asm/protocols/discovery";
 
 import { createBlueskyFeed } from "./bluesky-feed";
 
-const page = { cursor: "next", items: [], partial: false };
+const page = { cursor: "next", items: [external("baseline")], partial: false };
 
-function external(id: string) {
+test("repeated Bluesky cursors stop the skeleton and retain posts until manual retry", async () => {
+  let calls = 0;
+  let recover = false;
+  const store = createBlueskyFeed("https://asm.test", "latest", () => {
+    calls += 1;
+    return Promise.resolve(
+      Response.json(
+        recover
+          ? { ...page, cursor: null, items: [external("recovered")] }
+          : page
+      )
+    );
+  });
+  await store.refresh();
+  const [first] = store.snapshot().pages;
+  await store.fetchNext();
+  expect(store.snapshot().status).toBe("error");
+  expect(store.snapshot().loadingMore).toBe(false);
+  expect(store.snapshot().pages).toEqual([first]);
+  const stoppedAt = calls;
+  await store.fetchNext();
+  expect(calls).toBe(stoppedAt);
+  recover = true;
+  await store.retry();
+  expect(store.snapshot().status).toBe("success");
+  expect(store.snapshot().pages).toHaveLength(2);
+  expect(store.snapshot().pages[0]).toBe(first);
+  store.dispose();
+});
+
+test("a stalled continuation has a whole-read deadline and remains retryable", async () => {
+  let calls = 0;
+  const pending = Promise.withResolvers<Response>();
+  const store = createBlueskyFeed(
+    "https://asm.test",
+    "latest",
+    () => {
+      calls += 1;
+      if (calls === 1) {
+        return Promise.resolve(Response.json(page));
+      }
+      if (calls === 2) {
+        return pending.promise;
+      }
+      return Promise.resolve(
+        Response.json({ ...page, cursor: null, items: [external("retry")] })
+      );
+    },
+    false,
+    { timeoutMs: 20 }
+  );
+  await store.refresh();
+  const [first] = store.snapshot().pages;
+  await store.fetchNext();
+  expect(store.snapshot().status).toBe("error");
+  expect(store.snapshot().loadingMore).toBe(false);
+  expect(store.snapshot().pages).toEqual([first]);
+  pending.resolve(Response.json({ ...page, items: [external("too-late")] }));
+  await Promise.resolve();
+  expect(store.snapshot().pages).toEqual([first]);
+  await store.retry();
+  expect(store.snapshot().status).toBe("success");
+  expect(store.snapshot().pages.at(-1)?.items[0]?.id).toBe(
+    external("retry").id
+  );
+  store.dispose();
+});
+
+test("an empty initial Bluesky page advances its cursor without requiring a scroll", async () => {
+  const urls: string[] = [];
+  const store = createBlueskyFeed("https://asm.test", "latest", (url) => {
+    urls.push(url);
+    return Promise.resolve(
+      Response.json(
+        urls.length === 1
+          ? { ...page, cursor: "filtered-page", items: [] }
+          : { ...page, cursor: null, items: [external("visible")] }
+      )
+    );
+  });
+  await store.refresh();
+  expect(urls).toHaveLength(2);
+  expect(urls[1]).toContain("cursor=filtered-page");
+  expect(store.snapshot().status).toBe("success");
+  expect(store.snapshot().pages[0]?.items[0]?.id).toBe(external("visible").id);
+  store.dispose();
+});
+
+test("empty cursor chains stay bounded when Bluesky has nothing visible", async () => {
+  let calls = 0;
+  const store = createBlueskyFeed("https://asm.test", "latest", () => {
+    calls += 1;
+    return Promise.resolve(
+      Response.json({ ...page, cursor: `empty-${calls}`, items: [] })
+    );
+  });
+  await store.refresh();
+  expect(calls).toBe(3);
+  expect(store.snapshot().status).toBe("error");
+  expect(store.snapshot().loadingMore).toBe(false);
+  expect(store.snapshot().pages).toEqual([]);
+  store.dispose();
+});
+
+function external(id: string): ExternalPost {
   return {
     author: {
       displayName: "Example",
@@ -97,7 +202,7 @@ test("pausing cancels a pending head read before it can repopulate a tab", async
   store.pause();
   pending.resolve(Response.json({ ...page, items: [external("new")] }));
   await head;
-  expect(store.snapshot().pages[0]?.items).toEqual([]);
+  expect(store.snapshot().pages[0]?.items).toEqual(page.items);
   store.dispose();
 });
 
@@ -130,7 +235,7 @@ test("failed pagination retains rendered data and refresh can recover an expired
     return Promise.resolve(
       calls === 2
         ? Response.json({ error: "expired" }, { status: 410 })
-        : Response.json(page)
+        : Response.json({ ...page, items: [external(`page-${calls}`)] })
     );
   });
   await store.refresh();

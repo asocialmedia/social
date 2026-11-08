@@ -1,5 +1,6 @@
 import type { ExternalPost } from "@asm/protocols/contracts";
 import {
+  abortable,
   canRetryRead,
   FeedReadError,
   readDiscoveryPage,
@@ -8,6 +9,7 @@ import {
 import type { DiscoveryMode, DiscoveryPage } from "@asm/protocols/discovery";
 
 export interface BlueskyReadContext {
+  timeoutMs?: number;
   scope?: string;
   content?: "all" | "video";
   locale?: string;
@@ -30,6 +32,7 @@ export function createBlueskyFeed(
   following = false,
   context: BlueskyReadContext = {}
 ) {
+  const { timeoutMs = 30_000, ...readContext } = context;
   let state: DiscoveryState = {
     error: null,
     loadingMore: false,
@@ -56,6 +59,11 @@ export function createBlueskyFeed(
     }
     const current = new AbortController();
     const requestGeneration = generation;
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      current.abort();
+    }, timeoutMs);
     controller = current;
     update({
       error: null,
@@ -64,7 +72,7 @@ export function createBlueskyFeed(
     });
     try {
       const options = {
-        ...context,
+        ...readContext,
         baseUrl: apiBase,
         cursor,
         fetch: baseFetch,
@@ -73,26 +81,38 @@ export function createBlueskyFeed(
         signal: current.signal,
       };
       let expired = false;
-      const page = await (
-        replace
-          ? readDiscoveryPage(options)
-          : readDiscoveryWindow(
-              options,
-              new Set(
-                state.pages.flatMap((entry) =>
-                  entry.items.map((item) => item.id)
-                )
-              )
-            )
-      ).catch(async (error: unknown) => {
-        if (cursor && error instanceof FeedReadError && error.status === 410) {
-          expired = true;
-          return await readDiscoveryPage({ ...options, cursor: null });
+      // Initial pages can be empty after server-side filtering and still have
+      // a continuation. Advance those too: an empty list cannot be scrolled
+      // to trigger onEndReached and would otherwise never load the next page.
+      const knownIds = replace
+        ? []
+        : state.pages.flatMap((entry) => entry.items.map((item) => item.id));
+      const read = (async () => {
+        try {
+          return await readDiscoveryWindow(options, new Set(knownIds));
+        } catch (error) {
+          if (
+            cursor &&
+            error instanceof FeedReadError &&
+            error.status === 410
+          ) {
+            expired = true;
+            return await readDiscoveryWindow(
+              { ...options, cursor: null },
+              new Set()
+            );
+          }
+          throw error;
         }
-        throw error;
-      });
+      })();
+      const page = await abortable(read, current.signal);
       if (generation !== requestGeneration || current.signal.aborted) {
         return;
+      }
+      // A bounded window that still has no new rows must wait for an explicit
+      // retry. Auto-paging it again can loop forever on repeated cursors.
+      if (page.items.length === 0 && page.cursor) {
+        throw new FeedReadError(502);
       }
       failedRead = null;
       retryable = false;
@@ -102,13 +122,17 @@ export function createBlueskyFeed(
         status: "success",
       });
     } catch (error) {
-      if (generation === requestGeneration && !current.signal.aborted) {
+      if (
+        generation === requestGeneration &&
+        (!current.signal.aborted || timedOut)
+      ) {
+        const failure = timedOut ? new FeedReadError(408) : error;
         failedRead = { cursor, replace };
-        retryable = canRetryRead(error);
+        retryable = canRetryRead(failure);
         retryAt =
           Date.now() +
           Math.max(
-            error instanceof FeedReadError ? error.retryAfter : 0,
+            failure instanceof FeedReadError ? failure.retryAfter : 0,
             30_000
           );
         update({
@@ -117,6 +141,7 @@ export function createBlueskyFeed(
         });
       }
     } finally {
+      clearTimeout(timer);
       if (controller === current) {
         controller = null;
         update({ loadingMore: false });
@@ -141,7 +166,7 @@ export function createBlueskyFeed(
     headController = current;
     try {
       const page = await readDiscoveryPage({
-        ...context,
+        ...readContext,
         baseUrl: apiBase,
         cursor: null,
         fetch: baseFetch,
@@ -207,7 +232,7 @@ export function createBlueskyFeed(
     },
     fetchNext: () => {
       const cursor = state.pages.at(-1)?.cursor;
-      if (cursor && (!state.error || retryable)) {
+      if (cursor && !state.error) {
         return load(cursor, false);
       }
       return Promise.resolve();

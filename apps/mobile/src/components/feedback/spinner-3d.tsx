@@ -13,9 +13,10 @@
 // geometry is authored on web's 56px box and scaled to `size`.
 
 import { useEffect, useId } from "react";
-import type { StyleProp, ViewStyle } from "react-native";
+import type { ViewProps } from "react-native";
 import { View } from "react-native";
 import {
+  cancelAnimation,
   createAnimatedComponent,
   Easing,
   useAnimatedStyle,
@@ -34,10 +35,9 @@ import Svg, {
 
 import { buildConicArc } from "./spinner-arc";
 
-interface Spinner3DProps {
-  className?: string;
+interface Spinner3DProps extends ViewProps {
+  animating?: boolean;
   size?: number;
-  style?: StyleProp<ViewStyle>;
 }
 
 const BOX = 56;
@@ -67,13 +67,19 @@ const TRACK_PATH = [
 
 const AnimatedView = createAnimatedComponent(View);
 
-export function Spinner3D({ className, size = BOX, style }: Spinner3DProps) {
+export function Spinner3D({
+  animating = true,
+  className,
+  size = BOX,
+  style,
+  ...props
+}: Spinner3DProps) {
   const reduceMotion = useReducedMotion();
   const gradientId = useId().replaceAll(":", "");
 
   const rotation = useSharedValue(0);
   useEffect(() => {
-    if (reduceMotion) {
+    if (reduceMotion || !animating) {
       return;
     }
     // oxlint-disable-next-line react/immutability -- assigning a Reanimated shared value is how an animation is started; the same pattern is used by the login screen's shake
@@ -82,7 +88,8 @@ export function Spinner3D({ className, size = BOX, style }: Spinner3DProps) {
       -1,
       false
     );
-  }, [reduceMotion, rotation]);
+    return () => cancelAnimation(rotation);
+  }, [animating, reduceMotion, rotation]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${rotation.value}deg` }],
@@ -98,6 +105,7 @@ export function Spinner3D({ className, size = BOX, style }: Spinner3DProps) {
       accessibilityRole="progressbar"
       className={className}
       style={[{ height: size, width: size }, style]}
+      {...props}
     >
       {/* Solid track with its inset lighting, clipped to the ring. */}
       <Svg height={size} viewBox={`0 0 ${BOX} ${BOX}`} width={size}>
