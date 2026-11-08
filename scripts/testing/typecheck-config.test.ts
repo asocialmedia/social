@@ -8,8 +8,8 @@ test("all type checks run inside Turbo including the root scripts project", asyn
     new URL("../../turbo.json", import.meta.url)
   ).json();
 
-  expect(manifest.scripts["check-types"]).toMatch(
-    /^turbo run check-types check-types:scripts --concurrency=[1-8]$/
+  expect(manifest.scripts["check-types"]).toBe(
+    "turbo run check-types check-types:scripts"
   );
   expect(manifest.scripts["check-types:scripts"]).toBe(
     "tsc --project scripts/tsconfig.json"

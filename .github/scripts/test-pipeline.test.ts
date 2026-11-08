@@ -106,9 +106,9 @@ test("integration tests have their own local database, migrations, Redis and ser
   expect(command).not.toContain("--unit");
 });
 
-test("ordinary type checks are capped rather than spawning every workspace at once", async () => {
+test("type checks run unbounded inside Turbo", async () => {
   const manifest = await Bun.file(path.join(root, "package.json")).json();
-  expect(manifest.scripts["check-types"]).toMatch(
-    /^turbo run check-types check-types:scripts --concurrency=[1-8]$/
+  expect(manifest.scripts["check-types"]).toBe(
+    "turbo run check-types check-types:scripts"
   );
 });
