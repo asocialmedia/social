@@ -199,6 +199,7 @@ export async function eraseExpiredChatBatch(): Promise<{
   );
   if (settled.length > 0) {
     // The terminal grant's expiry is a durable cleanup signal until this update succeeds.
+    // Floor immediate deadlines to milliseconds so Timestamp(3) cannot round them into the future.
     await rawExecute(extractedSql.statement17, [
       settled.map((row) => row.mediaLinkId),
     ]);
