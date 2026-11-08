@@ -12,6 +12,71 @@ import type { ProtocolFetch } from "./client";
 import { normalizePost, normalizeSegments } from "./normalize";
 import { postViewSchema } from "./schemas";
 
+test("malformed generator responses cool down without blocking healthy generators", async () => {
+  let now = 0;
+  let reads = 0;
+  const failed = `at://${authorDid}/app.bsky.feed.generator/malformed`;
+  const client = new BlueskyClient({
+    fetch: async (url) => {
+      if (new URL(url).searchParams.get("feed") !== failed) {
+        return Response.json({ feed: [] });
+      }
+      reads += 1;
+      return Response.json({ feed: "invalid" });
+    },
+    maxRetries: 0,
+    now: () => now,
+  });
+  await expect(client.getFeed(failed)).rejects.toMatchObject({
+    code: "invalid_response",
+  });
+  await expect(
+    client.getFeed(failed, { cursor: "next" })
+  ).rejects.toMatchObject({ code: "unavailable" });
+  expect(reads).toBe(1);
+  expect(
+    await client.getFeed(`at://${authorDid}/app.bsky.feed.generator/healthy`)
+  ).toMatchObject({ items: [] });
+  now = 60_001;
+  await expect(client.getFeed(failed)).rejects.toMatchObject({
+    code: "invalid_response",
+  });
+  expect(reads).toBe(2);
+  client.close();
+});
+
+test("rejected social repository reads pause per actor instead of retrying every registry pass", async () => {
+  let now = 0;
+  let reads = 0;
+  const client = new BlueskyClient({
+    fetch: async (url) => {
+      if (new URL(url).searchParams.get("repo") !== authorDid) {
+        return Response.json({ records: [] });
+      }
+      reads += 1;
+      return Response.json({ error: "RepoNotFound" }, { status: 400 });
+    },
+    maxRetries: 0,
+    now: () => now,
+  });
+  await expect(client.getPublicSocialRecords(authorDid)).rejects.toMatchObject({
+    code: "invalid_input",
+  });
+  const firstReads = reads;
+  now = 30_001;
+  await expect(client.getPublicSocialRecords(authorDid)).rejects.toMatchObject({
+    code: "invalid_input",
+  });
+  expect(reads).toBe(firstReads);
+  expect(await client.getPublicSocialRecords("did:plc:other")).toEqual([]);
+  now = 300_001;
+  await expect(client.getPublicSocialRecords(authorDid)).rejects.toMatchObject({
+    code: "invalid_input",
+  });
+  expect(reads).toBeGreaterThan(firstReads);
+  client.close();
+});
+
 describe("Bluesky public read boundary", () => {
   test("profile search normalizes public profiles, filters restricted authors, and caches identical reads", async () => {
     const urls: string[] = [];

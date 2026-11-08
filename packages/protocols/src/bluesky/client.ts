@@ -752,6 +752,10 @@ export class BlueskyClient {
             error instanceof ProtocolError &&
             (["restricted", "unavailable"].includes(error.code) ||
               (operation === "app.bsky.feed.getFeed" &&
+                error.code === "invalid_response") ||
+              (operation === "com.atproto.repo.listRecords" &&
+                error.code === "invalid_input") ||
+              (operation === "app.bsky.feed.getFeed" &&
                 error.code === "invalid_input" &&
                 !parameters.cursor))
           ) {
