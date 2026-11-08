@@ -20,6 +20,7 @@ import type { RefObject } from "react";
 import { Animated, Easing, Platform } from "react-native";
 import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 import { Gesture } from "react-native-gesture-handler";
+import type { SharedValue } from "react-native-reanimated";
 
 import {
   PULL_THRESHOLD,
@@ -27,10 +28,8 @@ import {
 } from "@/features/feed/components/pull-loader";
 import { REFRESH_TIMING } from "@/lib/lifecycle/refresh-timing";
 
-// Rubber-band factor on the Android pan, so the pull never feels 1:1.
-const PULL_RESISTANCE = 0.55;
-// How far the pan must travel vertically before it claims the gesture.
-const PULL_CAPTURE_SLOP = 8;
+import { pullDistance, pullGestureDecision } from "./android-pull";
+
 // Where the Android list parks while refreshing: the 44px loader chip at
 // top 12 plus breathing room.
 const PULL_PARK = 64;
@@ -38,9 +37,8 @@ const PULL_PARK = 64;
 // Android pull, on native gestures: a JS responder loses the drag to the
 // native scroll view the moment it starts, so the pull is a gesture-handler
 // Pan running simultaneously with the list's own native scroll gesture. It
-// measures only the part of the drag made while the list sits at the very
-// top (baseline taken when the offset first reaches zero), so scrolling back
-// up and continuing into a pull works like iOS. Horizontal drags fail it and
+// only activates for a downward drag that starts at the top of the list.
+// Scrolling back up from the middle never becomes a refresh. Horizontal drags fail it and
 // stay with whatever horizontal gesture the screen owns (a pager, a
 // swipe-back). Built once; the handlers only read refs.
 function createNativeScrollGesture() {
@@ -58,8 +56,12 @@ function createPullGestures(refs: {
   refreshRef: RefObject<() => void>;
   refreshingRef: RefObject<boolean>;
   scrollOffsetRef: RefObject<number>;
+  scrollOffset?: Pick<SharedValue<number>, "get">;
 }) {
   let baseline: number | null = null;
+  let activated = false;
+  let touchStart: { x: number; y: number } | null = null;
+  const offset = () => refs.scrollOffset?.get() ?? refs.scrollOffsetRef.current;
   const resetPull = () => {
     baseline = null;
     refs.pullRef.current = 0;
@@ -69,30 +71,76 @@ function createPullGestures(refs: {
   const pull = Gesture.Pan()
     .enabled(refs.enabled)
     .runOnJS(true)
-    .activeOffsetY(PULL_CAPTURE_SLOP)
-    .failOffsetX([-PULL_CAPTURE_SLOP * 2, PULL_CAPTURE_SLOP * 2])
+    .manualActivation(true)
     .simultaneousWithExternalGesture(nativeScroll)
+    .onTouchesDown((event, manager) => {
+      activated = false;
+      const [touch] = event.allTouches;
+      touchStart = touch ? { x: touch.absoluteX, y: touch.absoluteY } : null;
+      // A drag that starts down the feed belongs to scrolling for its entire lifetime.
+      if (
+        !touchStart ||
+        offset() > 0 ||
+        refs.refreshingRef.current ||
+        event.numberOfTouches !== 1
+      ) {
+        touchStart = null;
+        manager.fail();
+      }
+    })
+    .onTouchesMove((event, manager) => {
+      if (activated) {
+        return;
+      }
+      const [touch] = event.allTouches;
+      if (!touchStart || !touch) {
+        manager.fail();
+        return;
+      }
+      const decision = pullGestureDecision({
+        offset: offset(),
+        refreshing: refs.refreshingRef.current,
+        touches: event.numberOfTouches,
+        x: touch.absoluteX - touchStart.x,
+        y: touch.absoluteY - touchStart.y,
+      });
+      if (decision === "fail") {
+        manager.fail();
+      } else if (decision === "activate") {
+        activated = true;
+        manager.activate();
+      }
+    })
     .onUpdate((event) => {
-      if (refs.refreshingRef.current || refs.scrollOffsetRef.current > 0) {
+      if (refs.refreshingRef.current || offset() > 0) {
         if (refs.pullRef.current > 0) {
           resetPull();
+          refs.pullShift.setValue(0);
         }
         return;
       }
       if (baseline === null) {
         baseline = event.translationY;
       }
-      const distance =
-        Math.max(0, event.translationY - baseline) * PULL_RESISTANCE;
+      const distance = pullDistance(event.translationY, baseline);
       if (Math.abs(distance - refs.pullRef.current) > 1) {
         refs.pullRef.current = distance;
         refs.pullUpdateRef.current?.(distance);
         refs.pullShift.setValue(distance);
       }
     })
-    .onFinalize(() => {
+    .onFinalize((_event, success) => {
       const trigger =
-        !refs.refreshingRef.current && refs.pullRef.current > PULL_THRESHOLD;
+        success &&
+        offset() <= 0 &&
+        !refs.refreshingRef.current &&
+        refs.pullRef.current > PULL_THRESHOLD;
+      touchStart = null;
+      activated = false;
+      if (!trigger && refs.pullRef.current === 0) {
+        baseline = null;
+        return;
+      }
       if (trigger) {
         refs.refreshRef.current();
       }
@@ -129,6 +177,7 @@ export function usePullToRefresh({
   onRefresh,
   offsetTop,
   refreshing,
+  scrollOffset,
   translucent = false,
   updatedMessage = "Feed updated",
 }: {
@@ -139,6 +188,8 @@ export function usePullToRefresh({
   // their safe-area inset here so the pill is never parked in the cutout.
   offsetTop?: number;
   refreshing: boolean;
+  // UI-thread lists supply their authoritative offset, including restored positions.
+  scrollOffset?: Pick<SharedValue<number>, "get">;
   // Set on screens where the chip drops over imagery rather than over the flat
   // page background, so what is behind it shows through.
   translucent?: boolean;
@@ -155,8 +206,6 @@ export function usePullToRefresh({
   const scrollOffsetRef = useRef(0);
   const refreshingRef = useRef(refreshing);
   const refreshRef = useRef(onRefresh);
-  const [isAtTop, setIsAtTop] = useState(true);
-  const isAtTopRef = useRef(true);
   // Crossing the top edge changes pull eligibility, but must never replace
   // the recognizer that currently owns the native scroll/fling.
   const nativeScroll = useMemo(() => createNativeScrollGesture(), []);
@@ -176,17 +225,17 @@ export function usePullToRefresh({
     () =>
       // oxlint-disable-next-line react/refs -- gesture creation retains refs for touch callbacks, never reads them during render
       createPullGestures({
-        enabled: Platform.OS === "android" && isAtTop,
+        enabled: Platform.OS === "android",
         nativeScroll,
         pullRef,
         pullShift,
         pullUpdateRef,
         refreshRef,
         refreshingRef,
+        scrollOffset,
         scrollOffsetRef,
       }),
     [
-      isAtTop,
       nativeScroll,
       pullRef,
       pullShift,
@@ -194,6 +243,7 @@ export function usePullToRefresh({
       refreshRef,
       refreshingRef,
       scrollOffsetRef,
+      scrollOffset,
     ]
   );
 
@@ -203,10 +253,8 @@ export function usePullToRefresh({
   const onScrollOffset = useCallback(
     (offsetY: number) => {
       scrollOffsetRef.current = offsetY;
-      const atTop = offsetY <= 0;
-      if (atTop !== isAtTopRef.current) {
-        isAtTopRef.current = atTop;
-        setIsAtTop(atTop);
+      if (Platform.OS !== "ios") {
+        return;
       }
       if (!refreshing && offsetY < 0) {
         const distance = -offsetY;
@@ -229,6 +277,9 @@ export function usePullToRefresh({
   );
 
   const onScrollEndDrag = useCallback(() => {
+    if (Platform.OS !== "ios") {
+      return;
+    }
     if (!refreshing && pullRef.current > PULL_THRESHOLD) {
       refreshRef.current();
     }

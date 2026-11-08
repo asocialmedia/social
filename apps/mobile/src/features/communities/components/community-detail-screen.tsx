@@ -17,7 +17,7 @@ import {
   useState,
 } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
-import type { LayoutChangeEvent, ViewInstance } from "react-native";
+import type { FlatList, LayoutChangeEvent, ViewInstance } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
 import Reanimated, {
   interpolate,
@@ -72,10 +72,12 @@ import type { CommunityDetail, CommunityPreview } from "../lib/communities-api";
 import { resolveCommunityAccentColor } from "../lib/community-accents";
 import { communityChatUiEnabled } from "../lib/community-chat-features";
 import {
+  communityHeaderFrame,
   communityHeaderProgress,
   communityIdentityTransform,
 } from "../lib/community-header-identity";
 import type { HeaderIdentityGeometry } from "../lib/community-header-identity";
+import { createCommunityHeaderPan } from "../lib/community-header-pan";
 import {
   communityMediaUrl,
   communityPageCache,
@@ -175,6 +177,8 @@ function morphBoxStyle(
   geometry: MorphGeometry,
   progress: number
 ): {
+  width?: number;
+  overflow: "hidden";
   transform: [
     { translateX: number },
     { translateY: number },
@@ -183,14 +187,17 @@ function morphBoxStyle(
 } {
   "worklet";
   const transform = communityIdentityTransform(geometry, progress);
-  const width = geometry.sourceWidth * transform.scale;
+  const clippedWidth = geometry.sourceWidth - transform.clipRight;
+  const width = clippedWidth * transform.scale;
   const height = geometry.sourceHeight * transform.scale;
   return {
+    overflow: "hidden",
     transform: [
-      { translateX: transform.x - (geometry.sourceWidth - width) / 2 },
+      { translateX: transform.x - (clippedWidth - width) / 2 },
       { translateY: transform.y - (geometry.sourceHeight - height) / 2 },
       { scale: transform.scale },
     ],
+    width: clippedWidth || undefined,
   };
 }
 
@@ -448,13 +455,28 @@ export function CommunityDetailScreen() {
     setRefreshing(true);
     handleRetry();
   };
+  const scrollOffset = useSharedValue(0);
+  const listRef = useRef<FlatList<FeedRow>>(null);
+  const scrollHeader = useCallback((offset: number) => {
+    listRef.current?.scrollToOffset({ animated: false, offset });
+  }, []);
   const pull = usePullToRefresh({
     failed: feedError || detailError,
     onRefresh: handleRefresh,
     refreshing,
+    scrollOffset,
     updatedMessage: "Community updated",
   });
-  const scrollOffset = useSharedValue(0);
+  const headerPan = useMemo(
+    () =>
+      // oxlint-disable-next-line react/refs -- The factory retains touch callbacks and never invokes them during render.
+      createCommunityHeaderPan({
+        getOffset: () => scrollOffset.get(),
+        refreshGesture: pull.gesture,
+        scrollTo: scrollHeader,
+      }),
+    [pull.gesture, scrollHeader, scrollOffset]
+  );
   const reportPullOffset = pull.onScrollOffset;
   const endPull = pull.onScrollEndDrag;
   // Header identity morph state (web community-posts-workspace parity): the
@@ -500,11 +522,17 @@ export function CommunityDetailScreen() {
     );
   }, [avatarMorph, nameMorph, slugMorph]);
   const morphProgress = useDerivedValue(() =>
-    communityHeaderProgress(
-      scrollOffset.get(),
-      headerContentHeight.get() - COMPACT_BAR_HEIGHT
-    )
+    communityHeaderProgress(scrollOffset.get(), headerContentHeight.get())
   );
+  const headerFrame = useDerivedValue(() =>
+    communityHeaderFrame(headerContentHeight.get(), morphProgress.get(), 0)
+  );
+  const headerLayerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: headerFrame.get().layerY }],
+  }));
+  const headerSpacerStyle = useAnimatedStyle(() => ({
+    height: headerFrame.get().spacerHeight,
+  }));
   const avatarMorphStyle = useAnimatedStyle(() =>
     morphBoxStyle(avatarMorph.get(), morphProgress.get())
   );
@@ -514,6 +542,12 @@ export function CommunityDetailScreen() {
   const slugMorphStyle = useAnimatedStyle(() =>
     morphBoxStyle(slugMorph.get(), morphProgress.get())
   );
+  const nameContentStyle = useAnimatedStyle(() => ({
+    width: nameMorph.get().sourceWidth || undefined,
+  }));
+  const slugContentStyle = useAnimatedStyle(() => ({
+    width: slugMorph.get().sourceWidth || undefined,
+  }));
   // Web's detailsOpacity: 1 to 0 over progress 0 to 0.5.
   const detailsFadeStyle = useAnimatedStyle(() => ({
     opacity: interpolate(morphProgress.get(), [0, 0.5], [1, 0]),
@@ -703,7 +737,11 @@ export function CommunityDetailScreen() {
   if (!detail && privatePreview?.scope === landingScope) {
     return (
       <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-        <MobileHeader user={headerUser} unreadCount={unreadNotifications} />
+        <MobileHeader
+          hideOnScroll={false}
+          user={headerUser}
+          unreadCount={unreadNotifications}
+        />
         <CommunityPrivateLanding
           key={landingScope}
           bottomPadding={bottomDockPadding({
@@ -722,7 +760,11 @@ export function CommunityDetailScreen() {
   if (!detail) {
     return (
       <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-        <MobileHeader user={headerUser} unreadCount={unreadNotifications} />
+        <MobileHeader
+          hideOnScroll={false}
+          user={headerUser}
+          unreadCount={unreadNotifications}
+        />
         <View style={{ backgroundColor: theme.cardBg, height: 144 }} />
         <FeedSkeleton />
       </View>
@@ -733,7 +775,11 @@ export function CommunityDetailScreen() {
   const banner = communityMediaUrl(community.bannerUrl, apiBase);
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
-      <MobileHeader user={headerUser} unreadCount={unreadNotifications} />
+      <MobileHeader
+        hideOnScroll={false}
+        user={headerUser}
+        unreadCount={unreadNotifications}
+      />
       <GestureDetector gesture={pull.gesture}>
         <View style={styles.listWrap}>
           <Animated.View
@@ -742,8 +788,256 @@ export function CommunityDetailScreen() {
               { transform: [{ translateY: pull.pullShift }] },
             ]}
           >
+            <GestureDetector gesture={headerPan}>
+              <Reanimated.View
+                style={[
+                  styles.headerLayer,
+                  { backgroundColor: theme.containerBg },
+                  headerLayerStyle,
+                ]}
+              >
+                <View
+                  style={{
+                    backgroundColor: `${resolveCommunityAccentColor(community.accentColor, isDark)}38`,
+                    height: 144,
+                    overflow: "hidden",
+                  }}
+                >
+                  {banner ? (
+                    <Image
+                      source={{ uri: banner }}
+                      contentFit="cover"
+                      style={StyleSheet.absoluteFill}
+                    />
+                  ) : null}
+                  <LinearGradient
+                    colors={["transparent", theme.containerBg]}
+                    style={{
+                      bottom: 0,
+                      height: 64,
+                      left: 0,
+                      position: "absolute",
+                      right: 0,
+                    }}
+                  />
+                </View>
+                <View
+                  style={{
+                    paddingBottom: 16,
+                    paddingHorizontal: 16,
+                    zIndex: 3,
+                  }}
+                >
+                  <View
+                    style={{
+                      alignItems: "flex-end",
+                      flexDirection: "row",
+                      gap: 12,
+                      justifyContent: "space-between",
+                      marginTop: -32,
+                    }}
+                  >
+                    <Reanimated.View style={avatarMorphStyle}>
+                      <View
+                        collapsable={false}
+                        onLayout={remeasureMorph}
+                        ref={avatarSourceRef}
+                      >
+                        <CommunityAvatar community={community} size={64} />
+                      </View>
+                    </Reanimated.View>
+                    <Reanimated.View
+                      style={[
+                        {
+                          alignItems: "center",
+                          flexDirection: "row",
+                          gap: 8,
+                          paddingBottom: 4,
+                        },
+                        detailsFadeStyle,
+                      ]}
+                    >
+                      {canReviewCommunityRequests(
+                        community.type,
+                        membership.membership ?? detail.membership
+                      ) ? (
+                        <CommunityJoinRequests
+                          key={`${user?.id ?? "guest"}:${slug}`}
+                          initiallyOpen={requestsLink}
+                          onDecided={handleRetry}
+                          slug={slug}
+                        />
+                      ) : null}
+                      <CommunityJoinButton
+                        isLoggedIn={Boolean(user)}
+                        membershipState={membership}
+                        onRequireLogin={handleRequireLogin}
+                      />
+                      <CommunityNotifyButton
+                        isLoggedIn={Boolean(user)}
+                        membershipState={membership}
+                        onRequireLogin={handleRequireLogin}
+                      />
+                    </Reanimated.View>
+                  </View>
+                  <Reanimated.View style={[{ marginTop: 12 }, nameMorphStyle]}>
+                    <Reanimated.View
+                      collapsable={false}
+                      onLayout={remeasureMorph}
+                      ref={nameSourceRef}
+                      style={nameContentStyle}
+                    >
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          color: theme.inputText,
+                          fontFamily: "SofiaProBold",
+                          fontSize: 20,
+                        }}
+                      >
+                        {community.name}
+                      </Text>
+                    </Reanimated.View>
+                  </Reanimated.View>
+                  <View style={styles.metaRow}>
+                    <Reanimated.View
+                      style={[{ flexShrink: 1, minWidth: 0 }, slugMorphStyle]}
+                    >
+                      <Reanimated.View
+                        collapsable={false}
+                        onLayout={remeasureMorph}
+                        ref={slugSourceRef}
+                        style={slugContentStyle}
+                      >
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.metaText,
+                            { color: theme.dividerText },
+                          ]}
+                        >
+                          a/{community.slug}
+                        </Text>
+                      </Reanimated.View>
+                    </Reanimated.View>
+                    {community.type === "PRIVATE" ? (
+                      <Reanimated.View
+                        style={[
+                          styles.privateChip,
+                          {
+                            backgroundColor: chip.background,
+                            borderColor: chip.border,
+                            boxShadow: chip.shadows,
+                          },
+                          detailsFadeStyle,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.privateChipText,
+                            { color: theme.inputText },
+                          ]}
+                        >
+                          Private
+                        </Text>
+                      </Reanimated.View>
+                    ) : null}
+                    <Reanimated.View style={detailsFadeStyle}>
+                      <Text
+                        style={[styles.metaText, { color: theme.dividerText }]}
+                      >
+                        · {formatNumber(detail.stats.members)}{" "}
+                        {detail.stats.members === 1 ? "member" : "members"}
+                      </Text>
+                    </Reanimated.View>
+                  </View>
+                </View>
+                <View
+                  onLayout={handleHeaderTabsLayout}
+                  style={{
+                    alignItems: "center",
+                    backgroundColor: theme.containerBg,
+                    borderBottomColor: theme.cardBorder,
+                    borderBottomWidth: 1,
+                    flexDirection: "row",
+                    height: COMPACT_BAR_HEIGHT,
+                    paddingHorizontal: 12,
+                  }}
+                >
+                  <Pressable
+                    accessibilityLabel="Open community sidebar"
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: navigationOpen }}
+                    onPress={() => setNavigationOpen(true)}
+                    style={{
+                      alignItems: "center",
+                      justifyContent: "center",
+                      minHeight: 48,
+                      minWidth: 48,
+                    }}
+                  >
+                    <PanelLeft color={theme.inputText} size={22} />
+                  </Pressable>
+                  {/* Invisible morph dock (web community-posts-workspace
+                          identity): the collapsing avatar, name and slug land
+                          here at full collapse. Its flex slot reserves space
+                          beside the section tabs, like web mobile. */}
+                  <View
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                    pointerEvents="none"
+                    style={styles.morphTargets}
+                  >
+                    <View
+                      collapsable={false}
+                      onLayout={remeasureMorph}
+                      ref={avatarTargetRef}
+                      style={styles.morphAvatarTarget}
+                    />
+                    <View
+                      collapsable={false}
+                      onLayout={remeasureMorph}
+                      ref={nameTargetRef}
+                      style={styles.morphNameTarget}
+                    >
+                      <Text numberOfLines={1} style={styles.morphNameText}>
+                        {community.name}
+                      </Text>
+                    </View>
+                    <View
+                      collapsable={false}
+                      onLayout={remeasureMorph}
+                      ref={slugTargetRef}
+                      style={styles.morphSlugTarget}
+                    >
+                      <Text numberOfLines={1} style={styles.morphSlugText}>
+                        a/{community.slug}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={{ flexShrink: 0 }}>
+                    <FeedTabs<"posts" | "chat">
+                      alignment="start"
+                      active="posts"
+                      tabs={[
+                        { label: "Posts", value: "posts" },
+                        ...(communityChatUiEnabled
+                          ? [{ label: "Chat", value: "chat" as const }]
+                          : []),
+                      ]}
+                      onChange={(value) => {
+                        if (value === "chat") {
+                          router.push(communityChatHref(user?.id, slug));
+                        }
+                      }}
+                    />
+                  </View>
+                </View>
+              </Reanimated.View>
+            </GestureDetector>
             <GestureDetector gesture={pull.nativeScrollGesture}>
               <Reanimated.FlatList
+                ref={listRef}
                 {...LIST_VIRTUALIZATION_PROPS}
                 style={{ flex: 1 }}
                 contentContainerStyle={{
@@ -757,241 +1051,7 @@ export function CommunityDetailScreen() {
                 keyExtractor={(row) => row.post.id}
                 ListHeaderComponent={
                   <>
-                    <View
-                      style={{
-                        backgroundColor: `${resolveCommunityAccentColor(community.accentColor, isDark)}38`,
-                        height: 144,
-                        overflow: "hidden",
-                      }}
-                    >
-                      {banner ? (
-                        <Image
-                          source={{ uri: banner }}
-                          contentFit="cover"
-                          style={StyleSheet.absoluteFill}
-                        />
-                      ) : null}
-                      <LinearGradient
-                        colors={["transparent", theme.containerBg]}
-                        style={{
-                          bottom: 0,
-                          height: 64,
-                          left: 0,
-                          position: "absolute",
-                          right: 0,
-                        }}
-                      />
-                    </View>
-                    <View style={{ paddingBottom: 16, paddingHorizontal: 16 }}>
-                      <View
-                        style={{
-                          alignItems: "flex-end",
-                          flexDirection: "row",
-                          gap: 12,
-                          justifyContent: "space-between",
-                          marginTop: -32,
-                        }}
-                      >
-                        <Reanimated.View style={avatarMorphStyle}>
-                          <View
-                            collapsable={false}
-                            onLayout={remeasureMorph}
-                            ref={avatarSourceRef}
-                          >
-                            <CommunityAvatar community={community} size={64} />
-                          </View>
-                        </Reanimated.View>
-                        <Reanimated.View
-                          style={[
-                            {
-                              alignItems: "center",
-                              flexDirection: "row",
-                              gap: 8,
-                              paddingBottom: 4,
-                            },
-                            detailsFadeStyle,
-                          ]}
-                        >
-                          {canReviewCommunityRequests(
-                            community.type,
-                            membership.membership ?? detail.membership
-                          ) ? (
-                            <CommunityJoinRequests
-                              key={`${user?.id ?? "guest"}:${slug}`}
-                              initiallyOpen={requestsLink}
-                              onDecided={handleRetry}
-                              slug={slug}
-                            />
-                          ) : null}
-                          <CommunityJoinButton
-                            isLoggedIn={Boolean(user)}
-                            membershipState={membership}
-                            onRequireLogin={handleRequireLogin}
-                          />
-                          <CommunityNotifyButton
-                            isLoggedIn={Boolean(user)}
-                            membershipState={membership}
-                            onRequireLogin={handleRequireLogin}
-                          />
-                        </Reanimated.View>
-                      </View>
-                      <Reanimated.View
-                        style={[{ marginTop: 12 }, nameMorphStyle]}
-                      >
-                        <View
-                          collapsable={false}
-                          onLayout={remeasureMorph}
-                          ref={nameSourceRef}
-                        >
-                          <Text
-                            style={{
-                              color: theme.inputText,
-                              fontFamily: "SofiaProBold",
-                              fontSize: 20,
-                            }}
-                          >
-                            {community.name}
-                          </Text>
-                        </View>
-                      </Reanimated.View>
-                      <View style={styles.metaRow}>
-                        <Reanimated.View
-                          style={[
-                            { flexShrink: 1, minWidth: 0 },
-                            slugMorphStyle,
-                          ]}
-                        >
-                          <View
-                            collapsable={false}
-                            onLayout={remeasureMorph}
-                            ref={slugSourceRef}
-                          >
-                            <Text
-                              numberOfLines={1}
-                              style={[
-                                styles.metaText,
-                                { color: theme.dividerText },
-                              ]}
-                            >
-                              a/{community.slug}
-                            </Text>
-                          </View>
-                        </Reanimated.View>
-                        {community.type === "PRIVATE" ? (
-                          <Reanimated.View
-                            style={[
-                              styles.privateChip,
-                              {
-                                backgroundColor: chip.background,
-                                borderColor: chip.border,
-                                boxShadow: chip.shadows,
-                              },
-                              detailsFadeStyle,
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.privateChipText,
-                                { color: theme.inputText },
-                              ]}
-                            >
-                              Private
-                            </Text>
-                          </Reanimated.View>
-                        ) : null}
-                        <Reanimated.View style={detailsFadeStyle}>
-                          <Text
-                            style={[
-                              styles.metaText,
-                              { color: theme.dividerText },
-                            ]}
-                          >
-                            · {formatNumber(detail.stats.members)}{" "}
-                            {detail.stats.members === 1 ? "member" : "members"}
-                          </Text>
-                        </Reanimated.View>
-                      </View>
-                    </View>
-                    {community.type === "PRIVATE" ? null : (
-                      <CommunityAboutCard detail={detail} />
-                    )}
-                    <View
-                      onLayout={handleHeaderTabsLayout}
-                      style={{
-                        alignItems: "center",
-                        flexDirection: "row",
-                        paddingLeft: 12,
-                      }}
-                    >
-                      <Pressable
-                        accessibilityLabel="Open community sidebar"
-                        accessibilityRole="button"
-                        accessibilityState={{ expanded: navigationOpen }}
-                        onPress={() => setNavigationOpen(true)}
-                        style={{
-                          alignItems: "center",
-                          justifyContent: "center",
-                          minHeight: 48,
-                          minWidth: 48,
-                        }}
-                      >
-                        <PanelLeft color={theme.inputText} size={22} />
-                      </Pressable>
-                      {/* Invisible morph dock (web community-posts-workspace
-                          identity): the collapsing avatar, name and slug land
-                          here at full collapse. Absolutely positioned so the
-                          visible tabs keep their layout. */}
-                      <View
-                        accessibilityElementsHidden
-                        importantForAccessibility="no-hide-descendants"
-                        pointerEvents="none"
-                        style={styles.morphTargets}
-                      >
-                        <View
-                          collapsable={false}
-                          onLayout={remeasureMorph}
-                          ref={avatarTargetRef}
-                          style={styles.morphAvatarTarget}
-                        />
-                        <View
-                          collapsable={false}
-                          onLayout={remeasureMorph}
-                          ref={nameTargetRef}
-                          style={styles.morphNameTarget}
-                        >
-                          <Text numberOfLines={1} style={styles.morphNameText}>
-                            {community.name}
-                          </Text>
-                        </View>
-                        <View
-                          collapsable={false}
-                          onLayout={remeasureMorph}
-                          ref={slugTargetRef}
-                          style={styles.morphSlugTarget}
-                        >
-                          <Text numberOfLines={1} style={styles.morphSlugText}>
-                            a/{community.slug}
-                          </Text>
-                        </View>
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <FeedTabs<"posts" | "chat">
-                          alignment="start"
-                          active="posts"
-                          tabs={[
-                            { label: "Posts", value: "posts" },
-                            ...(communityChatUiEnabled
-                              ? [{ label: "Chat", value: "chat" as const }]
-                              : []),
-                          ]}
-                          onChange={(value) => {
-                            if (value === "chat") {
-                              router.push(communityChatHref(user?.id, slug));
-                            }
-                          }}
-                        />
-                      </View>
-                    </View>
+                    <Reanimated.View style={headerSpacerStyle} />
                     <View
                       style={{
                         alignItems: "center",
@@ -1079,6 +1139,11 @@ export function CommunityDetailScreen() {
       {navigationOpen && detail ? (
         <CommunityNavigationDrawer
           key={`${user?.id ?? "guest"}:${slug}`}
+          about={
+            community.type === "PRIVATE" ? undefined : (
+              <CommunityAboutCard detail={detail} />
+            )
+          }
           active="posts"
           accentColor={detail.community.accentColor}
           communityName={detail.community.name}
@@ -1091,7 +1156,8 @@ export function CommunityDetailScreen() {
   );
 }
 const styles = StyleSheet.create({
-  listWrap: { flex: 1, position: "relative" },
+  headerLayer: { left: 0, position: "absolute", right: 0, top: 0, zIndex: 3 },
+  listWrap: { flex: 1, overflow: "hidden", position: "relative" },
   metaRow: {
     alignItems: "center",
     columnGap: 6,
@@ -1101,7 +1167,7 @@ const styles = StyleSheet.create({
   },
   metaText: { flexShrink: 1, fontFamily: "SofiaProReg", fontSize: 14 },
   // Invisible morph dock in the section bar: the collapsing identity lands
-  // here. Absolutely positioned so the visible tabs keep their layout.
+  // here. Its flex slot keeps long names separate from the section tabs.
   morphAvatarTarget: { height: 28, width: 28 },
   morphNameTarget: { flexShrink: 1, minWidth: 0 },
   morphNameText: { fontFamily: "SofiaProBold", fontSize: 14 },
@@ -1109,15 +1175,12 @@ const styles = StyleSheet.create({
   morphSlugText: { fontFamily: "SofiaProReg", fontSize: 12 },
   morphTargets: {
     alignItems: "center",
-    bottom: 0,
+    flex: 1,
     flexDirection: "row",
     gap: 8,
-    left: 60,
     minWidth: 0,
     opacity: 0,
-    position: "absolute",
-    right: 8,
-    top: 0,
+    overflow: "hidden",
   },
   // Web's `chip-3d px-1.5 text-[10px]`.
   privateChip: {

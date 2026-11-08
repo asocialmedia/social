@@ -51,6 +51,7 @@ function callFeedApi(
         request,
         {
           baseFetch,
+          readBody: true,
           timeoutMs: options.timeoutMs,
         }
       )

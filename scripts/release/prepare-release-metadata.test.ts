@@ -60,4 +60,29 @@ describe("generateReleaseNotesFile", () => {
     expect(notes).toContain("protocols-v0.1.7");
     expect(notes).not.toContain("protocols-v1.5.80");
   });
+
+  test("annotates a reused APK only for well-formed release tags", async () => {
+    const artifactDir = path.join(sandboxDir, "build-artifacts");
+    await mkdir(artifactDir, { recursive: true });
+    await writeFile(
+      path.join(artifactDir, "asocialmedia-v0.2.57-arm64-v8a.apk"),
+      "fake-apk-bytes"
+    );
+
+    const reused = await run({ REUSED_APK_TAG: "v1.13.52+108e1eb" });
+    const reusedNotes = await readFile(reused.notesPath, "utf8");
+    expect(reusedNotes).toContain("APK reused from Release `v1.13.52+108e1eb`");
+
+    expect(reusedNotes).toContain("| `v0.2.57` |");
+    expect(reusedNotes).not.toContain("0.0.1");
+    const legacy = await run({ REUSED_APK_TAG: "v1.13.40" });
+    expect(await readFile(legacy.notesPath, "utf8")).toContain(
+      "APK reused from Release `v1.13.40`"
+    );
+
+    const injected = await run({ REUSED_APK_TAG: "evil `tag](https://x)" });
+    const injectedNotes = await readFile(injected.notesPath, "utf8");
+    expect(injectedNotes).not.toContain("APK reused from Release");
+    expect(injectedNotes).toContain("asocialmedia-v0.2.57-arm64-v8a.apk");
+  });
 });

@@ -2,8 +2,9 @@
 import { interestSchema, normalizeInterest } from "@asm/protocols/discovery";
 import type { NetworkTopic, NetworkTopicPage } from "@asm/protocols/discovery";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { Text, View } from "react-native";
 
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import {
   SettingsButton,
   SettingsInput,
@@ -90,7 +91,7 @@ export function TopicPicker({
           }}
         />
       ) : null}
-      {loading ? <ActivityIndicator color={theme.dividerText} /> : null}
+      {loading ? <Spinner3D size={24} /> : null}
       {errorMessage ? (
         <>
           <Text selectable style={{ color: theme.dividerText }}>

@@ -1,9 +1,16 @@
-import { usePathname, useRootNavigationState, useRouter } from "expo-router";
+import {
+  useGlobalSearchParams,
+  usePathname,
+  useRootNavigationState,
+  useRouter,
+} from "expo-router";
 import { useEffect, useRef, useState } from "react";
+import { AppState } from "react-native";
 
 import {
   loadLaunchResumeRoute,
   saveResumeRoute,
+  resumableQuery,
 } from "@/lib/lifecycle/app-resume";
 import { useStartupPresented } from "@/lib/lifecycle/startup-context";
 
@@ -16,13 +23,14 @@ export function ResumeGate({ onReady }: { onReady: () => void }) {
   const pathname = usePathname();
   const navigation = useRootNavigationState();
   const currentPath = useRef(pathname);
+  const restored = useRef(false);
   useEffect(() => {
     currentPath.current = pathname;
   }, [pathname]);
   const [destination, setDestination] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!navigation?.key) {
+    if (!navigation?.key || restored.current) {
       return;
     }
     let cancelled = false;
@@ -37,6 +45,7 @@ export function ResumeGate({ onReady }: { onReady: () => void }) {
           return;
         }
         const target = startupDestination(currentPath.current, resume);
+        restored.current = true;
         setDestination(target);
         if (resume && target !== currentPath.current) {
           router.navigate(resumeHref(resume) as "/");
@@ -64,11 +73,20 @@ export function ResumeGate({ onReady }: { onReady: () => void }) {
 // Never persist the temporary Home route while restoration is in progress.
 export function ResumeSaver() {
   const pathname = usePathname();
+  const params = useGlobalSearchParams();
+  const serializedParams = JSON.stringify(resumableQuery(params));
   const presented = useStartupPresented();
   useEffect(() => {
     if (presented) {
-      void saveResumeRoute(pathname);
+      const query = JSON.parse(serializedParams) as Record<string, string>;
+      void saveResumeRoute(pathname, query);
+      const subscription = AppState.addEventListener("change", (state) => {
+        if (state !== "active") {
+          void saveResumeRoute(pathname, query);
+        }
+      });
+      return () => subscription.remove();
     }
-  }, [pathname, presented]);
+  }, [pathname, presented, serializedParams]);
   return null;
 }

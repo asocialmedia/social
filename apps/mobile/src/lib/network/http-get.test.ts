@@ -63,3 +63,20 @@ describe("getWithTimeout", () => {
     ).toThrow(TypeError);
   });
 });
+
+test("body-aware deduplication buffers once and gives independent completed responses", async () => {
+  let calls = 0;
+  const baseFetch = (async () => {
+    calls += 1;
+    await Promise.resolve();
+    return Response.json({ posts: ["one"] });
+  }) as unknown as typeof fetch;
+  const options = { baseFetch, readBody: true };
+  const [first, second] = await Promise.all([
+    getWithTimeout("https://api.test/body", {}, options),
+    getWithTimeout("https://api.test/body", {}, options),
+  ]);
+  expect(calls).toBe(1);
+  expect(await first.json()).toEqual({ posts: ["one"] });
+  expect(await second.json()).toEqual({ posts: ["one"] });
+});

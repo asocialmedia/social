@@ -10,17 +10,19 @@ export function SettingsChoice({
   label,
   description,
   onPress,
+  selectionRole = "radio",
 }: {
   checked: boolean;
   disabled?: boolean;
   label: string;
   description: string;
   onPress: () => void;
+  selectionRole?: "checkbox" | "radio";
 }) {
   const { isDark, theme } = useAppTheme();
   return (
     <Pressable
-      accessibilityRole="radio"
+      accessibilityRole={selectionRole}
       accessibilityLabel={label}
       accessibilityState={{ checked, disabled }}
       disabled={disabled}
@@ -34,7 +36,7 @@ export function SettingsChoice({
         flexDirection: "row",
         gap: 12,
         opacity: pressed || disabled ? 0.65 : 1,
-        padding: 14,
+        padding: 16,
       })}
     >
       <View

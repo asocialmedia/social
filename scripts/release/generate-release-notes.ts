@@ -16,6 +16,7 @@ export interface ContainerImageInfo {
 export interface MobileArtifactInfo {
   fileName: string;
   fileSize: string;
+  reusedFrom?: string;
   sha256: string;
   version: string;
 }
@@ -124,7 +125,8 @@ export function formatReleaseNotes(options: ReleaseNotesOptions): string {
   sections.push("---");
   sections.push("### Mobile Artifacts (Android)");
   if (options.mobileArtifact) {
-    const { fileName, fileSize, sha256, version } = options.mobileArtifact;
+    const { fileName, fileSize, reusedFrom, sha256, version } =
+      options.mobileArtifact;
     const artifactTable = [
       "| File | Version | Size | SHA-256 Checksum |",
       "| :--- | :--- | :--- | :--- |",
@@ -141,6 +143,11 @@ export function formatReleaseNotes(options: ReleaseNotesOptions): string {
     ].join("\n");
 
     sections.push(`${artifactTable}\n\n${checksumVerification}`);
+    if (reusedFrom) {
+      sections.push(
+        `*Mobile app unchanged in this push; APK reused from Release \`${reusedFrom}\`.*`
+      );
+    }
   } else {
     sections.push(
       "*No mobile application update was included in this release.*"

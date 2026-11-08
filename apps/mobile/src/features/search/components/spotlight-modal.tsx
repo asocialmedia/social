@@ -533,7 +533,20 @@ export function SpotlightModal() {
           />
         </View>
 
-        <View style={styles.inputWrap}>
+        <Pressable
+          accessible={false}
+          onPress={() => inputRef.current?.focus()}
+          style={[
+            styles.inputWrap,
+            blue
+              ? [
+                  styles.inputBlue,
+                  inputFocused ? styles.inputBlueFocused : null,
+                ]
+              : { backgroundColor: field.background },
+            { boxShadow: inputShadows },
+          ]}
+        >
           <View pointerEvents="none" style={styles.inputIcon}>
             <Search
               color={blue ? "rgba(255, 255, 255, 0.9)" : palette.muted}
@@ -559,16 +572,7 @@ export function SpotlightModal() {
             }
             ref={inputRef}
             returnKeyType="search"
-            style={[
-              styles.input,
-              blue
-                ? [
-                    styles.inputBlue,
-                    inputFocused ? styles.inputBlueFocused : null,
-                  ]
-                : { backgroundColor: field.background, color: field.text },
-              { boxShadow: inputShadows },
-            ]}
+            style={[styles.input, { color: blue ? "#ffffff" : field.text }]}
             value={query}
           />
           {query ? (
@@ -591,7 +595,7 @@ export function SpotlightModal() {
               />
             </Pressable>
           ) : null}
-        </View>
+        </Pressable>
 
         {trimmed.length >= 2 ? (
           <View style={styles.statusLine}>
@@ -875,11 +879,9 @@ const styles = StyleSheet.create({
   clearButton: {
     alignItems: "center",
     borderRadius: 14,
+    flexShrink: 0,
     height: 28,
     justifyContent: "center",
-    position: "absolute",
-    right: 12,
-    top: 10,
     width: 28,
   },
   closeButton: {
@@ -935,33 +937,35 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   input: {
-    borderRadius: 12,
+    backgroundColor: "transparent",
+    flex: 1,
     fontFamily: "SofiaProReg",
     fontSize: 16,
     height: 48,
-    paddingLeft: 48,
-    paddingRight: 44,
-    paddingVertical: 0,
-    width: "100%",
+    minWidth: 0,
+    padding: 0,
   },
   inputBlue: {
     backgroundColor: "#0763d6",
     borderColor: "rgba(255, 255, 255, 0.5)",
     borderWidth: 1,
-    color: "#ffffff",
   },
   inputBlueFocused: {
     borderColor: "#ffffff",
   },
   inputIcon: {
-    left: 16,
-    position: "absolute",
-    top: 14,
-    zIndex: 1,
+    flexShrink: 0,
+    height: 20,
+    width: 20,
   },
   inputWrap: {
+    alignItems: "center",
+    borderRadius: 12,
+    flexDirection: "row",
+    gap: 12,
     marginTop: 12,
-    position: "relative",
+    minHeight: 48,
+    paddingHorizontal: 12,
   },
   interestsClosed: {
     marginBottom: 4,

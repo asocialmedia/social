@@ -1,15 +1,3 @@
-// Floating eddie bar for the post screen, port of web's mobile
-// FloatingPostEditor (components/layouts/navigation/mobile/
-// floating-post-editor.tsx): a bottom bar (background/95, hairline top
-// border, soft upward shadow) holding
-// - the reply chip "Replying to @user" + one-line preview + X, when a row's
-//   Reply targeted an eddie
-// - a 36px avatar, the premium-input field ("Reply to @u..." / "Add your
-//   Eddie to the flow...") and, collapsed, the round orange "Send" pill
-// - expanded while focused: the attachment tile, round Image / GIF buttons
-//   (purple while the picker is open), the length counter, "Send", the GIF
-//   picker
-// It sits flush with the post viewport and rises above the keyboard.
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Clapperboard,
@@ -48,7 +36,6 @@ import {
 } from "@/components/surface/recipes";
 import { useSessionContext } from "@/features/auth/state/session";
 import type { InlineRichInputRef } from "@/features/composer/components/inline-rich-input";
-import { formatNumber } from "@/lib/format/format-number";
 import {
   keyboardOverlap,
   keyboardScreenTop,
@@ -56,6 +43,19 @@ import {
 import { useAppTheme } from "@/theme";
 
 import { useEddieComposerStore } from "../state/eddie-composer-store";
+// Floating eddie bar for the post screen, port of web's mobile
+// FloatingPostEditor (components/layouts/navigation/mobile/
+// floating-post-editor.tsx): a bottom bar (background/95, hairline top
+// border, soft upward shadow) holding
+// - the reply chip "Replying to @user" + one-line preview + X, when a row's
+//   Reply targeted an eddie
+// - a 36px avatar, the premium-input field ("Reply to @u..." / "Add your
+//   Eddie to the flow...") and, collapsed, the round orange "Send" pill
+// - expanded while focused: the attachment tile, round Image / GIF buttons
+//   (purple while the picker is open), the length counter, "Send", the GIF
+//   picker
+// It sits flush with the post viewport and rises above the keyboard.
+import { ComposerAnchor } from "./composer-anchor";
 import { EddieAttachmentTile } from "./eddie-attachment-tile";
 import { EddieLinkPreviews } from "./eddie-link-previews";
 import { EddieRichField } from "./eddie-rich-field";
@@ -159,19 +159,11 @@ function SendPill({
 }
 
 export function FloatingEddieBar({
-  commentCount,
   onHeightChange,
-  onOpenComments,
   postId,
   viewportBottom,
 }: {
-  // Live eddie count for the shortcut pill, like web's comment-count button.
-  // The owner reads it with withCountDelta so streamed eddies move it at once.
-  commentCount?: number;
   onHeightChange?: (height: number) => void;
-  // Scrolls the thread into view (post detail passes the measured thread
-  // offset), mirroring web's onOpenComments.
-  onOpenComments?: () => void;
   postId: string;
   viewportBottom: number;
 }) {
@@ -238,14 +230,10 @@ export function FloatingEddieBar({
     // the gust floating bar. The detail screen's GuestAuthBar still owns the
     // full-width banner; this pill keeps the composer slot actionable.
     return (
-      <View
-        onLayout={(event) => {
-          onHeightChange?.(event.nativeEvent.layout.height);
-        }}
-        style={[
-          styles.anchor,
-          { paddingBottom: keyboardOverlap(viewportBottom, keyboardTop) },
-        ]}
+      <ComposerAnchor
+        keyboardTop={keyboardTop}
+        onHeightChange={onHeightChange}
+        viewportBottom={viewportBottom}
       >
         <View
           style={[
@@ -273,7 +261,7 @@ export function FloatingEddieBar({
             </Pressable>
           </View>
         </View>
-      </View>
+      </ComposerAnchor>
     );
   }
 
@@ -294,14 +282,10 @@ export function FloatingEddieBar({
     }
   };
   return (
-    <View
-      onLayout={(event) => {
-        onHeightChange?.(event.nativeEvent.layout.height);
-      }}
-      style={[
-        styles.anchor,
-        { paddingBottom: keyboardOverlap(viewportBottom, keyboardTop) },
-      ]}
+    <ComposerAnchor
+      keyboardTop={keyboardTop}
+      onHeightChange={onHeightChange}
+      viewportBottom={viewportBottom}
     >
       <View
         style={[
@@ -386,30 +370,14 @@ export function FloatingEddieBar({
               value={sender.text}
             />
             {expanded ? null : (
-              <>
-                {commentCount !== undefined && onOpenComments ? (
-                  <Pressable
-                    accessibilityLabel={`View comments (${formatNumber(commentCount)})`}
-                    accessibilityRole="button"
-                    hitSlop={6}
-                    onPress={onOpenComments}
-                    style={styles.countPill}
-                  >
-                    <MessageSquare color={text.muted} size={14} />
-                    <Text style={[styles.countText, { color: text.muted }]}>
-                      {formatNumber(commentCount)}
-                    </Text>
-                  </Pressable>
-                ) : null}
-                <SendPill
-                  disabled={!sender.canSubmit}
-                  height={36}
-                  onPress={() => {
-                    void submit();
-                  }}
-                  sending={sender.sending}
-                />
-              </>
+              <SendPill
+                disabled={!sender.canSubmit}
+                height={36}
+                onPress={() => {
+                  void submit();
+                }}
+                sending={sender.sending}
+              />
             )}
           </View>
           {expanded ? (
@@ -502,18 +470,11 @@ export function FloatingEddieBar({
           ) : null}
         </ScrollView>
       </View>
-    </View>
+    </ComposerAnchor>
   );
 }
 
 const styles = StyleSheet.create({
-  anchor: {
-    bottom: 0,
-    left: 0,
-    position: "absolute",
-    right: 0,
-    zIndex: 40,
-  },
   attachments: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -524,20 +485,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     boxShadow: "0 -4px 20px rgba(0, 0, 0, 0.15)",
     padding: 8,
-  },
-  countPill: {
-    alignItems: "center",
-    borderRadius: 9999,
-    flexDirection: "row",
-    gap: 4,
-    height: 36,
-    justifyContent: "center",
-    paddingHorizontal: 10,
-  },
-  countText: {
-    fontFamily: "SofiaProBold",
-    fontSize: 12,
-    fontVariant: ["tabular-nums"],
   },
   counter: {
     fontFamily: "SofiaProMed",

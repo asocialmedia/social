@@ -97,6 +97,23 @@ describe("formatReleaseNotes", () => {
     );
   });
 
+  test("annotates a reused APK with its source release", () => {
+    const markdown = formatReleaseNotes({
+      ...baseOptions,
+      mobileArtifact: {
+        fileName: "asocialmedia-v0.2.57-arm64-v8a.apk",
+        fileSize: "60.5 MB",
+        reusedFrom: "v1.13.52+108e1eb",
+        sha256: "abc123",
+        version: "0.2.57",
+      },
+    });
+
+    expect(markdown).toContain(
+      "*Mobile app unchanged in this push; APK reused from Release `v1.13.52+108e1eb`.*"
+    );
+  });
+
   test("supports custom header image url", () => {
     const customHeader = "https://custom.cdn.cc/banner.jpg";
     const markdown = formatReleaseNotes({

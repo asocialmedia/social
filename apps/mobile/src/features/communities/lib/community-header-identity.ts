@@ -48,11 +48,9 @@ export function communityIdentityTransform(
   };
 }
 
-// Native scroll progress for the morph: web snaps its motion value to the 0/1
-// endpoints when the scroll passes the threshold; natively the header is
-// in-flow (no absolute layer to snap), so progress tracks the scroll offset
-// continuously over the collapse distance (header content above the section
-// bar minus the 48px compact bar) and clamps at the endpoints.
+// The fixed header layer follows native scroll until its section bar reaches
+// the top. Further feed scrolling leaves the compact identity and navigation
+// in place; reversing restores the expanded banner.
 export function communityHeaderProgress(
   scrollY: number,
   collapseDistance: number

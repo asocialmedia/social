@@ -5,8 +5,16 @@ import type {
 // oxlint-disable react/todo -- Requests retain visible loading and retry states in the drawer.
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { FileText, LockKeyhole, MessageCircle, X } from "lucide-react-native";
+import {
+  FileText,
+  Info,
+  LockKeyhole,
+  MessageCircle,
+  X,
+} from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import type { ScrollViewInstance } from "react-native";
 import {
   Animated,
   Easing,
@@ -38,6 +46,7 @@ import CommunityChannelShortcuts from "./community-channel-shortcuts";
 const EMPTY_THREADS: CommunityChatThreadSummary[] = [];
 
 export function CommunityNavigationDrawer({
+  about,
   active,
   accentColor,
   channels: availableChannels,
@@ -49,6 +58,7 @@ export function CommunityNavigationDrawer({
   threads = EMPTY_THREADS,
   viewerId,
 }: {
+  about?: ReactNode;
   active: "posts" | "chat";
   accentColor: string | null;
   channels?: CommunityChatRoom[];
@@ -61,6 +71,8 @@ export function CommunityNavigationDrawer({
   viewerId?: string;
 }) {
   const router = useRouter();
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const aboutY = useRef(0);
   const onCloseRef = useRef(onClose);
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -252,7 +264,29 @@ export function CommunityNavigationDrawer({
               </Pressable>
             ) : null}
           </View>
-          <ScrollView keyboardShouldPersistTaps="handled" style={{ flex: 1 }}>
+          {about ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="About this community"
+              style={styles.row}
+              onPress={() =>
+                scrollRef.current?.scrollTo({
+                  animated: !reduceMotion,
+                  y: aboutY.current,
+                })
+              }
+            >
+              <Info color={theme.inputText} size={18} />
+              <Text style={[styles.label, { color: theme.inputText }]}>
+                About this community
+              </Text>
+            </Pressable>
+          ) : null}
+          <ScrollView
+            ref={scrollRef}
+            keyboardShouldPersistTaps="handled"
+            style={{ flex: 1 }}
+          >
             {communityChatUiEnabled ? (
               <CommunityChannelShortcuts
                 activeChannelId={channelId}
@@ -304,6 +338,13 @@ export function CommunityNavigationDrawer({
                 ))}
               </View>
             ) : null}
+            <View
+              onLayout={(event) => {
+                aboutY.current = event.nativeEvent.layout.y;
+              }}
+            >
+              {about}
+            </View>
           </ScrollView>
         </Animated.View>
         <LinearGradient

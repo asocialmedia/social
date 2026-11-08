@@ -2,9 +2,10 @@ import type { RecommendedAccount } from "@asm/protocols/discovery";
 import { useRouter } from "expo-router";
 import type { Href } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { mutateExploreFollow } from "@/features/explore/lib/explore-api";
@@ -210,9 +211,7 @@ export function DiscoverySuggestions({
       <Text className="font-semibold" style={{ color: theme.inputText }}>
         Who to follow
       </Text>
-      {query.loading && !query.data ? (
-        <ActivityIndicator color={theme.dividerText} />
-      ) : null}
+      {query.loading && !query.data ? <Spinner3D size={24} /> : null}
       {query.error ? (
         <Text selectable style={{ color: theme.dividerText }}>
           {query.error}

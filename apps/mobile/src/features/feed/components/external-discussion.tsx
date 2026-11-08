@@ -12,17 +12,11 @@ import { useRouter } from "expo-router";
 import { useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { TextInputInstance } from "react-native";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import noCommentsImage from "@/assets/images/nocomments.png";
 import noMediaImage from "@/assets/images/nomedia.png";
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { StatusActionButton } from "@/components/feedback/status-action-button";
 import { reelsInput } from "@/components/media/gif-picker";
 import { premiumInput, themeText } from "@/components/surface/recipes";
@@ -226,7 +220,7 @@ export function ExternalDiscussion({
 
       {status === "loading" ? (
         <View style={eddieThreadStyles.stateWrap}>
-          <ActivityIndicator color={theme.dividerText} />
+          <Spinner3D size={24} />
         </View>
       ) : null}
       {status === "error" ? (
@@ -301,7 +295,7 @@ export function ExternalDiscussion({
           style={eddieThreadStyles.previousLink}
         >
           {loadingMore ? (
-            <ActivityIndicator color={theme.dividerText} size={14} />
+            <Spinner3D size={14} />
           ) : (
             <Text
               style={[

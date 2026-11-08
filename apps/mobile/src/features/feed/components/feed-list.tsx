@@ -676,6 +676,7 @@ export const FeedList = memo(
         external.refresh();
       },
       refreshing,
+      scrollOffset,
     });
     const saveOffset = useCallback(
       (offset: number) => {

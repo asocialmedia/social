@@ -64,10 +64,6 @@ import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import {
-  subscribeCountDeltas,
-  withCountDelta,
-} from "../lib/comment-count-deltas";
-import {
   fetchPostDetail,
   fetchRelatedPosts,
   recordPostVisit,
@@ -161,13 +157,6 @@ export function PostDetailScreen({
     : (params.comment ?? null);
   const threadY = useRef(0);
   const scrolledTo = useRef<string | null>(null);
-  // Live count deltas tick the shortcut pill in the floating bar without a
-  // refetch, like the detail card's counts.
-  const [, setDeltaTick] = useState(0);
-  useEffect(
-    () => subscribeCountDeltas(() => setDeltaTick((value) => value + 1)),
-    []
-  );
   const handleThreadLayout = useCallback((event: LayoutChangeEvent) => {
     threadY.current = event.nativeEvent.layout.y;
   }, []);
@@ -355,18 +344,6 @@ export function PostDetailScreen({
     }
     router.replace("/");
   }, [router]);
-
-  // Comment-count shortcut in the floating bar: reveal the thread and scroll
-  // it into view at the measured thread offset, like web's onOpenComments.
-  const handleOpenComments = useCallback(() => {
-    setShowEddies(true);
-    setTimeout(() => {
-      scrollRef.current?.scrollTo({
-        animated: true,
-        y: Math.max(0, threadY.current - 24),
-      });
-    }, 60);
-  }, []);
 
   const thread = useMemo(() => {
     if (ancestors.length === 0 || !post) {
@@ -592,6 +569,14 @@ export function PostDetailScreen({
         title={headerTitles.title}
       />
       <ScrollView
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        onScrollEndDrag={(event) =>
+          detailScrollMemory.set(
+            `post:${postId}`,
+            event.nativeEvent.contentOffset.y
+          )
+        }
         contentContainerStyle={{ paddingBottom: feedBottomPad }}
         onMomentumScrollEnd={(event) => {
           detailScrollMemory.set(
@@ -659,13 +644,7 @@ export function PostDetailScreen({
       ) : null}
       {showEddies && viewerId ? (
         <FloatingEddieBar
-          commentCount={
-            post
-              ? withCountDelta(post.id, "comments", post._count?.comments ?? 0)
-              : 0
-          }
           onHeightChange={setEddieBarHeight}
-          onOpenComments={handleOpenComments}
           postId={post.id}
           viewportBottom={viewportBottom}
         />

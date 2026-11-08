@@ -2,7 +2,6 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ScrollViewInstance, TextInputInstance } from "react-native";
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -12,6 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { useComposerStore } from "@/features/composer/state/composer-store";
@@ -179,7 +179,7 @@ export function ExternalPostScreen() {
         ) : null}
         {!data && !error ? (
           <View className="items-center gap-3 py-12">
-            <ActivityIndicator color={theme.dividerText} />
+            <Spinner3D size={24} />
             <Text style={{ color: theme.dividerText }}>Loading post…</Text>
           </View>
         ) : null}

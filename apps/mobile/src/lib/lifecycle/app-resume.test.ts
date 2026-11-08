@@ -8,7 +8,28 @@ import {
   parseResumeState,
   serializeResumeState,
   createLaunchResumeReader,
+  resumableQuery,
 } from "./app-resume";
+
+test("resume preserves selected tabs and public Bluesky addresses without replaying login or composer actions", () => {
+  expect(
+    resumableQuery({
+      eddie: "1",
+      section: "settings-passkeys",
+      sort: ["new", "top"],
+      tab: "security",
+      token: "secret",
+      uri: "at://example/post/1",
+    })
+  ).toEqual({
+    section: "settings-passkeys",
+    tab: "security",
+    uri: "at://example/post/1",
+  });
+  expect(isResumablePath("/external-post")).toBe(true);
+  expect(isResumablePath("/messages/thread-1")).toBe(true);
+  expect(isResumablePath("/settings-invalid")).toBe(false);
+});
 
 describe("isResumablePath", () => {
   test("home resumes", () => {
@@ -21,7 +42,7 @@ describe("isResumablePath", () => {
     expect(isResumablePath("/posts/abcd1234")).toBe(true);
   });
   test("unknown route does not resume", () => {
-    expect(isResumablePath("/messages")).toBe(false);
+    expect(isResumablePath("/unknown-route")).toBe(false);
   });
 });
 

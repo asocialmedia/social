@@ -4,7 +4,7 @@
 // bar's centerline via a full-size centered overlay, linking home. Right:
 // notification bell with unread badge + search (signed in) or a premium
 // (orange 3D) Log in pill (guest). The avatar opens the mobile user menu
-// (same content as web's MobileUserMenu); session, unread count, and search
+// (same content as web's UserProfilePopover); session, unread count, and search
 // are props, while the menu fetches its own profile data.
 
 import { Image } from "expo-image";
@@ -54,9 +54,9 @@ import {
 } from "@/theme";
 
 import { NAV_ACTIVE_DARK, NAV_ACTIVE_LIGHT } from "./mobile-bottom-nav";
-import { MobileUserMenu } from "./mobile-user-menu";
 import { resolveProfileImageUrl } from "./profile-utils";
 import { usePopupProfile } from "./use-popup-profile";
+import { UserProfilePopup } from "./user-profile-popup";
 
 // Shared hide-on-scroll progress (0 shown, 1 hidden), driven natively by
 // MobileHeader and followed by the content below in HomeScreen. Module
@@ -385,7 +385,7 @@ export function MobileHeader({
           </View>
         </View>
       </Animated.View>
-      <MobileUserMenu
+      <UserProfilePopup
         onClose={() => setProfileUserId(null)}
         userId={profileUserId}
       />

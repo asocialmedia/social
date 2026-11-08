@@ -4,6 +4,7 @@ import {
   feedHeadIdIsChangeSignal,
   fetchFeedHead,
   fetchFeedHeadId,
+  fetchFeedPage,
   isRankedFeed,
   submitShareClick,
 } from "./feed-api";
@@ -28,6 +29,29 @@ function recordingFetch(body: unknown) {
 }
 
 const OPTIONS = { apiBase: "https://api.test" };
+
+test("a stalled response body cannot leave native feed pagination loading forever", async () => {
+  let aborted = false;
+  const baseFetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        init?.signal?.addEventListener(
+          "abort",
+          () => {
+            aborted = true;
+            controller.error(new DOMException("Aborted", "AbortError"));
+          },
+          { once: true }
+        );
+      },
+    });
+    return Promise.resolve(new Response(body));
+  }) as typeof fetch;
+  await expect(
+    fetchFeedPage("latest", "next", { ...OPTIONS, baseFetch, timeoutMs: 10 })
+  ).rejects.toMatchObject({ name: "RequestTimeoutError" });
+  expect(aborted).toBe(true);
+});
 
 // A feed route that is down. The probe swallows this; the helper still has to
 // reject rather than report an empty head as "nothing new".

@@ -2,32 +2,19 @@ import { Stack } from "expo-router";
 import { Platform } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
 
-import {
-  finishPostEnter,
-  postEnterAnimation,
-} from "@/lib/interaction/navigation-motion";
+import { postEnterAnimation } from "@/lib/interaction/navigation-motion";
 import { useStartupPresented } from "@/lib/lifecycle/startup-context";
 
 export default function PostsLayout() {
   const presented = useStartupPresented();
   const reducedMotion = useReducedMotion();
-  const animation = postEnterAnimation(presented);
+  const animation = postEnterAnimation(presented, Platform.OS, reducedMotion);
   return (
     <Stack
       screenOptions={{
         animation,
         headerShown: false,
       }}
-      screenListeners={({ navigation }) => ({
-        transitionEnd: (event) => {
-          finishPostEnter(
-            navigation.setOptions,
-            event.data.closing,
-            Platform.OS,
-            reducedMotion
-          );
-        },
-      })}
     >
       <Stack.Screen
         name="[postId]/index"

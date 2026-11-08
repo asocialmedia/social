@@ -70,6 +70,7 @@ import {
 } from "../lib/settings-api";
 import type { SecuritySession } from "../lib/settings-api";
 import { SectionAnchor } from "../lib/settings-scroll";
+import { SettingsFooterArt } from "./settings-footer-art";
 import { SettingsRowsSkeleton } from "./settings-skeleton";
 import {
   SettingsButton,
@@ -918,6 +919,7 @@ export function SecurityTab({
           />
         </View>
       </SecurityDialog>
+      <SettingsFooterArt tab="security" />
     </ScrollView>
   );
 }
@@ -1342,7 +1344,7 @@ function SecuritySessionsCard({
     <SettingsCard>
       <View style={styles.headRow}>
         <SettingsCardHeading
-          description="Up to four sign-ins across browsers and apps. A new sign-in ends the oldest session when the limit is reached."
+          description="Up to three sign-ins across browsers and apps. A new sign-in ends the oldest session when the limit is reached."
           icon={MonitorSmartphone}
           title="Active sessions"
         />
@@ -1609,7 +1611,7 @@ const styles = StyleSheet.create({
     gap: 8,
     padding: 12,
   },
-  content: { gap: 18, padding: 16, paddingBottom: 96 },
+  content: { flexGrow: 1, gap: 18, padding: 16, paddingBottom: 96 },
   dialog: {
     borderCurve: "continuous",
     borderRadius: 16,

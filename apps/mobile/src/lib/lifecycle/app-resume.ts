@@ -19,6 +19,12 @@ const RESUMABLE_PREFIXES = [
   "/notifications",
   "/bookmarks",
   "/settings",
+  "/messages",
+  "/history",
+  "/external-post",
+  "/external-profile",
+  "/external-following",
+  "/external-library",
   "/posts/",
   "/users/",
   "/a/",
@@ -30,6 +36,16 @@ export interface ResumeState {
   params?: Record<string, string>;
   pathname: string;
   updatedAt: number;
+}
+
+export function resumableQuery(
+  params: Record<string, string | string[] | undefined>
+): Record<string, string> {
+  return Object.fromEntries(
+    ["tab", "section", "comment", "sort", "uri", "actor"].flatMap((key) =>
+      typeof params[key] === "string" ? [[key, params[key]]] : []
+    )
+  );
 }
 
 // True when the pathname is one the app can restore.
@@ -44,7 +60,8 @@ export function isResumablePath(pathname: string): boolean {
   return RESUMABLE_PREFIXES.some((prefix) =>
     prefix === "/"
       ? pathname === "/"
-      : pathname === prefix || pathname.startsWith(prefix)
+      : pathname === prefix ||
+        pathname.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`)
   );
 }
 

@@ -105,7 +105,10 @@ async function findMobileArtifact(
   }
 
   const files = await readdir(artifactDir);
-  const apkFile = files.find((f) => f.endsWith(".apk"));
+  const apkFile =
+    files.find((file) =>
+      /^asocialmedia-v[0-9]+\.[0-9]+\.[0-9]+-.*\.apk$/u.test(file)
+    ) ?? files.find((file) => file.endsWith(".apk"));
   if (!apkFile) return null;
 
   const apkPath = path.join(artifactDir, apkFile);
@@ -124,7 +127,10 @@ async function findMobileArtifact(
     fileName: apkFile,
     fileSize: `${sizeMb} MB`,
     sha256,
-    version: mobileVersion ?? "0.0.1",
+    version:
+      apkFile.match(/^asocialmedia-v([0-9]+\.[0-9]+\.[0-9]+)-/u)?.[1] ??
+      mobileVersion ??
+      "0.0.1",
   };
 }
 
@@ -141,8 +147,26 @@ export async function generateReleaseNotesFile(
   tagName: string;
 }> {
   const versions = await getWorkspaceVersions(repoRoot);
+  const foundArtifact = await findMobileArtifact(artifactDir, versions.mobile);
+  // Accept legacy version tags and current version-plus-SHA tags so a
+  // hostile or malformed env value can never inject Markdown into the notes.
+  const reusedFrom = env.REUSED_APK_TAG?.match(
+    /^v[0-9]+\.[0-9]+\.[0-9]+(?:\+[0-9a-f]{7,40})?$/u
+  )
+    ? env.REUSED_APK_TAG
+    : undefined;
   const mobileArtifact =
-    (await findMobileArtifact(artifactDir, versions.mobile)) ?? undefined;
+    foundArtifact && reusedFrom
+      ? {
+          ...foundArtifact,
+          reusedFrom,
+          version: /^asocialmedia-v[0-9]+\.[0-9]+\.[0-9]+-/u.test(
+            foundArtifact.fileName
+          )
+            ? foundArtifact.version
+            : "unknown",
+        }
+      : (foundArtifact ?? undefined);
 
   const prNumberStr = env.PR_NUMBER;
   const prNumber = prNumberStr ? Number(prNumberStr) : undefined;

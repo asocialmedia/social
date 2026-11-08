@@ -1,6 +1,7 @@
 import "server-only";
 import { externalUriSchema } from "@asm/protocols/discovery";
-import { cacheLife } from "next/cache";
+import { cacheLife, io } from "next/cache";
+import { unstable_rethrow } from "next/navigation";
 import { cache } from "react";
 
 import { readBlueskyPosts } from "@/lib/protocols/service";
@@ -40,6 +41,9 @@ export const getPublicBlueskyPost = cache(
     try {
       return await readPublicBlueskyPost(parsed.data);
     } catch (error) {
+      unstable_rethrow(error);
+      // Logging reads the clock through Pino; defer it until this is outside prerendering.
+      await io();
       // Cache only successful public reads; the interactive reader retains its retry and viewer policy.
       console.warn(
         "Public Bluesky preview unavailable",

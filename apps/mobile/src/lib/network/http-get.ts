@@ -61,7 +61,11 @@ export class RequestTimeoutError extends Error {
 export function getWithTimeout(
   input: RequestInfo | URL,
   init: RequestInit = {},
-  options: { baseFetch?: typeof fetch; timeoutMs?: number } = {}
+  options: {
+    baseFetch?: typeof fetch;
+    timeoutMs?: number;
+    readBody?: boolean;
+  } = {}
 ): Promise<Response> {
   const method = (init.method ?? "GET").toUpperCase();
   if (method !== "GET") {
@@ -69,7 +73,7 @@ export function getWithTimeout(
   }
   const baseFetch = options.baseFetch ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const key = dedupeKey(input, { ...init, method }, baseFetch);
+  const key = `${dedupeKey(input, { ...init, method }, baseFetch)}:${timeoutMs}:${options.readBody ?? false}`;
   const existing = inFlight.get(key);
   if (existing) {
     return cloneResponse(existing);
@@ -86,10 +90,28 @@ export function getWithTimeout(
       }, timeoutMs);
     });
     try {
-      return await Promise.race([
-        baseFetch(input, { ...init, method: "GET", signal: controller.signal }),
-        timeout,
-      ]);
+      const read = async () => {
+        const response = await baseFetch(input, {
+          ...init,
+          method: "GET",
+          signal: controller.signal,
+        });
+        if (!options.readBody) {
+          return response;
+        }
+        // Buffer once before cloning so the deadline aborts the shared network
+        // read, without leaving an unconsumed tee branch alive for each caller.
+        const body = await response.arrayBuffer();
+        return new Response(
+          response.status === 204 || response.status === 304 ? null : body,
+          {
+            headers: response.headers,
+            status: response.status,
+            statusText: response.statusText,
+          }
+        );
+      };
+      return await Promise.race([read(), timeout]);
     } finally {
       if (timer !== null) {
         clearTimeout(timer);

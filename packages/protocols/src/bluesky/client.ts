@@ -649,7 +649,11 @@ export class BlueskyClient {
     const resource = postSearchOperations.has(operation)
       ? `${operation}:${query}`
       : `${operation}:${parameters.feed ?? parameters.actor ?? parameters.repo ?? parameters.q ?? ""}:${parameters.collection ?? ""}`;
-    const resourceFailure = this.unavailable.get(resource);
+    const continuationResource = `${resource}:cursor:${parameters.cursor ?? ""}`;
+    const resourceFailure = [
+      this.unavailable.get(resource),
+      this.unavailable.get(continuationResource),
+    ].find((failure) => failure && failure.until > this.options.now());
     if (resourceFailure && resourceFailure.until > this.options.now()) {
       throw new ProtocolError(
         resourceFailure.code,
@@ -658,6 +662,7 @@ export class BlueskyClient {
       );
     }
     this.unavailable.delete(resource);
+    this.unavailable.delete(continuationResource);
     const cached = this.cache.get(key);
     if (cached) {
       this.report({
@@ -752,6 +757,10 @@ export class BlueskyClient {
             error instanceof ProtocolError &&
             (["restricted", "unavailable"].includes(error.code) ||
               (operation === "app.bsky.feed.getFeed" &&
+                error.code === "invalid_response") ||
+              (operation === "com.atproto.repo.listRecords" &&
+                error.code === "invalid_input") ||
+              (operation === "app.bsky.feed.getFeed" &&
                 error.code === "invalid_input" &&
                 !parameters.cursor))
           ) {
@@ -770,7 +779,13 @@ export class BlueskyClient {
             if (error.code === "restricted" || error.code === "invalid_input") {
               cooldownMs = 300_000;
             }
-            this.unavailable.set(resource, {
+            const failedResource =
+              operation === "app.bsky.feed.getFeed" &&
+              parameters.cursor &&
+              error.code === "invalid_response"
+                ? continuationResource
+                : resource;
+            this.unavailable.set(failedResource, {
               code:
                 error.code === "restricted" || error.code === "invalid_input"
                   ? error.code

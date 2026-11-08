@@ -28,6 +28,7 @@ import type { GroupAddPolicy } from "../lib/settings-api";
 import { SectionAnchor } from "../lib/settings-scroll";
 import { LegalSettingsLinks } from "./legal-settings-links";
 import { SettingsChoice } from "./settings-choice";
+import { SettingsFooterArt } from "./settings-footer-art";
 import {
   SettingsButton,
   SettingsCard,
@@ -194,12 +195,13 @@ export function PrivacyTab({
       <SectionAnchor id="settings-legal" tab="privacy">
         <LegalSettingsLinks />
       </SectionAnchor>
+      <SettingsFooterArt tab="privacy" />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { gap: 14, padding: 16 },
+  content: { flexGrow: 1, gap: 14, padding: 16 },
   marker: {
     borderCurve: "continuous",
     borderRadius: 999,
