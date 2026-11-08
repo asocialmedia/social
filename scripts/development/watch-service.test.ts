@@ -14,9 +14,10 @@ test("restarts for shared workspace edits while retaining the service working di
   const appDirectory = path.join(root, "apps", "example");
   const shared = path.join(root, "shared.ts");
   await Bun.write(shared, "export const version = 1;");
+  // A service may handle SIGTERM without exiting; cleanup must still be bounded.
   await Bun.write(
     path.join(appDirectory, "main.ts"),
-    'import { version } from "../../shared.ts"; process.stdout.write(JSON.stringify({ version, cwd: process.cwd(), main: import.meta.main }) + "\\n"); setInterval(() => {}, 1000);'
+    'import { version } from "../../shared.ts"; process.on("SIGTERM", () => {}); process.stdout.write(JSON.stringify({ version, cwd: process.cwd(), main: import.meta.main }) + "\\n"); setInterval(() => {}, 1000);'
   );
   const watchOptions = workspaceWatchOptions({
     entrypoint: "main.ts",
@@ -26,13 +27,43 @@ test("restarts for shared workspace edits while retaining the service working di
   });
   const child = Bun.spawn({
     ...watchOptions,
+    detached: process.platform !== "win32",
     env: { ...watchOptions.env, FORCE_COLOR: "1" },
     stdout: "pipe",
     stderr: "pipe",
   });
   const reader = child.stdout.getReader();
   const errors = new Response(child.stderr).text();
-  const timeout = setTimeout(() => child.kill(), 5000);
+  let cleanup: Promise<void> | undefined;
+  const stopWatcher = () => {
+    cleanup ??= (async () => {
+      if (process.platform === "win32") {
+        const termination = Bun.spawn(
+          ["taskkill", "/PID", String(child.pid), "/T", "/F"],
+          { stdout: "ignore", stderr: "ignore" }
+        );
+        await termination.exited;
+      } else {
+        // Watch mode has a supervisor and a service sharing the output pipes.
+        // Terminate their isolated group so neither keeps stream reads pending.
+        try {
+          process.kill(-child.pid, "SIGKILL");
+        } catch (error) {
+          if (
+            !error ||
+            typeof error !== "object" ||
+            !("code" in error) ||
+            error.code !== "ESRCH"
+          ) {
+            throw error;
+          }
+        }
+      }
+      await child.exited;
+    })();
+    return cleanup;
+  };
+  const timeout = setTimeout(() => void stopWatcher(), 5000);
   try {
     let output = "";
     let changed = false;
@@ -63,18 +94,7 @@ test("restarts for shared workspace edits while retaining the service working di
     ]);
   } finally {
     clearTimeout(timeout);
-    if (process.platform === "win32") {
-      const cleanup = Bun.spawn(
-        ["taskkill", "/PID", String(child.pid), "/T", "/F"],
-        {
-          stdout: "ignore",
-          stderr: "ignore",
-        }
-      );
-      await cleanup.exited;
-    }
-    child.kill();
-    await child.exited;
+    await stopWatcher();
     reader.releaseLock();
     for (let attempt = 0; ; attempt += 1) {
       try {
