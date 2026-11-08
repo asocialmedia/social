@@ -4,6 +4,15 @@
       "delegate_permission/common.get_login_creds",
       "delegate_permission/common.handle_all_urls"
     ],
+    "relation_extensions": {
+      "delegate_permission/common.handle_all_urls": {
+        "dynamic_app_link_components": [
+          { "/": "/about", "exclude": true },
+          { "/": "/about/*", "exclude": true },
+          { "/": "*" }
+        ]
+      }
+    },
     "target": {
       "namespace": "android_app",
       "package_name": "cc.asocialmedia.mobile",

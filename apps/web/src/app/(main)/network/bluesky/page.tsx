@@ -46,11 +46,6 @@ async function PublicBlueskyPost({ searchParams }: PageProps) {
     <>
       <JsonLd data={blueskyPostJsonLd(post)} />
       <ExternalPostPage initialPost={post} />
-      <p className="px-4 py-3 text-sm">
-        <a className="underline underline-offset-4" href={post.url}>
-          Original post on Bluesky ↗
-        </a>
-      </p>
     </>
   );
 }
