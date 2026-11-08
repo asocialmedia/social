@@ -1,6 +1,7 @@
 {
   "include": ["**/*.ts"],
   "compilerOptions": {
+    "incremental": true,
     "allowJs": true,
     "esModuleInterop": true,
     "lib": ["ESNext"],

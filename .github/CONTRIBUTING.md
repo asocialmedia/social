@@ -44,9 +44,9 @@ bun run check-types
 
 ##### _<div align="left"><sub>// Tests</sub></div>_
 
-Pre-commit runs formatting, lint, and cached workspace type checks with at most two type-check processes. Pre-push runs unit tests for the changed workspaces and their transitive consumers, plus tooling and repository policy checks, using at most two worker processes. Lefthook supplies the committed, unpushed paths through `{push_files}`. Documentation-only pushes skip tests; root config, lockfile, patches, and test-runner changes run all unit tests.
+Pre-commit runs formatting, lint, and cached workspace type checks with at most six type-check processes. Pre-push runs unit tests for the changed workspaces and their transitive consumers, plus tooling and repository policy checks, using at most two worker processes. Lefthook supplies the committed, unpushed paths through `{push_files}`. Documentation-only pushes skip tests; root config, lockfile, patches, and test-runner changes run all unit tests.
 
-`bun run check-types` caches both workspace checks and the root scripts project in Turbo. The scripts project also saves incremental compiler state under `.cache/typecheck` for changed runs. The first run after clearing the cache still performs a full check; unchanged runs should report all cache hits.
+`bun run check-types` caches both workspace checks and the root scripts project in Turbo. Shared TypeScript configs enable incremental compiler state for changed runs; scripts save theirs under `.cache/typecheck`. Override the task count with `bun run check-types --concurrency=N` when needed. The first run with no Turbo or compiler cache still performs a full check; unchanged runs should report all cache hits.
 
 Push checks read `test-timings.json` to schedule slower files earlier without rewriting it. Both CI shards receive the same timings snapshot; their disjoint measurements are merged and cached only after both succeed.
 

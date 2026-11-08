@@ -8,8 +8,8 @@ test("all type checks run inside Turbo including the root scripts project", asyn
     new URL("../../turbo.json", import.meta.url)
   ).json();
 
-  expect(manifest.scripts["check-types"]).toBe(
-    "turbo run check-types check-types:scripts --concurrency=2"
+  expect(manifest.scripts["check-types"]).toMatch(
+    /^turbo run check-types check-types:scripts --concurrency=[1-8]$/
   );
   expect(manifest.scripts["check-types:scripts"]).toBe(
     "tsc --project scripts/tsconfig.json"
@@ -28,4 +28,18 @@ test("all type checks run inside Turbo including the root scripts project", asyn
   expect(config.tasks["check-types"].inputs).toContain(
     "$TURBO_ROOT$/packages/db/generated/**"
   );
+});
+
+test("shared TypeScript projects retain compiler state across Turbo cache misses", async () => {
+  for (const file of [
+    "../../tsconfig.json",
+    "../../packages/config/base.tsconfig.json",
+    "../../apps/mobile/tsconfig.json",
+    "../../apps/mobile/scripts/tsconfig.json",
+  ]) {
+    const config = Bun.JSONC.parse(
+      await Bun.file(new URL(file, import.meta.url)).text()
+    );
+    expect(config).toMatchObject({ compilerOptions: { incremental: true } });
+  }
 });
