@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/social",
-  "version": "1.13.98",
+  "version": "1.13.99",
   "private": true,
   "homepage": "https://asocialmedia.cc",
   "license": "AGPL-3.0",
@@ -23,7 +23,7 @@
     "mob": "bun --cwd apps/mobile start",
     "db:prebuild-dm-indexes": "bun run --cwd packages/db --env-file=../../.env.test src/messages/prebuild-indexes.ts",
     "docker:clean": "docker compose -f docker/docker-compose.dev.yml down -v && docker volume rm asmdev-postgres18-data asmdev-redis-data asmdev-asmob-data asmdev-redisinsight-data && rm -f .dev-init",
-    "check-types": "turbo run check-types check-types:scripts --concurrency=6",
+    "check-types": "turbo run check-types check-types:scripts",
     "test:coverage": "bun scripts/testing/run-coverage-suite.ts",
     "seed:dm": "bun scripts/seed-dm-history.ts",
     "build": "turbo check-types && turbo build",

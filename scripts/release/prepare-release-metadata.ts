@@ -141,8 +141,18 @@ export async function generateReleaseNotesFile(
   tagName: string;
 }> {
   const versions = await getWorkspaceVersions(repoRoot);
+  const foundArtifact = await findMobileArtifact(artifactDir, versions.mobile);
+  // Tags are generated as v<semver>+<short-sha>; only accept that shape so a
+  // hostile or malformed env value can never inject Markdown into the notes.
+  const reusedFrom = env.REUSED_APK_TAG?.match(
+    /^v[0-9]+\.[0-9]+\.[0-9]+\+[0-9a-f]{7}$/u
+  )
+    ? env.REUSED_APK_TAG
+    : undefined;
   const mobileArtifact =
-    (await findMobileArtifact(artifactDir, versions.mobile)) ?? undefined;
+    foundArtifact && reusedFrom
+      ? { ...foundArtifact, reusedFrom }
+      : (foundArtifact ?? undefined);
 
   const prNumberStr = env.PR_NUMBER;
   const prNumber = prNumberStr ? Number(prNumberStr) : undefined;

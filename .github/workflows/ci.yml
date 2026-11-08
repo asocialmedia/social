@@ -677,6 +677,18 @@ jobs:
           name: mobile-apk
           path: build-artifacts
 
+      # No apps/mobile changes means no fresh APK was built. Re-attach the
+      # newest previously published APK/AAB so the release stays installable
+      # and the asocialmedia-latest.apk link never goes stale. Exits cleanly
+      # when no previous release carries mobile assets.
+      - name: Reuse previous release APK when mobile unchanged
+        if: needs.determine-build-matrix.outputs.has-mobile-changes != 'true'
+        env:
+          ARTIFACT_DIR: build-artifacts
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun scripts/release/reuse-previous-mobile-assets.ts
+
       - name: Collect PR and commit metadata
         id: collect-meta
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
