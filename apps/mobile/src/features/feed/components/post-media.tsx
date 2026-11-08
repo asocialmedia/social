@@ -40,6 +40,7 @@ import type { ViewStyle } from "react-native";
 import errorImage from "@/assets/images/error.png";
 import noMediaImage from "@/assets/images/nomedia.png";
 import nosearchImage from "@/assets/images/nosearch.png";
+import { toast } from "@/components/feedback/toast";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useNetworkPlayback } from "@/features/network/state/use-network-playback";
@@ -303,7 +304,7 @@ function SingleImage({
             : [styles.single, { aspectRatio: ratio }]
         }
       />
-      {media.aiGenerated ? <AiBadge /> : null}
+      {media.aiGenerated ? <AiBadge source={media.aiGeneratedSource} /> : null}
     </View>
   );
   if (!onPressMedia) {
@@ -373,7 +374,7 @@ function GridImage({
         source={{ uri: mediaGridImageUrl(apiBase, media) }}
         style={styles.gridTileImage}
       />
-      {media.aiGenerated ? <AiBadge /> : null}
+      {media.aiGenerated ? <AiBadge source={media.aiGeneratedSource} /> : null}
     </>
   );
   if (!onPressMedia) {
@@ -442,13 +443,39 @@ const CSS_EASE = Easing.bezier(0.25, 0.1, 0.25, 1);
 // AI-generated marker over media surfaces, ported from web's
 // AiGeneratedBadge: violet 3D pill, bottom-left of the frame (lifted above
 // the mute pill on video tiles). The flag arrives on Media.aiGenerated.
-function AiBadge({ bottom = 8 }: { bottom?: number }) {
+// Web's tooltip copy; native shows it on tap since there is no hover.
+export function aiBadgeCopy(source?: "bluesky-label") {
+  return source === "bluesky-label"
+    ? {
+        explanation:
+          "This Bluesky post carries an AI-generated label. This is a content declaration, not verified media provenance.",
+        label: "AI-generated content (Bluesky label)",
+      }
+    : {
+        explanation:
+          "This media’s provenance declares AI generation or AI editing.",
+        label: "AI-generated content",
+      };
+}
+
+function AiBadge({
+  bottom = 8,
+  source,
+}: {
+  bottom?: number;
+  source?: "bluesky-label";
+}) {
   const { isDark } = useAppTheme();
+  const copy = aiBadgeCopy(source);
   return (
-    <View
-      accessibilityLabel="AI-generated content"
-      accessibilityRole="text"
-      pointerEvents="none"
+    <Pressable
+      accessibilityHint={copy.explanation}
+      accessibilityLabel={copy.label}
+      accessibilityRole="button"
+      hitSlop={6}
+      onPress={() => {
+        toast({ description: copy.explanation, title: "AI Generated" });
+      }}
       style={[
         styles.aiBadge,
         {
@@ -466,7 +493,7 @@ function AiBadge({ bottom = 8 }: { bottom?: number }) {
         <Sparkles color="#ffffff" size={12} />
         <Text style={styles.aiText}>AI Generated</Text>
       </LinearGradient>
-    </View>
+    </Pressable>
   );
 }
 
@@ -948,7 +975,9 @@ export function VideoTile({
         </Pressable>
         <VideoTimePill player={player} />
       </Animated.View>
-      {media.aiGenerated ? <AiBadge bottom={44} /> : null}
+      {media.aiGenerated ? (
+        <AiBadge bottom={44} source={media.aiGeneratedSource} />
+      ) : null}
       <VideoCaptions
         compact={tile}
         cues={cues}
@@ -1392,13 +1421,94 @@ function OverflowTile({
   );
 }
 
-export function ModeratedNotice() {
+// Replaces a post's/gust's content when flagged as moderated. Ports web's
+// posts/content/moderated-notice.tsx props: compact collapses to a single-line
+// chip for small list rows (recents, message embeds, gust row cards),
+// vertical centers icon-above-text for tall media tiles, bare strips the
+// frame for embedding inside an existing tile, and kind swaps the copy
+// between post and gust.
+export function ModeratedNotice({
+  bare = false,
+  compact = false,
+  kind = "post",
+  vertical = false,
+}: {
+  bare?: boolean;
+  compact?: boolean;
+  kind?: "gust" | "post";
+  vertical?: boolean;
+} = {}) {
   const { isDark, theme } = useAppTheme();
+  const framed = !bare;
+  if (compact) {
+    return (
+      <View
+        accessibilityLabel={`This ${kind} seemed harmful`}
+        accessibilityRole="text"
+        style={[
+          styles.moderatedCompact,
+          framed && {
+            backgroundColor: theme.cardBg,
+            borderColor: theme.cardBorder,
+            boxShadow: isDark
+              ? "inset 0 0 0 1px rgba(255, 255, 255, 0.05), inset 0 1px 2px rgba(255, 255, 255, 0.04)"
+              : "inset 0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 1px 2px rgba(255, 255, 255, 0.05)",
+          },
+        ]}
+      >
+        <Image
+          contentFit="contain"
+          source={errorImage}
+          style={styles.moderatedCompactIcon}
+        />
+        <Text
+          numberOfLines={1}
+          style={[styles.moderatedCompactTitle, { color: theme.inputText }]}
+        >
+          This {kind} seemed harmful
+        </Text>
+      </View>
+    );
+  }
+  if (vertical) {
+    return (
+      <View
+        style={[
+          styles.moderatedVertical,
+          framed && {
+            backgroundColor: theme.cardBg,
+            borderColor: theme.cardBorder,
+            boxShadow: isDark
+              ? "inset 0 0 0 1px rgba(255, 255, 255, 0.05), inset 0 1px 2px rgba(255, 255, 255, 0.04)"
+              : "inset 0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 1px 2px rgba(255, 255, 255, 0.05)",
+          },
+        ]}
+      >
+        <Image
+          contentFit="contain"
+          source={errorImage}
+          style={styles.moderatedIcon}
+        />
+        <Text style={[styles.moderatedTitle, { color: theme.inputText }]}>
+          This {kind} seemed harmful
+        </Text>
+        <Text
+          style={[
+            styles.moderatedBody,
+            styles.moderatedBodyCenter,
+            { color: theme.dividerText },
+          ]}
+        >
+          Tucked away to keep the feed a good place.
+        </Text>
+      </View>
+    );
+  }
   return (
     <View
       style={[
         styles.moderated,
-        {
+        framed && {
           backgroundColor: theme.cardBg,
           borderColor: theme.cardBorder,
           boxShadow: isDark
@@ -1414,7 +1524,7 @@ export function ModeratedNotice() {
       />
       <View style={styles.moderatedContent}>
         <Text style={[styles.moderatedTitle, { color: theme.inputText }]}>
-          This post seemed harmful
+          This {kind} seemed harmful
         </Text>
         <Text style={[styles.moderatedBody, { color: theme.dividerText }]}>
           So it&apos;s been tucked away to keep the feed a good place. No harm
@@ -1447,11 +1557,20 @@ export function ExplicitGate({
   apiBase,
   attachments,
   children,
+  // Compact mode for small list-row thumbnails (recents, gust row cards,
+  // message embeds): a blurred thumb with a small "Explicit" chip and a
+  // tap-to-reveal, like web's compact gate, instead of the full panel.
+  compact = false,
+  label = "This post has explicit media.",
+  onReveal,
   revealKey,
 }: {
   apiBase: string;
   attachments: FeedMedia[];
   children: ReactNode;
+  compact?: boolean;
+  label?: string;
+  onReveal?: () => void;
   revealKey?: string;
 }) {
   const { isDark, theme } = useAppTheme();
@@ -1477,7 +1596,34 @@ export function ExplicitGate({
       revealedExplicitIds.add(revealKey);
     }
     setRevealed(true);
+    onReveal?.();
   };
+
+  if (compact) {
+    return (
+      <Pressable
+        accessibilityHint="Shows the hidden media"
+        accessibilityLabel="Show explicit content"
+        accessibilityRole="button"
+        onPress={handleContinue}
+        style={styles.gateCompact}
+      >
+        {cover ? (
+          <ConcealedMediaCover apiBase={apiBase} media={cover} />
+        ) : (
+          <LinearGradient
+            colors={["#2a2d34", "#17181c"]}
+            end={{ x: 0.5, y: 1 }}
+            start={{ x: 0.5, y: 0 }}
+            style={styles.gateBackdrop}
+          />
+        )}
+        <View pointerEvents="none" style={styles.gateCompactChip}>
+          <Text style={styles.gateCompactText}>Explicit</Text>
+        </View>
+      </Pressable>
+    );
+  }
 
   return (
     <View style={[styles.gateWrap, { aspectRatio: coverAspect }]}>
@@ -1511,7 +1657,7 @@ export function ExplicitGate({
             />
             <View style={styles.gateCopy}>
               <Text style={[styles.gateTitle, { color: theme.inputText }]}>
-                This post has explicit media.
+                {label}
               </Text>
               <Text style={[styles.gateBody, { color: theme.dividerText }]}>
                 Do you want to continue watching?
@@ -2021,6 +2167,30 @@ const styles = StyleSheet.create({
       string
     >),
   },
+  gateCompact: {
+    borderRadius: 12,
+    overflow: "hidden",
+    position: "relative",
+  },
+  gateCompactChip: {
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    borderColor: "rgba(255, 255, 255, 0.25)",
+    borderRadius: 9999,
+    borderWidth: 1,
+    bottom: 8,
+    justifyContent: "center",
+    left: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    position: "absolute",
+  },
+  gateCompactText: {
+    color: "#ffffff",
+    fontFamily: "SofiaProBold",
+    fontSize: 11,
+    fontWeight: "normal",
+  },
   gateCopy: {
     flex: 1,
     minWidth: 0,
@@ -2113,6 +2283,28 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     marginTop: 2,
   },
+  moderatedBodyCenter: {
+    textAlign: "center",
+  },
+  moderatedCompact: {
+    alignItems: "center",
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  moderatedCompactIcon: {
+    height: 20,
+    width: 20,
+  },
+  moderatedCompactTitle: {
+    fontFamily: "SofiaProBold",
+    fontSize: 12,
+    fontWeight: "normal",
+    lineHeight: 15,
+  },
   moderatedContent: {
     flex: 1,
     minWidth: 0,
@@ -2126,6 +2318,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "normal",
     lineHeight: 16,
+  },
+  moderatedVertical: {
+    alignItems: "center",
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "column",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 16,
   },
   muteGradient: {
     alignItems: "center",

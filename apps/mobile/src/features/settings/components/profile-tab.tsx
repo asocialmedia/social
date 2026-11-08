@@ -29,6 +29,7 @@ import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
+import { isBioWithinWordLimit } from "../lib/bio-editor";
 import { SectionAnchor } from "../lib/settings-scroll";
 import { SettingsBannerInput, SettingsAvatarInput } from "./settings-media";
 import { SettingsCardSkeleton } from "./settings-skeleton";
@@ -428,7 +429,7 @@ export function ProfileTab({
 
           <View style={styles.saveRow}>
             <SettingsButton
-              disabled={saving}
+              disabled={saving || !isBioWithinWordLimit(draft.bio)}
               label={saving ? "Saving…" : "Save Changes"}
               onPress={() => {
                 void save();

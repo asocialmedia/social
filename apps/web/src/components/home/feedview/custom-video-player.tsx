@@ -865,7 +865,7 @@ export const CustomVideoPlayer = ({
           <track
             default={false}
             key={caption.src}
-            kind="subtitles"
+            kind="captions"
             label={caption.label}
             src={caption.src}
             srcLang={caption.srclang}
@@ -924,7 +924,7 @@ export const CustomVideoPlayer = ({
             initial={{ opacity: 0 }}
           >
             <div className="flex items-center justify-center rounded-2xl bg-black/60 p-4 shadow-xl backdrop-blur-md">
-              <Spinner3D variant="media" className="size-10" />
+              <Spinner3D className="size-10" />
             </div>
           </motion.div>
         ) : null}

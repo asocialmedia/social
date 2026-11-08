@@ -18,7 +18,11 @@ import { Platform, Pressable, Text, TextInput, View } from "react-native";
 import Animated, { withTiming } from "react-native-reanimated";
 
 import signupBgImage from "@/assets/images/signup-image.jpg";
+import { toast } from "@/components/feedback/toast";
+import { authClient } from "@/features/auth/lib/auth-client";
 import { EMAIL_REGEX } from "@/features/auth/lib/auth-validation";
+import { submitSupportTicket } from "@/features/support/lib/support-form";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
   ERROR_SHADOWS,
   INPUT_ERROR_SHADOWS,
@@ -181,6 +185,7 @@ export default function HelpScreen() {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<SupportFormData>(INITIAL_FORM_DATA);
   const [emailTouched, setEmailTouched] = useState(false);
+  const [sending, setSending] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [notice, setNotice] = useState<{
     kind: "error" | "success";
@@ -190,6 +195,8 @@ export default function HelpScreen() {
 
   const emailValid = EMAIL_REGEX.test(formData.email);
   const showEmailError = emailTouched && !emailValid;
+  const stepTwoReady =
+    formData.category.length > 0 && formData.subject.trim().length > 0;
 
   const setField = useCallback(
     (field: keyof SupportFormData, value: string) => {
@@ -206,8 +213,8 @@ export default function HelpScreen() {
     }
   }, [formData.email, formData.type]);
 
-  const handleSubmit = useCallback(() => {
-    if (!formData.message.trim()) {
+  const handleSubmit = useCallback(async () => {
+    if (!formData.message.trim() || sending) {
       setNotice({
         kind: "error",
         text: "Add a message so we know how to help before sending.",
@@ -215,17 +222,34 @@ export default function HelpScreen() {
       });
       return;
     }
-    // There is no support backend to post to yet: /api/support and
-    // /api/support/upload return 404 (the web form hits the same dead ends).
-    // Rather than fake a "Message Sent" success and silently drop the report -
-    // which could be an account or security issue - say plainly that it was not
-    // sent and keep the entered data so nothing is lost.
-    setNotice({
-      kind: "error",
-      text: "In-app support isn't connected yet, so this wasn't sent. Email hello@asocialmedia.cc and we'll pick it up from there - your message is still in the form.",
-      title: "Not sent",
-    });
-  }, [formData.message]);
+    setSending(true);
+    try {
+      await submitSupportTicket(formData, [], {
+        apiBase: getApiBaseUrl(),
+        cookie: await authClient.getCookie(),
+      });
+      toast({
+        description: "We'll get back to you as soon as we can!",
+        title: "Message Sent",
+      });
+      setFormData(INITIAL_FORM_DATA);
+      setEmailTouched(false);
+      setNotice(null);
+      setStep(1);
+    } catch {
+      // There is no support backend to post to yet: /api/support and
+      // /api/support/upload return 404 (the web form hits the same dead ends).
+      // Rather than fake a "Message Sent" success and silently drop the report -
+      // which could be an account or security issue - say plainly that it was not
+      // sent and keep the entered data so nothing is lost.
+      setNotice({
+        kind: "error",
+        text: "In-app support isn't connected yet, so this wasn't sent. Email hello@asocialmedia.cc and we'll pick it up from there - your message is still in the form.",
+        title: "Not sent",
+      });
+    }
+    setSending(false);
+  }, [formData, sending]);
 
   const inputShadow = (name: string, hasError: boolean) => {
     if (hasError) {
@@ -365,6 +389,7 @@ export default function HelpScreen() {
               value={formData.type}
             />
             <AuthPrimaryButton
+              disabled={!(emailValid && formData.type)}
               label="Continue"
               onPress={handleContinueFromStepOne}
             />
@@ -454,6 +479,7 @@ export default function HelpScreen() {
               </Pressable>
               <View className="flex-1">
                 <AuthPrimaryButton
+                  disabled={!stepTwoReady}
                   label="Continue"
                   onPress={() => setStep(3)}
                 />
@@ -565,7 +591,9 @@ export default function HelpScreen() {
               </Pressable>
               <View className="flex-1">
                 <AuthPrimaryButton
-                  label="Send Message"
+                  disabled={sending || !formData.message.trim()}
+                  label={sending ? "Sending..." : "Send Message"}
+                  loading={sending}
                   onPress={handleSubmit}
                 />
               </View>

@@ -22,6 +22,7 @@ import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -36,7 +37,6 @@ import {
 } from "@/app/(main)/users/[username]/avatar-mutations";
 import { LoadingButton } from "@/components/auth/fields/loading-button";
 import { AnimatedWordCounter } from "@/components/misc/animated-word-counter";
-import { InlineRichEditor } from "@/components/posts/editor/inline-rich-editor";
 import {
   AvatarInput,
   BannerInput,
@@ -46,6 +46,22 @@ import { useToast } from "@/lib/gooey-toast";
 import { croppedImageFile } from "@/lib/media/cropped-image-file";
 import type { UploadStage } from "@/lib/media/media-upload-client";
 import { cn } from "@/lib/utils";
+
+const InlineRichEditor = dynamic(
+  async () => {
+    const editorModule =
+      await import("@/components/posts/editor/inline-rich-editor");
+    return editorModule.InlineRichEditor;
+  },
+  {
+    loading: () => (
+      <div
+        aria-hidden="true"
+        className="premium-input h-24 animate-pulse rounded-xl"
+      />
+    ),
+  }
+);
 
 const ORANGE_GRADIENT_CLASS =
   "orange-3d-surface bg-linear-to-b from-[#ff9500] to-[#e65500] text-white";

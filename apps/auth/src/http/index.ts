@@ -466,8 +466,8 @@ export function createHttpHandler(deps: HttpHandlerDeps) {
     // Failures and all other requests log immediately.
     if (response.status >= 400) {
       flushSessionBatch();
-      const logFn = response.status >= 500 ? log.error : log.warn;
-      logFn(
+      const level = response.status >= 500 ? "error" : "warn";
+      log[level](
         {
           client,
           duration_ms: duration,

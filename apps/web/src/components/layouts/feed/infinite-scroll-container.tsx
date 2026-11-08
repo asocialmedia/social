@@ -6,6 +6,7 @@ interface InfiniteScrollContainerProps extends React.PropsWithChildren {
   className?: string;
   prefetchDistance?: number;
   continuationDelay?: number;
+  paused?: boolean;
   onBottomReached: () => void;
 }
 
@@ -18,6 +19,7 @@ export default function InfiniteScrollContainer({
   className,
   prefetchDistance = PREFETCH_DISTANCE_PX,
   continuationDelay = 0,
+  paused = false,
 }: InfiniteScrollContainerProps) {
   const [scrollRoot, setScrollRoot] = useState<HTMLElement | null>();
   const sentinel = useRef<HTMLDivElement | null>(null);
@@ -58,7 +60,7 @@ export default function InfiniteScrollContainer({
   );
 
   useEffect(() => {
-    if (!inView || !sentinel.current || scrollRoot === undefined) {
+    if (paused || !inView || !sentinel.current || scrollRoot === undefined) {
       clearTimeout(pending.current ?? undefined);
       pending.current = null;
       return;
@@ -103,6 +105,7 @@ export default function InfiniteScrollContainer({
     scrollRoot,
     prefetchDistance,
     continuationDelay,
+    paused,
   ]);
 
   return (

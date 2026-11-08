@@ -8,9 +8,11 @@ import {
   NETWORK_ERROR,
   SOCIAL_UNAVAILABLE_ERROR,
   describeAuthError,
+  describeLoginError,
   describeOAuthRedirectError,
   describeSignupError,
   extractRedirectError,
+  isAuthCallbackUrl,
 } from "./auth-errors";
 
 describe("describeAuthError", () => {
@@ -141,6 +143,80 @@ describe("extractRedirectError", () => {
     expect(extractRedirectError("asocialmedia:///?cookie=abc")).toBeNull();
     expect(extractRedirectError(null)).toBeNull();
     expect(extractRedirectError("asocialmedia:///?error=")).toBeNull();
+  });
+});
+
+describe("isAuthCallbackUrl", () => {
+  test("accepts the login and root callbacks", () => {
+    expect(isAuthCallbackUrl("asocialmedia:///login?error=oauthError")).toBe(
+      true
+    );
+    expect(isAuthCallbackUrl("asocialmedia:///?error=access_denied")).toBe(
+      true
+    );
+  });
+
+  test("accepts wrapped Expo Go callbacks", () => {
+    expect(
+      isAuthCallbackUrl("exp://10.0.0.5:8082/--/login?error=state_mismatch")
+    ).toBe(true);
+  });
+
+  test("rejects other links arriving mid-flow", () => {
+    expect(
+      isAuthCallbackUrl("asocialmedia:///verify-email?error=expired")
+    ).toBe(false);
+    expect(isAuthCallbackUrl("asocialmedia:///posts/abc?comment=x")).toBe(
+      false
+    );
+    // An https universal link to the same callback path still counts: it is
+    // the provider's answer, just delivered by the OS instead of the scheme.
+    expect(isAuthCallbackUrl("https://asocialmedia.cc/login?error=x")).toBe(
+      true
+    );
+    expect(isAuthCallbackUrl(null)).toBe(false);
+  });
+});
+
+describe("describeLoginError", () => {
+  test("names the fix for account collisions", () => {
+    expect(describeLoginError("account_not_linked")).toContain(
+      "connect this provider in Settings"
+    );
+    expect(describeLoginError("USERNAME_IS_ALREADY_TAKEN")).toContain(
+      "connect this provider in Settings"
+    );
+  });
+
+  test("covers every web login/error code", () => {
+    expect(describeLoginError("accountNotFound")).toBe("Account not found.");
+    expect(describeLoginError("emailExists")).toBe(
+      "This email is already registered."
+    );
+    expect(describeLoginError("invalidCredentials")).toBe(
+      "Invalid email or password."
+    );
+    expect(describeLoginError("oauthError")).toBe(
+      "Error connecting with social provider."
+    );
+    expect(describeLoginError("oauth_email_not_verified")).toBe(
+      "Verify your Google email before using it to sign in."
+    );
+    expect(describeLoginError("serverError")).toBe(
+      "An unexpected error occurred."
+    );
+    expect(describeLoginError("unauthorized")).toBe(
+      "You must be logged in to access this page."
+    );
+  });
+
+  test("falls back with and without a code", () => {
+    expect(describeLoginError("something_new")).toBe(
+      "Couldn't complete sign-in. Please try again."
+    );
+    expect(describeLoginError(null)).toBe("An error occurred");
+    const missing: string | undefined = undefined;
+    expect(describeLoginError(missing)).toBe("An error occurred");
   });
 });
 

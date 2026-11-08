@@ -12,6 +12,8 @@ import type { ExternalPost } from "@asm/protocols/contracts";
 export interface FeedMedia {
   attributionPublic?: boolean;
   aiGenerated?: boolean | null;
+  // Set when the flag is an external declaration rather than C2PA provenance.
+  aiGeneratedSource?: "bluesky-label";
   altText?: string | null;
   blurDataUrl?: string | null;
   generatedAltText?: string | null;
@@ -60,6 +62,7 @@ export interface FeedCounts {
 export interface FeedUser {
   _count?: { followers?: number };
   avatarUrl: string | null;
+  bannerUrl?: string | null;
   badge?: string | null;
   badges?: string[] | null;
   communityMemberships?: {
@@ -538,4 +541,28 @@ export function extractInlineMeta(content: string): {
     }
   }
   return { tags, usernames };
+}
+
+// Card headers call formatRelativeDate on every render, and a reconciled feed
+// re-renders every mounted card: two Date constructions plus a Date.now per
+// row per pass. The display only moves on minute boundaries, so results are
+// cached per (createdAt, minute bucket). Bounded like createdAtCache above.
+const RELATIVE_DATE_CACHE_LIMIT = 500;
+const relativeDateCache = new Map<string, string>();
+export function cachedFormatRelativeDate(
+  from: string,
+  now = Date.now()
+): string {
+  const bucket = Math.floor(now / 60_000);
+  const key = `${bucket}:${from}`;
+  const cached = relativeDateCache.get(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const formatted = formatRelativeDate(from);
+  if (relativeDateCache.size >= RELATIVE_DATE_CACHE_LIMIT) {
+    relativeDateCache.clear();
+  }
+  relativeDateCache.set(key, formatted);
+  return formatted;
 }

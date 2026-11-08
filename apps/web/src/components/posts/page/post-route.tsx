@@ -37,6 +37,7 @@ import {
   postDescription,
   postTitle,
 } from "@/lib/seo/seo";
+import { videoWatchPath } from "@/lib/seo/video";
 import { profilePath } from "@/lib/users/profile-path";
 
 // Route params resolved from either the global /posts tree or the nested
@@ -268,6 +269,7 @@ export async function PostRoute({ params }: { params: PostRouteParams }) {
     createdAt: post.createdAt,
     description: postDescription(post),
     headline: postTitle(post, 110),
+    id: post.id,
     media: post.attachments,
     url,
     viewCount: post.viewCount,
@@ -313,6 +315,21 @@ export async function PostRoute({ params }: { params: PostRouteParams }) {
     <>
       <JsonLd data={[postJsonLd, breadcrumbJsonLd]} />
       <ClientPost ancestors={ancestors} post={post} userData={userData} />
+      {post.attachments.some((media) => media.type === "VIDEO") ? (
+        <nav aria-label="Watch videos" className="px-4 py-3 text-sm">
+          {post.attachments
+            .filter((media) => media.type === "VIDEO")
+            .map((media, index) => (
+              <a
+                className="mr-4 underline underline-offset-4"
+                key={media.id}
+                href={videoWatchPath(post.id, media.id)}
+              >
+                Watch video {index + 1} ↗
+              </a>
+            ))}
+        </nav>
+      ) : null}
     </>
   );
 }

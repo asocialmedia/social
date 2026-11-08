@@ -1,8 +1,8 @@
 import { Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
+import { denAvatarFaces } from "@/features/messages/lib/den-avatar-faces";
 import type { MessageConversationData } from "@/features/messages/lib/types";
-import { orderedCopy } from "@/lib/format/ordered-copy";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
@@ -33,10 +33,12 @@ export function DenAvatar({
       </View>
     );
   }
-  const members = orderedCopy(
+  // Web's denAvatarFaces: all members ordered by role (owner first) then
+  // roster order, capped at four faces with the fourth slot as the +N tally.
+  const members = denAvatarFaces(
     conversation.members.filter((member) => !member.leftAt),
-    (left, right) =>
-      Number(right.role === "OWNER") - Number(left.role === "OWNER")
+    undefined,
+    4
   );
   if (members.length < 2) {
     return (

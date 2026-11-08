@@ -24,17 +24,23 @@ import { getSecureImageUrl } from "@/lib/utils/image-url";
 import { BlueskyIcon } from "./bluesky-icon";
 import { ExternalFollowButton } from "./external-follow-button";
 
-export function ExternalAuthorTooltip({
-  author,
-  children,
-}: {
+interface ExternalAuthorTooltipProps {
   author: ExternalAuthor;
   children: ReactNode;
-}) {
+}
+
+export function ExternalAuthorTooltip(props: ExternalAuthorTooltipProps) {
+  const desktop = useMediaQuery("(min-width: 768px)");
+  return desktop ? <DesktopExternalAuthorTooltip {...props} /> : props.children;
+}
+
+function DesktopExternalAuthorTooltip({
+  author,
+  children,
+}: ExternalAuthorTooltipProps) {
   const [open, setOpen] = useState(false);
-  const mobile = useMediaQuery("(max-width: 767px)");
   const profile = useQuery({
-    enabled: open && !mobile,
+    enabled: open,
     queryFn: async ({ signal }) =>
       externalAuthorSchema.parse(
         await readProtocolResource(
@@ -48,9 +54,6 @@ export function ExternalAuthorTooltip({
   });
   const person = profile.data ?? author;
   const href = blueskyProfilePath(person.id);
-  if (mobile) {
-    return children;
-  }
   return (
     <TooltipProvider delayDuration={350}>
       <Tooltip open={open} onOpenChange={setOpen}>

@@ -30,6 +30,7 @@ import { popupCache } from "./profile-cache";
 import { fetchLinkPreview } from "./profile-data";
 import type { BioSegment } from "./profile-utils";
 import {
+  clampBioSegments,
   getLinkPlatform,
   hostLabel,
   safeLinkUrl,
@@ -247,8 +248,6 @@ export function BioContent({
 }) {
   const [expanded, setExpanded] = useState(false);
   const { theme } = useAppTheme();
-  const [measuredHeight, setMeasuredHeight] = useState(0);
-  const lineLimit = 6 * (textSize?.lineHeight ?? 20);
   const full = useMemo<BioSegment[]>(() => {
     const source = sourceSegments
       ? externalInlineSegments(sourceSegments)
@@ -264,8 +263,18 @@ export function BioContent({
         )
       : source;
   }, [bio, sourceSegments, compactBlankLines, clampLength]);
-  const clamped = clampLength !== undefined && measuredHeight > lineLimit + 1;
-  const segments = full;
+  // Web's line-clamp cuts at whole lines; the native port cuts at whole
+  // segments instead, so a collapsed body never slices a pill or a line of
+  // text in half the way the old maxHeight clip did. Show more appears only
+  // when the budget actually drops nodes.
+  const clamp = useMemo(
+    () =>
+      clampLength === undefined ? null : clampBioSegments(full, clampLength),
+    [clampLength, full]
+  );
+  const collapsed = clampLength !== undefined && !expanded;
+  const segments = collapsed && clamp ? clamp.visible : full;
+  const showToggle = clampLength !== undefined && (clamp?.clamped ?? false);
   const [titles, setTitles] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -319,38 +328,7 @@ export function BioContent({
 
   return (
     <View>
-      {clampLength === undefined ? null : (
-        <View
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          pointerEvents="none"
-          style={[
-            styles.wrap,
-            { left: 0, opacity: 0, position: "absolute", right: 0, top: 0 },
-          ]}
-          onLayout={(event) =>
-            setMeasuredHeight(event.nativeEvent.layout.height)
-          }
-        >
-          {full.map((segment, index) => (
-            <BioPiece
-              key={`measure-${segment.type}-${index}`}
-              segment={segment}
-              textColor={textColor}
-              textSize={textSize}
-              titles={titles}
-            />
-          ))}
-        </View>
-      )}
-      <View
-        style={[
-          styles.wrap,
-          clampLength !== undefined && !expanded
-            ? { maxHeight: lineLimit, overflow: "hidden" }
-            : null,
-        ]}
-      >
+      <View style={styles.wrap}>
         {segments.map((segment, index) => (
           // Index keys are safe: segments derive deterministically from the
           // immutable bio string, so order never shuffles under a render.
@@ -363,7 +341,7 @@ export function BioContent({
           />
         ))}
       </View>
-      {clampLength !== undefined && (clamped || expanded) ? (
+      {showToggle ? (
         <Pressable
           hitSlop={4}
           onPress={(event) => {

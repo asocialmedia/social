@@ -18,6 +18,8 @@ import { getApiBaseUrl } from "@/lib/network/api-env";
 import type { SseStatus } from "@/lib/network/sse-stream";
 import { readSseStream } from "@/lib/network/sse-stream";
 
+import { StreamRegistry } from "./post-stream-registry";
+
 export type PostStreamKind = "comments" | "responses";
 
 /** A created or deleted item, with the post it belongs to. */
@@ -49,7 +51,26 @@ function isStreamEvent(value: unknown): value is {
  * Subscribes to one of a post's streams. `onEvent` fires for each created or
  * deleted item; `onCountDelta` carries the same signal as a number so the
  * caller can keep its comment count honest without re-reading the post.
+ *
+ * Connections are shared per post+kind (web's CommentsRealtimeProvider
+ * contract): a feed card and the open detail page for the same post hold one
+ * SSE reader with refcounted subscribers, not two. The shared reader keeps
+ * the generic 1s->30s backoff from lib/sse-stream, and guests never connect
+ * (the endpoint is auth-gated and stops on 401), so guest threads stay
+ * poll-only like web.
  */
+interface StreamSubscriber {
+  onCountDelta?: (delta: number, postId: string) => void;
+  onEvent: (event: PostStreamEvent) => void;
+  setStatus: (status: SseStatus) => void;
+}
+
+const sharedStreams = new StreamRegistry<StreamSubscriber>();
+
+function streamKey(kind: PostStreamKind, postId: string): string {
+  return `${kind}:${postId}`;
+}
+
 export function usePostStream({
   enabled = true,
   kind,
@@ -79,53 +100,75 @@ export function usePostStream({
     if (!enabled || !postId) {
       return;
     }
-    const controller = new AbortController();
-    const run = async () => {
-      const cookie = await authClient.getCookie();
-      const url = `${getApiBaseUrl().replace(/\/+$/, "")}/api/posts/${encodeURIComponent(postId)}/${kind}/stream`;
-      await readSseStream({
-        cookie,
-        eventName: eventNameFor(kind),
-        onEvent: (_event, data) => {
-          if (!isStreamEvent(data)) {
-            return;
-          }
-          const created = data.kind.endsWith(".created");
-          const deleted = data.kind.endsWith(".deleted");
-          if (!created && !deleted) {
-            return;
-          }
-          // The item rides under a kind-specific key: responses on
-          // "response", comments on "comment".
-          let payload: unknown = null;
-          if (kind === "responses" && "response" in data) {
-            payload = data.response;
-          } else if (kind === "comments" && "comment" in data) {
-            payload = data.comment;
-          }
-          if (!payload) {
-            return;
-          }
-          onEventRef.current({
-            kind: created ? "created" : "deleted",
-            payload,
-            postId: data.postId,
-          });
-          onCountDeltaRef.current?.(created ? 1 : -1, data.postId);
-          logInfo("post_stream.event", {
-            item: created ? "created" : "deleted",
-            kind,
-            postId: data.postId,
-          });
-        },
-        onStatusChange: setStatus,
-        signal: controller.signal,
-        url,
-      });
+    const key = streamKey(kind, postId);
+    const {
+      controller,
+      created: opened,
+      subscribers,
+    } = sharedStreams.acquire(key);
+    if (opened) {
+      const run = async () => {
+        // Read the cookie per attempt, not once: reconnect backoff reuses
+        // the same URL string, and a rotated session must heal the stream
+        // instead of 401-looping on a stale credential until closed.
+        const url = `${getApiBaseUrl().replace(/\/+$/, "")}/api/posts/${encodeURIComponent(postId)}/${kind}/stream`;
+        await readSseStream({
+          eventName: eventNameFor(kind),
+          getCookie: () => authClient.getCookie(),
+          onEvent: (_event, data) => {
+            if (!isStreamEvent(data)) {
+              return;
+            }
+            const created = data.kind.endsWith(".created");
+            const deleted = data.kind.endsWith(".deleted");
+            if (!created && !deleted) {
+              return;
+            }
+            // The item rides under a kind-specific key: responses on
+            // "response", comments on "comment".
+            let payload: unknown = null;
+            if (kind === "responses" && "response" in data) {
+              payload = data.response;
+            } else if (kind === "comments" && "comment" in data) {
+              payload = data.comment;
+            }
+            if (!payload) {
+              return;
+            }
+            for (const subscriber of subscribers) {
+              subscriber.onEvent({
+                kind: created ? "created" : "deleted",
+                payload,
+                postId: data.postId,
+              });
+              subscriber.onCountDelta?.(created ? 1 : -1, data.postId);
+            }
+            logInfo("post_stream.event", {
+              item: created ? "created" : "deleted",
+              kind,
+              postId: data.postId,
+            });
+          },
+          onStatusChange: (next) => {
+            for (const subscriber of subscribers) {
+              subscriber.setStatus(next);
+            }
+          },
+          signal: controller.signal,
+          url,
+        });
+      };
+      void run();
+    }
+    const subscriber: StreamSubscriber = {
+      onCountDelta: (delta, eventPostId) =>
+        onCountDeltaRef.current?.(delta, eventPostId),
+      onEvent: (event) => onEventRef.current(event),
+      setStatus,
     };
-    void run();
+    subscribers.add(subscriber);
     return () => {
-      controller.abort();
+      sharedStreams.release(key, subscriber);
     };
   }, [enabled, kind, postId]);
 

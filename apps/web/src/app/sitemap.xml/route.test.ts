@@ -13,5 +13,7 @@ test("the sitemap index returns XML synchronously without content queries", asyn
   expect(xml).toContain("<sitemapindex");
   expect(xml).toContain("https://asocialmedia.cc/sitemaps/posts.xml");
   expect(xml).toContain("https://asocialmedia.cc/sitemaps/gusts.xml");
-  expect(xml.match(/<sitemap>/g)).toHaveLength(6);
+  expect(xml).toContain("https://asocialmedia.cc/sitemaps/bluesky.xml");
+  expect(xml).toContain("https://asocialmedia.cc/sitemaps/videos.xml");
+  expect(xml.match(/<sitemap>/g)).toHaveLength(8);
 });

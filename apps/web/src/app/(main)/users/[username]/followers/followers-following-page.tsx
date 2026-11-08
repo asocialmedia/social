@@ -12,7 +12,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 
 import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trigger";
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
@@ -40,6 +40,7 @@ const FollowersFollowingPage: React.FC<{
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const feedScrollRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
   const [query, setQuery] = useState("");
   const activeTab: ListTab =
     searchParams.get("tab") === "following" ? "following" : "followers";
@@ -222,6 +223,8 @@ const FollowersFollowingPage: React.FC<{
                   active={activeTab === "followers"}
                   layoutId="user-list-tab-indicator"
                   value="followers"
+                  id={`${listId}-followers`}
+                  aria-controls={`${listId}-panel`}
                 >
                   Followers
                 </AnimatedTabTrigger>
@@ -229,6 +232,8 @@ const FollowersFollowingPage: React.FC<{
                   active={activeTab === "following"}
                   layoutId="user-list-tab-indicator"
                   value="following"
+                  id={`${listId}-following`}
+                  aria-controls={`${listId}-panel`}
                 >
                   Following
                 </AnimatedTabTrigger>
@@ -252,6 +257,9 @@ const FollowersFollowingPage: React.FC<{
         <div className="relative min-h-0 flex-1">
           <div
             ref={feedScrollRef}
+            id={`${listId}-panel`}
+            role="tabpanel"
+            aria-labelledby={`${listId}-${activeTab}`}
             className="hide-native-scrollbar h-full overflow-x-hidden overflow-y-auto pb-24"
           >
             {body}
@@ -260,8 +268,8 @@ const FollowersFollowingPage: React.FC<{
         </div>
       </div>
       <aside className="hide-native-scrollbar sticky top-0 hidden h-screen w-80 shrink-0 flex-col gap-3 overflow-y-auto border-l border-[hsl(var(--border))] bg-[hsl(var(--background-alt))] p-3 lg:flex">
-        <PostHistoryCard />
-        <TrendingTopics />
+        <PostHistoryCard mediaQuery="(min-width: 64rem)" />
+        <TrendingTopics mediaQuery="(min-width: 64rem)" />
       </aside>
       <MobileBottomNav />
     </>

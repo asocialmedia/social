@@ -7,7 +7,10 @@ import { StyleSheet, View } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { useSessionContext } from "@/features/auth/state/session";
-import { resolveAvatarWithFallback } from "@/features/home/components/profile-utils";
+import {
+  bskyAvatarForSize,
+  resolveAvatarWithFallback,
+} from "@/features/home/components/profile-utils";
 import { usePopupProfile } from "@/features/home/components/use-popup-profile";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
@@ -35,9 +38,16 @@ export function UserAvatar({
   const apiBase = getApiBaseUrl();
   const avatarKey = seed || username || userId || null;
   const resolved = resolveAvatarWithFallback(url, apiBase, avatarKey);
+  // Web serves the lighter avatar_thumbnail derivative at these sizes; the
+  // full plain blob is only needed for large displays.
+  const displayUrl = bskyAvatarForSize(resolved, size);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  // Derived per render (no effect): a new url retries instead of inheriting
+  // a stale failure, while a repeat failure for the same url keeps the
+  // placeholder. A transient error therefore recovers on fresh data or a
+  // recycled list cell, and only a persistent failure shows the fallback.
+  const showImage = failedUrl !== displayUrl;
   const cornerRadius = radius ?? Math.round(size * 0.3);
-  const showImage = resolved !== null && failedUrl !== resolved;
   return (
     <View
       style={{
@@ -52,9 +62,9 @@ export function UserAvatar({
         accessibilityLabel=""
         cachePolicy="memory-disk"
         contentFit="cover"
-        recyclingKey={resolved ?? "avatar-placeholder"}
-        onError={() => setFailedUrl(resolved)}
-        source={showImage ? { uri: resolved } : avatarPlaceholder}
+        recyclingKey={displayUrl}
+        onError={() => setFailedUrl(displayUrl)}
+        source={showImage ? { uri: displayUrl } : avatarPlaceholder}
         style={{ borderRadius: cornerRadius, height: size, width: size }}
       />
       <View

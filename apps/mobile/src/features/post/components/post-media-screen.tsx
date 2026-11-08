@@ -11,6 +11,7 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import type { Href } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
 import type { VideoView as VideoViewType } from "expo-video";
 import {
@@ -44,6 +45,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import errorImage from "@/assets/images/error.png";
 import notFoundImage from "@/assets/images/notfound.png";
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import {
   ALT_BADGE_GRADIENT,
@@ -81,6 +83,7 @@ import {
   isAudioMedia,
   isVideoMedia,
   isGifMedia,
+  mediaGridImageUrl,
   mediaImageUrl,
   mediaPosterUrl,
   mediaVideoUrl,
@@ -92,7 +95,17 @@ import {
   splitTranscriptIntoTimedLines,
 } from "@/features/feed/lib/transcript-cues";
 import type { TranscriptCue } from "@/features/feed/lib/transcript-cues";
+import {
+  clampSeekTarget,
+  DOUBLE_TAP_SEEK_SECONDS,
+  doubleTapDirection,
+  nextPlaybackSpeed,
+} from "@/features/feed/lib/video-speeds";
 import { findCachedFeedPost } from "@/features/feed/state/feed-store";
+import {
+  hydrateVideoCaptions,
+  useVideoCaptionsStore,
+} from "@/features/feed/state/video-captions-store";
 import { useVideoMuteStore } from "@/features/feed/state/video-mute-store";
 import { GustEddiesSheet } from "@/features/gusts/components/gust-eddies-sheet";
 import { TranscriptDrawer } from "@/features/gusts/components/transcript-drawer";
@@ -225,6 +238,9 @@ export interface VideoHandle {
   enterFullscreen: () => void;
   // The transcript drawer seeks by cue start time, like web's onSeek.
   seek: (seconds: number) => void;
+  // Double-tap zones seek ±10s without disturbing play state, like web's
+  // half-screen double-click zones. Clamped into the duration.
+  seekBy: (deltaSeconds: number) => void;
   toggleMute: () => void;
   togglePlay: () => void;
 }
@@ -276,6 +292,7 @@ function VideoSurface({
   const [duration, setDuration] = useState(() => player.duration);
   const [playing, setPlaying] = useState(false);
   const [rate, setRate] = useState(1);
+  const [buffering, setBuffering] = useState(false);
   const [failed, setFailed] = useState(false);
   const [fetchedCues, setFetchedCues] = useState<TranscriptCue[]>([]);
 
@@ -299,8 +316,7 @@ function VideoSurface({
   useEffect(() => {
     const handle: VideoHandle = {
       cycleSpeed: () => {
-        const speeds = [1, 1.25, 1.5, 2];
-        const next = speeds[(speeds.indexOf(rate) + 1) % speeds.length] ?? 1;
+        const next = nextPlaybackSpeed(rate);
         setRate(next);
         try {
           // oxlint-disable-next-line react/immutability -- expo-video's documented player API
@@ -332,6 +348,20 @@ function VideoSurface({
         // Same as the gust card's transcript seek. Kept outside the try so a
         // rejected seek never strands a paused video.
         player.play();
+      },
+      seekBy: (deltaSeconds: number) => {
+        const target = clampSeekTarget(
+          player.currentTime,
+          deltaSeconds,
+          player.duration
+        );
+        try {
+          // oxlint-disable-next-line react/immutability -- expo-video's documented player API
+          player.currentTime = target;
+        } catch {
+          // Older runtimes reject a seek before the first frame; the rejected
+          // seek leaves the playhead where it was.
+        }
       },
       toggleMute: () => {
         setMuted(!useVideoMuteStore.getState().isMuted);
@@ -366,7 +396,12 @@ function VideoSurface({
       player.addListener("statusChange", (payload) => {
         if (payload.status === "error") {
           setFailed(true);
+          setBuffering(false);
+          return;
         }
+        // Web shows its Spinner3D overlay on `waiting` and clears it on
+        // `playing`. expo-video reports the same stall through `loading`.
+        setBuffering(payload.status === "loading");
       }),
     ];
     player.play();
@@ -439,6 +474,11 @@ function VideoSurface({
         ref={viewRef}
         style={styles.video}
       />
+      {buffering && !failed ? (
+        <View pointerEvents="none" style={styles.buffering}>
+          <Spinner3D size={48} />
+        </View>
+      ) : null}
       {activeCue ? (
         <View pointerEvents="none" style={styles.captionRow}>
           <View style={styles.captionBox}>
@@ -571,17 +611,53 @@ type MediaStatus = "error" | "loading" | "not-found" | "ready";
 // drag - the same reason the feed's tappable cards can scroll.
 function Page({
   children,
+  onDoubleTap,
   onToggle,
   width,
 }: {
   children: React.ReactNode;
+  // Double-tap ±10s zones for the video stage, like web's half-screen
+  // double-click zones. Images pass none, so their single tap still toggles
+  // chrome immediately. When present, the single-tap toggle waits out the
+  // double-tap window so one finger tap never both seeks and hides chrome.
+  onDoubleTap?: (direction: "backward" | "forward") => void;
   onToggle: () => void;
   width: number;
 }) {
+  const lastTap = useRef(0);
+  const pendingSingle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (pendingSingle.current) {
+        clearTimeout(pendingSingle.current);
+      }
+    },
+    []
+  );
   return (
     <Pressable
       accessibilityLabel="Toggle viewer controls"
-      onPress={onToggle}
+      onPress={(event) => {
+        if (!onDoubleTap) {
+          onToggle();
+          return;
+        }
+        const now = Date.now();
+        if (now - lastTap.current < 300) {
+          lastTap.current = 0;
+          if (pendingSingle.current) {
+            clearTimeout(pendingSingle.current);
+            pendingSingle.current = null;
+          }
+          onDoubleTap(doubleTapDirection(event.nativeEvent.locationX, width));
+          return;
+        }
+        lastTap.current = now;
+        pendingSingle.current = setTimeout(() => {
+          pendingSingle.current = null;
+          onToggle();
+        }, 280);
+      }}
       style={[styles.page, { width }]}
     >
       {children}
@@ -590,12 +666,24 @@ function Page({
 }
 
 export function PostMediaScreen({
+  communitySlug,
   initialIndex,
   initialPost,
+  postHref,
   postId,
 }: {
+  // Community namespace guard (native twin of web PostMediaRoute's canonical
+  // redirect): a namespaced a/[slug]/posts media route passes its slug; when
+  // the loaded post belongs to another community, replace to its canonical
+  // media address instead of showing it out of context. Omitted everywhere
+  // else, so global behavior is unchanged.
+  communitySlug?: string;
   initialIndex: number;
   initialPost?: FeedPost;
+  // Where the close button lands when there is no back stack. Defaults to the
+  // global post route; community-namespaced media routes pass their namespaced
+  // post href so closing stays in the community, like web's getPostPath.
+  postHref?: Href;
   postId: string;
 }) {
   const { theme } = useAppTheme();
@@ -627,7 +715,15 @@ export function PostMediaScreen({
     () => cachedIndex ?? initialIndex
   );
   const [uiVisible, setUiVisible] = useState(true);
-  const [captionsEnabled, setCaptionsEnabled] = useState(true);
+  // The persisted captions preference (web's VideoCaptionsHydration): the
+  // viewer shares the same flag the feed tiles read.
+  useEffect(() => {
+    void hydrateVideoCaptions();
+  }, []);
+  const captionsEnabled = useVideoCaptionsStore((state) => state.showCaptions);
+  const setCaptionsEnabled = useVideoCaptionsStore(
+    (state) => state.setShowCaptions
+  );
   const [showTranscript, setShowTranscript] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [showEddies, setShowEddies] = useState(false);
@@ -744,6 +840,20 @@ export function PostMediaScreen({
     router.push("/(auth)/login");
   }, [router]);
 
+  useEffect(() => {
+    if (!communitySlug || status !== "ready" || !post) {
+      return;
+    }
+    const actual = post.community?.slug ?? null;
+    if (actual !== communitySlug) {
+      router.replace(
+        actual
+          ? `/a/${actual}/posts/${post.id}/media/${currentIndex}`
+          : `/posts/${post.id}/media/${currentIndex}`
+      );
+    }
+  }, [communitySlug, currentIndex, post, router, status]);
+
   const handleClose = useCallback(() => {
     if (router.canGoBack()) {
       router.back();
@@ -756,8 +866,10 @@ export function PostMediaScreen({
       });
       return;
     }
-    router.replace({ params: { postId }, pathname: "/posts/[postId]" });
-  }, [postId, router, initialPost]);
+    router.replace(
+      postHref ?? { params: { postId }, pathname: "/posts/[postId]" }
+    );
+  }, [postHref, postId, router, initialPost]);
 
   const goTo = useCallback(
     (index: number) => {
@@ -854,6 +966,20 @@ export function PostMediaScreen({
 
   const renderPage = ({ item, index }: { item: FeedMedia; index: number }) => {
     const active = index === currentIndex;
+    // Double-tap zones only wrap the active video stage; images keep the
+    // immediate single-tap toggle.
+    const stageDoubleTap =
+      isVideoMedia(item) && active
+        ? (direction: "backward" | "forward") => {
+            videoHandles.current
+              .get(item.id)
+              ?.seekBy(
+                direction === "backward"
+                  ? -DOUBLE_TAP_SEEK_SECONDS
+                  : DOUBLE_TAP_SEEK_SECONDS
+              );
+          }
+        : undefined;
     if (post.moderated) {
       return (
         <Page onToggle={toggleUi} width={width}>
@@ -913,7 +1039,7 @@ export function PostMediaScreen({
     })();
     if (post.explicitContent) {
       return (
-        <Page onToggle={toggleUi} width={width}>
+        <Page onDoubleTap={stageDoubleTap} onToggle={toggleUi} width={width}>
           <ExplicitGate
             apiBase={apiBase}
             attachments={media}
@@ -925,7 +1051,7 @@ export function PostMediaScreen({
       );
     }
     return (
-      <Page onToggle={toggleUi} width={width}>
+      <Page onDoubleTap={stageDoubleTap} onToggle={toggleUi} width={width}>
         {body}
       </Page>
     );
@@ -1216,7 +1342,7 @@ export function PostMediaScreen({
               <VideoControlsRow
                 showTextControls={!post.external}
                 captionsEnabled={captionsEnabled}
-                onToggleCaptions={() => setCaptionsEnabled((value) => !value)}
+                onToggleCaptions={() => setCaptionsEnabled(!captionsEnabled)}
                 onToggleTranscript={() => setShowTranscript((value) => !value)}
                 showTranscript={showTranscript}
                 snapshot={videoSnap}
@@ -1263,6 +1389,14 @@ export function PostMediaScreen({
       <ShareSheet
         onClose={() => setShareOpen(false)}
         post={shareOpen ? post : null}
+        // Web's caller-passed thumbnail: the currently viewed media (GIFs
+        // bypass variants to preserve animation), not just the first
+        // attachment the sheet would fall back to.
+        thumbnail={
+          shareOpen && currentMedia
+            ? mediaGridImageUrl(apiBase, currentMedia)
+            : null
+        }
       />
     </View>
   );
@@ -1340,6 +1474,13 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
     marginTop: 10,
+  },
+  buffering: {
+    alignItems: "center",
+    height: "100%",
+    justifyContent: "center",
+    position: "absolute",
+    width: "100%",
   },
   captionBox: {
     backgroundColor: "rgba(0, 0, 0, 0.85)",

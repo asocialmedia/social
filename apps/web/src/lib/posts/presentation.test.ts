@@ -140,6 +140,16 @@ test("the shared gallery receives original remote images and HLS videos with the
   );
 });
 
+test("feed previews use a remote thumbnail while the full viewer keeps the original", () => {
+  const media = {
+    id: "https://cdn.bsky.app/fullsize.jpg",
+    thumbnailKey: "https://cdn.bsky.app/thumbnail.jpg",
+  };
+  expect(getMediaImageUrl(media, "lg-webp.webp")).toBe(media.thumbnailKey);
+  expect(getMediaImageUrl(media, "thumb-webp.webp")).toBe(media.thumbnailKey);
+  expect(getMediaImageUrl(media, "orig-img-webp.webp")).toBe(media.id);
+});
+
 test("external link metadata uses native embeds including YouTube facades and sanitized URLs", () => {
   const source = {
     ...post,

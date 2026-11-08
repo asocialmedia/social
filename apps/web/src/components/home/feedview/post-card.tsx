@@ -4,7 +4,7 @@ import type { UserData } from "@asm/db";
 import { mediaReshareLabel } from "@asm/media";
 import { Button } from "@asm/ui/shadui/button";
 import { Eye, MessageSquare } from "lucide-react";
-import { motion } from "motion/react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type React from "react";
@@ -17,11 +17,11 @@ import {
 } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import Comments from "@/components/comments/thread/comments";
 import {
   CommunityAttribution,
   CommunityShareCard,
 } from "@/components/communities/card/community-attribution";
+import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
 import FollowButton from "@/components/layouts/user/follow-button";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
@@ -38,7 +38,6 @@ import PostLinkEmbeds from "@/components/posts/embeds/link-embeds";
 import { usePostLinkPreviews } from "@/components/posts/embeds/use-post-link-previews";
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { ExternalAuthorTooltip } from "@/components/protocols/external-author-tooltip";
-import { ExternalDiscussion } from "@/components/protocols/external-discussion";
 import {
   ExternalBookmarkButton,
   ExternalRespondButton,
@@ -72,6 +71,22 @@ import { HNStoryCard } from "./hn-story-card";
 // eslint-disable-next-line import/no-cycle -- post-card renders media-previews, whose viewer surfaces related posts via post-card
 import { MediaPreviews } from "./media-previews";
 import ShareButton from "./share-button";
+import { useContentOverflow } from "./use-content-overflow";
+
+const Comments = dynamic(
+  () => import("@/components/comments/thread/comments"),
+  {
+    loading: () => <CommentsSkeleton />,
+  }
+);
+const ExternalDiscussion = dynamic(
+  async () => {
+    const discussionModule =
+      await import("@/components/protocols/external-discussion");
+    return discussionModule.ExternalDiscussion;
+  },
+  { loading: () => <CommentsSkeleton /> }
+);
 
 export { isInteractiveTarget } from "@/lib/interactive-target";
 
@@ -384,7 +399,11 @@ const PostContent: React.FC<PostContentProps> = ({
   showCommunityReason = false,
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
-  const [isOverflowing, setIsOverflowing] = useState(false);
+  const isOverflowing = useContentOverflow(
+    contentRef,
+    isExpanded,
+    post.content
+  );
   const attachments = post.attachments ?? [];
   const contextCommunity = post.community;
   const [firstMedia] = attachments;
@@ -400,28 +419,6 @@ const PostContent: React.FC<PostContentProps> = ({
   // the tighter spacing it always had.
   const mediaAndEmbedsTopMargin =
     attachments.length > 0 && !post.content?.trim() ? "mt-3.5" : "mt-2.5";
-
-  useEffect(() => {
-    const element = contentRef.current;
-    if (!element) {
-      return;
-    }
-    const measure = () => {
-      // Keep Show less visible while expanded; measure actual clipping when collapsed.
-      if (!isExpanded) {
-        setIsOverflowing(element.scrollHeight > element.clientHeight + 1);
-      }
-    };
-    // Expansion and content changes require a fresh measurement even at the same width.
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    if (element.firstElementChild) {
-      observer.observe(element.firstElementChild);
-    }
-    return () => observer.disconnect();
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies
-  }, [isExpanded, post.content]);
 
   const authorUsername = post.user?.username || "unknown";
   const authorDisplayName = post.user?.displayName || authorUsername;
@@ -554,11 +551,12 @@ const PostContent: React.FC<PostContentProps> = ({
               <Link
                 className="relative z-10 shrink-0 self-start"
                 href={authorProfileHref}
+                prefetch={false}
               >
                 <UserAvatar
                   avatarUrl={authorAvatarUrl}
                   className="h-9 w-9 sm:h-10 sm:w-10"
-                  priority
+                  priority={detail}
                 />
               </Link>
             </PostAuthorTooltip>
@@ -1103,19 +1101,17 @@ const PostCard: React.FC<PostCardProps> = ({
 
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- full card is clickable for post navigation while maintaining semantic article structure
-    <motion.article
-      animate={{ opacity: 1 }}
+    <article
       className={cn(
+        "animate-in fade-in [animation-duration:300ms] [animation-timing-function:ease-out] motion-reduce:animate-none",
         post.hnStoryShare ? "hn-story-share" : "",
         detail ? "cursor-default" : "cursor-pointer"
       )}
       data-post-id={post.id}
       id={`post-${post.id}`}
-      initial={{ opacity: 0 }}
       onClick={handleCardClick}
       onKeyDown={handleCardKeyDown}
       tabIndex={detail ? -1 : 0}
-      transition={{ duration: 0.3, ease: "easeOut" }}
     >
       {post.external ? null : <ViewTracker postId={post.id} />}
       {isJoined ? (
@@ -1155,7 +1151,7 @@ const PostCard: React.FC<PostCardProps> = ({
           {body}
         </FeedPostSurface>
       )}
-    </motion.article>
+    </article>
   );
 };
 

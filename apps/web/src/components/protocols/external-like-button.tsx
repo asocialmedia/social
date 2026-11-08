@@ -150,6 +150,7 @@ export function ExternalLikeButton({
   const pending = useIsMutating({ mutationKey: key }) > 0;
   const liked = state.data?.liked ?? false;
   const count = state.data?.likes ?? post.upstreamCounts.likes ?? null;
+  const countText = count === null ? "—" : formatNumber(count);
   const checking =
     (Boolean(user) && connection.isLoading) || (canLike && state.isLoading);
   let label = connection.data?.connected
@@ -164,12 +165,11 @@ export function ExternalLikeButton({
         <TooltipTrigger asChild>
           <button
             data-bluesky-like
-            aria-label={label}
+            aria-label={`${label}, ${countText} likes`}
             aria-pressed={canLike ? liked : undefined}
             className={cn(
               "text-muted-foreground focus-visible:ring-ring inline-flex items-center justify-center gap-1 rounded-full px-1.5 py-1 text-xs font-semibold tabular-nums transition-colors outline-none focus-visible:ring-2 disabled:opacity-50",
               canLike && liked && "text-rose-500",
-              !canLike && "opacity-50",
               className
             )}
             disabled={
@@ -191,10 +191,11 @@ export function ExternalLikeButton({
               className={cn(
                 "size-4 sm:size-4.5",
                 liked && canLike && "fill-current",
+                !canLike && "opacity-50",
                 iconClassName
               )}
             />
-            <span>{count === null ? "—" : formatNumber(count)}</span>
+            <span>{countText}</span>
           </button>
         </TooltipTrigger>
         <TooltipContent

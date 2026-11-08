@@ -1,4 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, expectTypeOf, test } from "bun:test";
+
+import type { CollectionRowOf } from "@prisma/orm-postgres/orm-client";
 
 import {
   getCommentDataQuery,
@@ -6,6 +8,7 @@ import {
   getUserDataQuery,
   mapUserData,
 } from "./client";
+import type { PostQueryData } from "./client";
 import prisma from "./prisma";
 
 type UserQueryInput = Parameters<typeof mapUserData>[0];
@@ -19,6 +22,39 @@ describe("db client queries", () => {
   test("creates a post query with related data", () => {
     const query = getPostDataQuery(prisma.orm, "user123");
     expect(query).toBeDefined();
+  });
+
+  test("post query type normalization preserves includes and further refinements", () => {
+    const query = getPostDataQuery(prisma.orm, "viewer");
+    const refined = query
+      .where({ id: "post" })
+      .orderBy((post) => post.id.asc())
+      .limit(2);
+    expect(
+      refined.state.includes.map((include) => include.relationName)
+    ).toEqual([
+      "bookmarks",
+      "comments",
+      "mentions",
+      "postMedias",
+      "posts",
+      "postToTags",
+      "votes",
+      "community",
+      "communityPostShares",
+      "hnStoryShares",
+      "externalParent",
+      "user",
+      "parentPost",
+    ]);
+    expect(refined.state.limit).toBe(2);
+    expect(query.state.limit).toBeUndefined();
+    expectTypeOf<
+      CollectionRowOf<typeof refined>
+    >().toEqualTypeOf<PostQueryData>();
+    expectTypeOf<
+      Awaited<ReturnType<typeof refined.all>>[number]
+    >().toEqualTypeOf<PostQueryData>();
   });
 
   test("creates a comment query with user data", () => {

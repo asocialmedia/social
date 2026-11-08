@@ -12,6 +12,7 @@ import {
 } from "./profile-data";
 import {
   badgeRank,
+  bskyAvatarForSize,
   clampBioSegments,
   formatJoinedDate,
   formatNumber,
@@ -87,6 +88,7 @@ describe("getSocialLinks", () => {
   test("builds rows in web order, skipping blanks", () => {
     expect(
       getSocialLinks({
+        blueskyHandle: "@alice.bsky.social",
         customDomain: "https://example.com",
         githubUsername: "octo",
         linkedinUsername: null,
@@ -98,6 +100,11 @@ describe("getSocialLinks", () => {
         href: "https://example.com",
         kind: "website",
         label: "Website: example.com",
+      },
+      {
+        href: "https://bsky.app/profile/alice.bsky.social",
+        kind: "bluesky",
+        label: "Bluesky: @alice.bsky.social",
       },
       {
         href: "https://github.com/octo",
@@ -199,6 +206,13 @@ describe("safeSocialUrl", () => {
         label: "Website: example.com",
       })
     ).toBe("https://example.com");
+    expect(
+      safeSocialUrl({
+        href: "https://bsky.app/profile/alice.bsky.social",
+        kind: "bluesky",
+        label: "Bluesky: @alice.bsky.social",
+      })
+    ).toBe("https://bsky.app/profile/alice.bsky.social");
   });
 
   test("rejects schemes, host swaps and credential tricks", () => {
@@ -343,6 +357,7 @@ function stubProfile(username = "asocialmedia") {
     badges: [],
     bannerUrl: null,
     bio: null,
+    blueskyHandle: null,
     communityMemberships: [],
     createdAt: "2024-01-01T00:00:00.000Z",
     customDomain: null,
@@ -622,6 +637,48 @@ describe("clampBioSegments", () => {
       { type: "mention", username: "octo" },
     ]);
     expect(clamped).toBe(true);
+  });
+
+  test("keeps a boundary mention pill whole instead of slicing it", () => {
+    // Regression: the explore masonry clipped collapsed bodies with a fixed
+    // maxHeight, slicing the mention pill at the fold in half. Clamping at
+    // segment boundaries admits the pill whole and flags the overflow.
+    const segments = segmentBioContent("see this update @goldensquirrel107!");
+    const budget = "see this update ".length + "@goldensquirrel107".length;
+    const { clamped, visible } = clampBioSegments(segments, budget);
+    expect(visible).toEqual([
+      { text: "see this update ", type: "text" },
+      { type: "mention", username: "goldensquirrel107" },
+    ]);
+    expect(clamped).toBe(true);
+  });
+});
+
+describe("bskyAvatarForSize", () => {
+  const plain = "https://cdn.bsky.app/img/avatar/plain/did:plc:abc/bafkreiblob";
+  const thumbnail =
+    "https://cdn.bsky.app/img/avatar_thumbnail/plain/did:plc:abc/bafkreiblob";
+
+  test("serves the thumbnail derivative at avatar sizes like web", () => {
+    expect(bskyAvatarForSize(plain, 24)).toBe(thumbnail);
+    expect(bskyAvatarForSize(plain, 64)).toBe(thumbnail);
+  });
+
+  test("keeps the full blob for large displays", () => {
+    expect(bskyAvatarForSize(plain, 65)).toBe(plain);
+    expect(bskyAvatarForSize(plain, 128)).toBe(plain);
+  });
+
+  test("leaves non-Bluesky urls untouched", () => {
+    expect(bskyAvatarForSize(`${API}/api/users/avatar/u/image`, 24)).toBe(
+      `${API}/api/users/avatar/u/image`
+    );
+    expect(bskyAvatarForSize(`${API}/avatars/default-1.png`, 24)).toBe(
+      `${API}/avatars/default-1.png`
+    );
+    expect(bskyAvatarForSize("https://cdn.example/a.png", 24)).toBe(
+      "https://cdn.example/a.png"
+    );
   });
 });
 

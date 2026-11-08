@@ -44,7 +44,8 @@ interface FeedViewProps {
   externalPosts?: ExternalPost[];
   source?: FeedSource;
   sourcesPending?: boolean;
-  sourceWaitMs?: number;
+  // A null timeout delegates the deadline to the parent and its loading UI.
+  sourceWaitMs?: number | null;
   cacheKey?: QueryKey;
   // Extra ids to drop from the rendered feed, applied to both the server list
   // and every cache-synced update. Used when a leading segment already shows a
@@ -425,7 +426,10 @@ export const FeedView: React.FC<FeedViewProps> = ({
       {visibleGroups.map((entry) => {
         if (entry.kind === "bluesky") {
           return (
-            <div className="flex flex-col" key={entry.id}>
+            <div
+              className="flex flex-col [contain-intrinsic-block-size:auto_400px] [content-visibility:auto]"
+              key={entry.id}
+            >
               <BlueskyPostCard
                 exposureFeed={String(cacheKey[1])}
                 isJoined={true}
@@ -437,7 +441,10 @@ export const FeedView: React.FC<FeedViewProps> = ({
         }
         const group = entry.value;
         return (
-          <div className="flex flex-col" key={group.id}>
+          <div
+            className="flex flex-col [contain-intrinsic-block-size:auto_400px] [content-visibility:auto]"
+            key={group.id}
+          >
             {group.posts.map((post, index) => {
               const isFirst = index === 0;
               const isLast = index === group.posts.length - 1;

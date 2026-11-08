@@ -77,9 +77,11 @@ function EmbedSiteBadge({
 
 function YouTubeFacade({
   apiBase,
+  compact = false,
   embed,
 }: {
   apiBase: string;
+  compact?: boolean;
   embed: LinkEmbed;
 }) {
   const { isDark, theme } = useAppTheme();
@@ -106,29 +108,35 @@ function YouTubeFacade({
           {embed.videoAuthor ?? embed.siteName ?? "YouTube"}
         </Text>
       </View>
-      <View style={styles.ytThumbWrap}>
-        {thumbFailed ? null : (
-          <Image
-            accessibilityLabel=""
-            contentFit="cover"
-            onError={() => setThumbFailed(true)}
-            source={{ uri: embedImageUrl(apiBase, thumbnail) }}
-            style={styles.ytThumb}
-          />
-        )}
-        <View pointerEvents="none" style={styles.ytScrim} />
-        <View style={styles.ytPlay}>
-          <Play
-            color="#ffffff"
-            fill="#ffffff"
-            size={22}
-            style={styles.playNudge}
-          />
+      {compact ? null : (
+        <View style={styles.ytThumbWrap}>
+          {thumbFailed ? null : (
+            <Image
+              accessibilityLabel=""
+              contentFit="cover"
+              onError={() => setThumbFailed(true)}
+              source={{ uri: embedImageUrl(apiBase, thumbnail) }}
+              style={styles.ytThumb}
+            />
+          )}
+          <View pointerEvents="none" style={styles.ytScrim} />
+          <View style={styles.ytPlay}>
+            <Play
+              color="#ffffff"
+              fill="#ffffff"
+              size={22}
+              style={styles.playNudge}
+            />
+          </View>
         </View>
-      </View>
+      )}
       <Text
-        numberOfLines={2}
-        style={[styles.ytTitle, { color: theme.inputText }]}
+        numberOfLines={compact ? 1 : 2}
+        style={[
+          styles.ytTitle,
+          compact && styles.ytTitleCompact,
+          { color: theme.inputText },
+        ]}
       >
         {embed.title}
       </Text>
@@ -136,7 +144,15 @@ function YouTubeFacade({
   );
 }
 
-function OgCard({ apiBase, embed }: { apiBase: string; embed: LinkEmbed }) {
+function OgCard({
+  apiBase,
+  compact = false,
+  embed,
+}: {
+  apiBase: string;
+  compact?: boolean;
+  embed: LinkEmbed;
+}) {
   const { isDark, theme } = useAppTheme();
   const [thumbFailed, setThumbFailed] = useState(false);
   const showThumb = embed.imageUrl && !thumbFailed;
@@ -147,7 +163,7 @@ function OgCard({ apiBase, embed }: { apiBase: string; embed: LinkEmbed }) {
       onPress={() => openEmbedUrl(embed.url)}
       style={[styles.panel, panelStyle(isDark, theme.cardBg)]}
     >
-      <View style={styles.ogRow}>
+      <View style={[styles.ogRow, compact && styles.ogRowCompact]}>
         <View style={styles.ogBody}>
           <View style={styles.ogHead}>
             <EmbedSiteBadge siteName={embed.siteName} url={embed.url} />
@@ -159,19 +175,19 @@ function OgCard({ apiBase, embed }: { apiBase: string; embed: LinkEmbed }) {
             </Text>
           </View>
           <Text
-            numberOfLines={2}
+            numberOfLines={compact ? 1 : 2}
             style={[styles.ogTitle, { color: theme.inputText }]}
           >
             {embed.title}
           </Text>
-          {embed.description ? (
+          {compact || !embed.description ? null : (
             <Text
               numberOfLines={2}
               style={[styles.ogDesc, { color: theme.dividerText }]}
             >
               {embed.description}
             </Text>
-          ) : null}
+          )}
         </View>
         {showThumb ? (
           <Image
@@ -179,7 +195,7 @@ function OgCard({ apiBase, embed }: { apiBase: string; embed: LinkEmbed }) {
             contentFit="cover"
             onError={() => setThumbFailed(true)}
             source={{ uri: embedImageUrl(apiBase, embed.imageUrl ?? "") }}
-            style={styles.ogThumb}
+            style={compact ? styles.ogThumbCompact : styles.ogThumb}
           />
         ) : null}
       </View>
@@ -189,9 +205,11 @@ function OgCard({ apiBase, embed }: { apiBase: string; embed: LinkEmbed }) {
 
 export function PostLinkEmbeds({
   apiBase,
+  compact = false,
   embeds,
 }: {
   apiBase: string;
+  compact?: boolean;
   embeds: LinkEmbed[];
 }) {
   if (embeds.length === 0) {
@@ -203,9 +221,19 @@ export function PostLinkEmbeds({
         .slice(0, 5)
         .map((embed) =>
           embed.type === "youtube" && embed.videoId ? (
-            <YouTubeFacade apiBase={apiBase} embed={embed} key={embed.url} />
+            <YouTubeFacade
+              apiBase={apiBase}
+              compact={compact}
+              embed={embed}
+              key={embed.url}
+            />
           ) : (
-            <OgCard apiBase={apiBase} embed={embed} key={embed.url} />
+            <OgCard
+              apiBase={apiBase}
+              compact={compact}
+              embed={embed}
+              key={embed.url}
+            />
           )
         )}
     </View>
@@ -249,10 +277,19 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 12,
   },
+  ogRowCompact: {
+    alignItems: "center",
+    padding: 8,
+  },
   ogThumb: {
     borderRadius: 8,
     height: 80,
     width: 80,
+  },
+  ogThumbCompact: {
+    borderRadius: 8,
+    height: 56,
+    width: 56,
   },
   ogTitle: {
     fontFamily: "SofiaProMed",
@@ -329,5 +366,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     paddingHorizontal: 12,
     paddingVertical: 8,
+  },
+  ytTitleCompact: {
+    paddingTop: 0,
   },
 });

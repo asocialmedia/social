@@ -24,6 +24,30 @@ describe("isSitemapId", () => {
 });
 
 describe("buildSitemapXml", () => {
+  test("video sitemap identifies watch pages and escapes user content", () => {
+    const xml = buildSitemapXml([
+      {
+        url: "https://asocialmedia.cc/watch/post/media",
+        videos: [
+          {
+            contentUrl: "https://asocialmedia.cc/api/media/media",
+            description: "A <special> moment",
+            publicationDate: new Date("2026-11-07T10:00:00.000Z"),
+            thumbnailUrl: "https://asocialmedia.cc/api/media/media?thumb=1",
+            title: "Friends & family",
+          },
+        ],
+      },
+    ]);
+    expect(xml).toContain(
+      'xmlns:video="http://www.google.com/schemas/sitemap-video/1.1"'
+    );
+    expect(xml).toContain("<video:title>Friends &amp; family</video:title>");
+    expect(xml).toContain("A &lt;special&gt; moment");
+    expect(xml).toContain(
+      "<video:content_loc>https://asocialmedia.cc/api/media/media</video:content_loc>"
+    );
+  });
   test("emits urlset with loc and lastmod", () => {
     const xml = buildSitemapXml([
       {

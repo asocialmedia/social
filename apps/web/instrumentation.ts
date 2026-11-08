@@ -1,6 +1,5 @@
 import type { Instrumentation } from "next";
 
-import { getWebLogger } from "./src/lib/otel";
 import { requestErrorAttributes } from "./src/lib/request-error";
 
 export async function register() {
@@ -10,13 +9,16 @@ export async function register() {
     await registerNodeInstrumentation();
   }
 }
-export const onRequestError: Instrumentation.onRequestError = (
+export const onRequestError: Instrumentation.onRequestError = async (
   error,
   request,
   context
 ) => {
-  getWebLogger()?.error(
-    requestErrorAttributes(error, request, context),
-    "Next.js request failed"
-  );
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    const { getWebLogger } = await import("./src/lib/otel");
+    getWebLogger()?.error(
+      requestErrorAttributes(error, request, context),
+      "Next.js request failed"
+    );
+  }
 };

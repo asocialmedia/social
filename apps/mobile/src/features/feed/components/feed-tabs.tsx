@@ -44,6 +44,9 @@ interface FeedTabsProps<T extends string = HomeTab> {
   renderLabel?: (tab: FeedTabDef<T>, selected: boolean) => ReactNode;
   onPressActive?: boolean;
   tabs?: readonly FeedTabDef<T>[];
+  // Off when the parent row owns the hairline, so it spans the full width
+  // rather than only the tab column.
+  bordered?: boolean;
 }
 
 interface TriggerLayout {
@@ -89,6 +92,7 @@ export function FeedTabs<T extends string = HomeTab>({
   renderLabel,
   onPressActive = false,
   tabs = HOME_TAB_DEFS as unknown as readonly FeedTabDef<T>[],
+  bordered = true,
 }: FeedTabsProps<T>) {
   const { theme } = useAppTheme();
   const [layouts, setLayouts] = useState<Record<string, TriggerLayout>>({});
@@ -238,6 +242,7 @@ export function FeedTabs<T extends string = HomeTab>({
         {
           backgroundColor: theme.containerBg,
           borderBottomColor: theme.cardBorder,
+          borderBottomWidth: bordered ? 1 : 0,
         },
       ]}
     >

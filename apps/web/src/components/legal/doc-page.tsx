@@ -1,12 +1,9 @@
 "use client";
 
-import { ArrowLeft, ArrowUpRight } from "lucide-react";
-import Link from "next/link";
 import type React from "react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
-import ScrollUpButton from "@/components/layouts/navigation/scroll-up-button";
-import { cn } from "@/lib/utils";
+import { EditorialLegalPage } from "./editorial-legal-page";
 
 // Shared shell for the two legal documents (Privacy Policy, Terms of Service).
 //
@@ -72,52 +69,8 @@ function useActiveSection(sections: readonly DocSectionMeta[]): string {
   return activeId;
 }
 
-function useScrolled(threshold = 400): boolean {
-  const [scrolled, setScrolled] = useState(false);
-  useEffect(() => {
-    const update = () => setScrolled(window.scrollY > threshold);
-    update();
-    window.addEventListener("scroll", update, { passive: true });
-    return () => window.removeEventListener("scroll", update);
-  }, [threshold]);
-  return scrolled;
-}
-
 function ordinal(index: number): string {
   return String(index + 1).padStart(2, "0");
-}
-
-// One contents entry. The active state is carried by tone and weight - a
-// surface shift plus full-strength text - rather than a dot or a sliding
-// underline, so it reads as the current page of a document.
-function ContentsEntry({
-  active,
-  index,
-  section,
-}: {
-  active: boolean;
-  index: number;
-  section: DocSectionMeta;
-}) {
-  return (
-    <li>
-      <a
-        aria-current={active ? "true" : undefined}
-        className={cn(
-          "flex items-baseline gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors duration-150",
-          active
-            ? "bg-muted text-foreground font-semibold"
-            : "text-muted-foreground hover:text-foreground"
-        )}
-        href={`#${section.id}`}
-      >
-        <span className="text-[11px] font-semibold tabular-nums opacity-55">
-          {ordinal(index)}
-        </span>
-        <span className="min-w-0 text-pretty">{section.label}</span>
-      </a>
-    </li>
-  );
 }
 
 export function DocPage({
@@ -140,130 +93,46 @@ export function DocPage({
   version: string;
 }) {
   const activeId = useActiveSection(sections);
-  const scrolled = useScrolled();
   const sectionList = useMemo(() => sections, [sections]);
-
   return (
     <SectionIndexContext.Provider value={sectionList}>
-      <div className={embedded ? "w-full" : "min-h-screen w-full"}>
-        <div
-          className={
-            embedded
-              ? "mx-auto w-full px-5 py-6 sm:px-8"
-              : "mx-auto w-full max-w-6xl px-5 pt-6 pb-24 sm:px-8"
-          }
-        >
-          {/* Slim chrome: leave the document, or cross to the other one. Both
-              are plain links, so nothing here competes with the document. */}
-          {embedded ? null : (
-            <nav className="flex items-center justify-between gap-4">
-              <Link
-                className="text-muted-foreground hover:text-foreground group inline-flex items-center gap-2 text-sm font-medium transition-colors"
-                href="/"
-              >
-                <ArrowLeft className="size-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
-                Back to feed
-              </Link>
-              <Link
-                className="text-muted-foreground hover:text-foreground group inline-flex items-center gap-1.5 text-sm font-medium transition-colors"
-                href={crossLink.href}
-              >
-                {crossLink.label}
-                <ArrowUpRight className="size-4 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-              </Link>
-            </nav>
-          )}
-
-          <div
-            className={
-              embedded
-                ? ""
-                : "mt-10 lg:grid lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:gap-14 xl:gap-16"
-            }
-          >
-            {/* Contents. A sticky rail beside the document on wide screens, and
-                a native disclosure above it on narrow ones, where a rail would
-                eat the reading width. */}
-            {embedded ? null : (
-              <div className="mb-10 lg:mb-0">
-                <details className="panel-3d group rounded-2xl p-3 lg:hidden">
-                  <summary className="text-foreground cursor-pointer list-none px-1 py-1 text-sm font-semibold select-none">
-                    Contents
-                    <span className="text-muted-foreground ml-2 text-xs font-normal">
-                      {sections.length} sections
-                    </span>
-                  </summary>
-                  <ul className="mt-2 flex flex-col gap-0.5">
-                    {sections.map((section, index) => (
-                      <ContentsEntry
-                        active={section.id === activeId}
-                        index={index}
-                        key={section.id}
-                        section={section}
-                      />
-                    ))}
-                  </ul>
-                </details>
-
-                <nav
-                  aria-label={`${title} contents`}
-                  className="panel-3d sticky top-6 hidden rounded-2xl p-3 lg:block"
-                >
-                  <p className="text-muted-foreground px-2.5 pt-1 pb-2 text-xs font-semibold">
-                    Contents
-                  </p>
-                  <ul className="flex max-h-[min(34rem,70vh)] flex-col gap-0.5 overflow-y-auto">
-                    {sections.map((section, index) => (
-                      <ContentsEntry
-                        active={section.id === activeId}
-                        index={index}
-                        key={section.id}
-                        section={section}
-                      />
-                    ))}
-                  </ul>
-                </nav>
+      {embedded ? (
+        <article className="mx-auto w-full px-5 py-6 sm:px-8">
+          <header className="border-border/60 border-b pb-7">
+            <h1 className="text-foreground text-3xl leading-tight font-bold tracking-tight sm:text-4xl">
+              {title}
+            </h1>
+            <dl className="text-muted-foreground mt-4 flex flex-wrap gap-x-7 gap-y-2 text-xs">
+              <div>
+                <dt>Version</dt>
+                <dd>{version}</dd>
               </div>
-            )}
-
-            {/* The document. */}
-            <main className="min-w-0">
-              <header className="border-border/60 border-b pb-7">
-                <h1 className="text-foreground text-3xl leading-tight font-bold tracking-tight text-balance sm:text-4xl">
-                  {title}
-                </h1>
-                {/* Document metadata as a real description list, not chips. */}
-                <dl className="text-muted-foreground mt-4 flex flex-wrap gap-x-7 gap-y-2 text-xs">
-                  <div className="flex items-baseline gap-1.5">
-                    <dt className="opacity-70">Version</dt>
-                    <dd className="text-foreground font-semibold">{version}</dd>
-                  </div>
-                  <div className="flex items-baseline gap-1.5">
-                    <dt className="opacity-70">Effective</dt>
-                    <dd className="text-foreground font-semibold">
-                      {effectiveDate}
-                    </dd>
-                  </div>
-                  <div className="flex items-baseline gap-1.5">
-                    <dt className="opacity-70">Applies to</dt>
-                    <dd className="text-foreground font-semibold">
-                      asocialmedia.cc
-                    </dd>
-                  </div>
-                </dl>
-              </header>
-
-              {/* Plain-language commitments, set as a definition list. The
-                  document's own words carry this - no icon tiles, no badges. */}
-              <section className="mt-8">{summary}</section>
-
-              <div className="mt-12 space-y-14">{children}</div>
-            </main>
-          </div>
-        </div>
-
-        {embedded ? null : <ScrollUpButton isVisible={scrolled} />}
-      </div>
+              <div>
+                <dt>Effective</dt>
+                <dd>{effectiveDate}</dd>
+              </div>
+              <div>
+                <dt>Applies to</dt>
+                <dd>asocialmedia.cc</dd>
+              </div>
+            </dl>
+          </header>
+          <section className="mt-8">{summary}</section>
+          <div className="mt-12 space-y-14">{children}</div>
+        </article>
+      ) : (
+        <EditorialLegalPage
+          activeId={activeId}
+          crossLink={crossLink}
+          effectiveDate={effectiveDate}
+          sections={sections}
+          summary={summary}
+          title={title}
+          version={version}
+        >
+          {children}
+        </EditorialLegalPage>
+      )}
     </SectionIndexContext.Provider>
   );
 }
@@ -289,7 +158,7 @@ export function DocSection({
     <section className="scroll-mt-8" id={id}>
       <header className="mb-3.5 flex items-baseline gap-3.5">
         {isNumbered ? (
-          <span className="text-primary/45 text-xl font-bold tabular-nums sm:text-2xl">
+          <span className="text-primary/80 text-xl font-bold tabular-nums sm:text-2xl">
             {ordinal(index)}
           </span>
         ) : null}

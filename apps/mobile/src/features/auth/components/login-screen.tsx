@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   AlertCircle,
   ArrowLeft,
+  Check,
   Eye,
   EyeOff,
   Fingerprint,
@@ -12,7 +13,7 @@ import {
   ShieldCheck,
   XCircle,
 } from "lucide-react-native";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -44,6 +45,14 @@ import {
   describeAuthError,
   describeOAuthRedirectError,
 } from "@/features/auth/lib/auth-errors";
+import type { TwoFactorMethod } from "@/features/auth/lib/two-factor";
+import {
+  TWO_FACTOR_METHODS,
+  isTwoFactorCodeReady,
+  normalizeTwoFactorCode,
+  twoFactorMethodCopy,
+  twoFactorMethodLabel,
+} from "@/features/auth/lib/two-factor";
 import { useSessionContext } from "@/features/auth/state/session";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import {
@@ -73,6 +82,13 @@ function getInputShadow(hasError: boolean, isFocused: boolean): string {
   return isFocused ? INPUT_FOCUS_SHADOWS : INPUT_SHADOWS;
 }
 
+// Method chip glyphs, so the challenge body stays branch-free.
+const TWO_FACTOR_METHOD_ICONS = {
+  backup: ShieldCheck,
+  email: Mail,
+  totp: KeyRound,
+} as const;
+
 export default function LoginScreen() {
   const { isDark, theme } = useAppTheme();
   const router = useRouter();
@@ -82,6 +98,7 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isFocusedUser, setIsFocusedUser] = useState(false);
   const [isFocusedPass, setIsFocusedPass] = useState(false);
+  const [isFocusedBackup, setIsFocusedBackup] = useState(false);
   const { isSigningOut, signIn, signInPasskey, signInSocial } =
     useSessionContext();
   // A failed provider callback deep-links back here as /login?error=<code>
@@ -105,12 +122,18 @@ export default function LoginScreen() {
   >(null);
   // Inline 2FA challenge (mirrors web InlineTwoFactorForm copy).
   const [twoFactorRequired, setTwoFactorRequired] = useState(false);
-  const [twoFactorMethod, setTwoFactorMethod] = useState<"email" | "totp">(
-    "totp"
-  );
+  const [twoFactorMethod, setTwoFactorMethod] =
+    useState<TwoFactorMethod>("totp");
   const [code, setCode] = useState("");
   const [emailSent, setEmailSent] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  // Web's "Trust this device for 30 days" checkbox, passed to every verify
+  // call so a checked box actually sticks.
+  const [trustDevice, setTrustDevice] = useState(false);
+  // Synchronous twin of isVerifying: state commits on the next render, so a
+  // second tap in the same frame would slip past the state guard and fire a
+  // duplicate send/verify. The ref closes that window for both entry points.
+  const verifyingRef = useRef(false);
 
   const shakeTranslateX = useSharedValue(0);
 
@@ -185,10 +208,14 @@ export default function LoginScreen() {
   }, [router, signIn, password, triggerShake, username]);
 
   const handleSendEmailCode = useCallback(async () => {
+    if (verifyingRef.current) {
+      return;
+    }
+    verifyingRef.current = true;
     setIsVerifying(true);
     setError(null);
     try {
-      const result = await authClient.twoFactor.sendOtp({ trustDevice: false });
+      const result = await authClient.twoFactor.sendOtp({ trustDevice });
       if (result.error) {
         setError(
           describeAuthError(
@@ -206,28 +233,40 @@ export default function LoginScreen() {
     } catch {
       setError("We couldn't send a security code. Try again.");
     }
+    verifyingRef.current = false;
     setIsVerifying(false);
-  }, []);
+  }, [trustDevice]);
 
   const handleVerifyCode = useCallback(
     async (value?: string) => {
-      const normalized = (value ?? code).trim();
-      if (!normalized || isVerifying) {
+      if (verifyingRef.current || isVerifying) {
         return;
       }
+      const normalized = normalizeTwoFactorCode(value ?? code);
+      if (!normalized) {
+        return;
+      }
+      verifyingRef.current = true;
       setIsVerifying(true);
       setError(null);
       try {
-        const result =
-          twoFactorMethod === "email"
-            ? await authClient.twoFactor.verifyOtp({
-                code: normalized,
-                trustDevice: false,
-              })
-            : await authClient.twoFactor.verifyTotp({
-                code: normalized,
-                trustDevice: false,
-              });
+        let result;
+        if (twoFactorMethod === "email") {
+          result = await authClient.twoFactor.verifyOtp({
+            code: normalized,
+            trustDevice,
+          });
+        } else if (twoFactorMethod === "totp") {
+          result = await authClient.twoFactor.verifyTotp({
+            code: normalized,
+            trustDevice,
+          });
+        } else {
+          result = await authClient.twoFactor.verifyBackupCode({
+            code: normalized,
+            trustDevice,
+          });
+        }
         if (result.error) {
           const described = describeAuthError(
             result.error,
@@ -252,19 +291,20 @@ export default function LoginScreen() {
           variant: "destructive",
         });
       }
+      verifyingRef.current = false;
       setIsVerifying(false);
     },
-    [code, isVerifying, router, triggerShake, twoFactorMethod]
+    [code, isVerifying, router, triggerShake, trustDevice, twoFactorMethod]
   );
 
   const handleOtpChange = useCallback(
     (value: string) => {
       setCode(value);
-      if (/^\d{6}$/.test(value)) {
+      if (isTwoFactorCodeReady(twoFactorMethod, value)) {
         void handleVerifyCode(value);
       }
     },
-    [handleVerifyCode]
+    [handleVerifyCode, twoFactorMethod]
   );
 
   const handleSocialClick = useCallback(
@@ -559,102 +599,62 @@ export default function LoginScreen() {
                     </View>
 
                     <View className="flex-row gap-2">
-                      <Pressable
-                        hitSlop={4}
-                        onPress={() => {
-                          setTwoFactorMethod("totp");
-                          setCode("");
-                          setError(null);
-                          // Switching method invalidates "a code was already
-                          // emailed"; otherwise returning to Email hides the
-                          // send button and looks like a code is in flight.
-                          setEmailSent(false);
-                        }}
-                        style={[
-                          styles.methodChip,
-                          {
-                            backgroundColor:
-                              twoFactorMethod === "totp"
-                                ? "#ff9500"
-                                : theme.socialBtnBg,
-                            boxShadow: SOCIAL_SHADOWS,
-                          },
-                        ]}
-                      >
-                        <KeyRound
-                          color={
-                            twoFactorMethod === "totp"
-                              ? "#ffffff"
-                              : theme.socialBtnText
-                          }
-                          size={14}
-                        />
-                        <Text
-                          className="text-xs"
-                          style={[
-                            styles.fontMedium,
-                            {
-                              color:
-                                twoFactorMethod === "totp"
-                                  ? "#ffffff"
-                                  : theme.socialBtnText,
-                            },
-                          ]}
-                        >
-                          Authenticator
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        hitSlop={4}
-                        onPress={() => {
-                          setTwoFactorMethod("email");
-                          setCode("");
-                          setError(null);
-                          setEmailSent(false);
-                        }}
-                        style={[
-                          styles.methodChip,
-                          {
-                            backgroundColor:
-                              twoFactorMethod === "email"
-                                ? "#ff9500"
-                                : theme.socialBtnBg,
-                            boxShadow: SOCIAL_SHADOWS,
-                          },
-                        ]}
-                      >
-                        <Mail
-                          color={
-                            twoFactorMethod === "email"
-                              ? "#ffffff"
-                              : theme.socialBtnText
-                          }
-                          size={14}
-                        />
-                        <Text
-                          className="text-xs"
-                          style={[
-                            styles.fontMedium,
-                            {
-                              color:
-                                twoFactorMethod === "email"
-                                  ? "#ffffff"
-                                  : theme.socialBtnText,
-                            },
-                          ]}
-                        >
-                          Email code
-                        </Text>
-                      </Pressable>
+                      {TWO_FACTOR_METHODS.map((method) => {
+                        const selected = twoFactorMethod === method;
+                        const MethodIcon = TWO_FACTOR_METHOD_ICONS[method];
+                        return (
+                          <Pressable
+                            accessibilityLabel={`Verify with ${twoFactorMethodLabel[method]}`}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected }}
+                            hitSlop={4}
+                            key={method}
+                            onPress={() => {
+                              setTwoFactorMethod(method);
+                              setCode("");
+                              setError(null);
+                              // Switching method invalidates "a code was already
+                              // emailed"; otherwise returning to Email hides the
+                              // send button and looks like a code is in flight.
+                              setEmailSent(false);
+                            }}
+                            style={[
+                              styles.methodChip,
+                              {
+                                backgroundColor: selected
+                                  ? "#ff9500"
+                                  : theme.socialBtnBg,
+                                boxShadow: SOCIAL_SHADOWS,
+                              },
+                            ]}
+                          >
+                            <MethodIcon
+                              color={selected ? "#ffffff" : theme.socialBtnText}
+                              size={14}
+                            />
+                            <Text
+                              className="text-xs"
+                              style={[
+                                styles.fontMedium,
+                                {
+                                  color: selected
+                                    ? "#ffffff"
+                                    : theme.socialBtnText,
+                                },
+                              ]}
+                            >
+                              {twoFactorMethodLabel[method]}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
                     </View>
 
                     <Text
                       className="text-sm"
                       style={[styles.fontRegular, { color: theme.dividerText }]}
                     >
-                      {twoFactorMethod === "email"
-                        ? "We'll send a six-digit code to your verified email address."
-                        : "Enter the six-digit code from your authenticator app."}
+                      {twoFactorMethodCopy[twoFactorMethod]}
                     </Text>
 
                     {twoFactorMethod === "email" && !emailSent ? (
@@ -669,15 +669,94 @@ export default function LoginScreen() {
                       />
                     ) : null}
 
-                    <OtpInput
-                      disabled={
-                        isVerifying ||
-                        (twoFactorMethod === "email" && !emailSent)
-                      }
-                      hasError={error !== null}
-                      onChange={handleOtpChange}
-                      value={code}
-                    />
+                    {twoFactorMethod === "backup" ? (
+                      <View
+                        className="h-12 flex-row items-center rounded-xl px-3.5"
+                        style={[
+                          styles.inputField3d,
+                          {
+                            backgroundColor: error
+                              ? "rgba(255, 123, 99, 0.1)"
+                              : theme.inputBg,
+                            boxShadow: getInputShadow(
+                              error !== null,
+                              isFocusedBackup
+                            ),
+                          },
+                        ]}
+                      >
+                        <TextInput
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          className="flex-1 p-0 text-sm"
+                          editable={!isVerifying}
+                          onBlur={() => setIsFocusedBackup(false)}
+                          onChangeText={(text) => {
+                            setCode(text);
+                            if (error) {
+                              setError(null);
+                            }
+                          }}
+                          onFocus={() => setIsFocusedBackup(true)}
+                          onSubmitEditing={() => {
+                            void handleVerifyCode();
+                          }}
+                          placeholder="Recovery code"
+                          placeholderTextColor={theme.inputPlaceholder}
+                          returnKeyType="go"
+                          style={[
+                            styles.fontRegular,
+                            { color: theme.inputText },
+                          ]}
+                          value={code}
+                        />
+                      </View>
+                    ) : (
+                      <OtpInput
+                        disabled={
+                          isVerifying ||
+                          (twoFactorMethod === "email" && !emailSent)
+                        }
+                        hasError={error !== null}
+                        onChange={handleOtpChange}
+                        value={code}
+                      />
+                    )}
+
+                    <Pressable
+                      accessibilityLabel="Trust this device for 30 days"
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: trustDevice }}
+                      hitSlop={6}
+                      onPress={() => setTrustDevice((current) => !current)}
+                      style={styles.trustRow}
+                    >
+                      <View
+                        style={[
+                          styles.trustBox,
+                          {
+                            borderColor: trustDevice
+                              ? "#ff9500"
+                              : theme.inputPlaceholder,
+                            boxShadow: SOCIAL_SHADOWS,
+                          },
+                          trustDevice ? styles.trustBoxChecked : null,
+                        ]}
+                      >
+                        {trustDevice ? (
+                          <Check color="#ffffff" size={12} />
+                        ) : null}
+                      </View>
+                      <Text
+                        className="text-sm"
+                        style={[
+                          styles.fontRegular,
+                          { color: theme.dividerText },
+                        ]}
+                      >
+                        Trust this device for 30 days
+                      </Text>
+                    </Pressable>
 
                     <AuthPrimaryButton
                       label={
@@ -1017,5 +1096,23 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: "center",
     width: "100%",
+  },
+  trustBox: {
+    alignItems: "center",
+    backgroundColor: "transparent",
+    borderRadius: 6,
+    borderWidth: 1.5,
+    height: 20,
+    justifyContent: "center",
+    width: 20,
+  },
+  trustBoxChecked: {
+    backgroundColor: "#ff9500",
+    borderColor: "#ff9500",
+  },
+  trustRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
   },
 });

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import type { ExternalPost } from "@asm/protocols/contracts";
 
-import { externalPostView } from "./external-post-view";
+import { externalPostView, getExternalPostView } from "./external-post-view";
 import {
   mediaGridImageUrl,
   mediaImageUrl,
@@ -126,4 +126,25 @@ test("the shared gallery receives original remote images and HLS videos with the
   expect(
     video && mediaPosterUrl("https://asm.example", video.id, video.thumbnailKey)
   ).toBe("https://video.bsky.app/thumbnail.jpg");
+});
+
+test("a Bluesky ai-generated label marks media with its declaration source", () => {
+  const media = [
+    { type: "image" as const, url: "https://cdn.example/a.jpg" },
+  ] as ExternalPost["media"];
+  const labelled = externalPostView({
+    ...post,
+    labels: ["ai-generated"],
+    media,
+  });
+  expect(labelled.attachments?.[0]?.aiGenerated).toBe(true);
+  expect(labelled.attachments?.[0]?.aiGeneratedSource).toBe("bluesky-label");
+  const plain = externalPostView({ ...post, media });
+  expect(plain.attachments?.[0]?.aiGenerated).toBeUndefined();
+});
+
+test("getExternalPostView reuses the view per post identity", () => {
+  const first = getExternalPostView(post);
+  expect(getExternalPostView(post)).toBe(first);
+  expect(getExternalPostView({ ...post })).not.toBe(first);
 });

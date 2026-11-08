@@ -51,7 +51,7 @@ export function JoinedCommunitiesRail() {
               slug={community.slug}
             />
             <span className="min-w-0 flex-1 truncate">
-              <span className="opacity-60">a/</span>
+              <span className="opacity-80">a/</span>
               {community.slug}
             </span>
           </Link>

@@ -108,7 +108,7 @@ function createFeed() {
       options: {
         external?: ExternalPost[];
         sourcesPending?: boolean;
-        sourceWaitMs?: number;
+        sourceWaitMs?: number | null;
         source?: "all" | "asm";
       } = {}
     ) =>
@@ -360,4 +360,26 @@ test("a custom source deadline releases posts even if a request never settles", 
     await Bun.sleep(60);
   });
   expect(feed.ids()).toEqual(["deadline-1", "deadline-2"]);
+});
+
+test("a parent-managed stage releases only when its companion loading UI is ready", async () => {
+  const feed = createFeed();
+  const native = [post("managed-first"), post("managed-next")];
+  const key = ["post-feed", "parent-managed-stage"];
+  await feed.render(native, key, false, {
+    source: "all",
+    sourceWaitMs: null,
+    sourcesPending: true,
+  });
+  expect(feed.ids()).toEqual(["managed-first"]);
+  await act(async () => {
+    await Bun.sleep(680);
+  });
+  expect(feed.ids()).toEqual(["managed-first"]);
+  await feed.render(native, key, false, {
+    source: "all",
+    sourceWaitMs: null,
+    sourcesPending: false,
+  });
+  expect(feed.ids()).toEqual(["managed-first", "managed-next"]);
 });

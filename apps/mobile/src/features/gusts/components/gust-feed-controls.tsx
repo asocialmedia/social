@@ -1,6 +1,7 @@
 import type { GustFollowingAvatar } from "@asm/ui/lib/gust-header";
 import { gustFeedIndicator } from "@asm/ui/lib/gust-header";
 import { discoveryFeedPress } from "@asm/ui/lib/home-feed-controls";
+import { LinearGradient } from "expo-linear-gradient";
 import type { LucideProps } from "lucide-react-native";
 import { ChevronDown, Clock3, Sparkles } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
@@ -46,7 +47,14 @@ function GustFeedIndicator({ x, width }: { x: number; width: number }) {
       pointerEvents="none"
       style={[styles.underline, animatedStyle]}
       testID="gust-feed-indicator"
-    />
+    >
+      <LinearGradient
+        colors={["#ff9500", "#e65500"]}
+        end={{ x: 0.5, y: 1 }}
+        start={{ x: 0.5, y: 0 }}
+        style={StyleSheet.absoluteFill}
+      />
+    </Animated.View>
   );
 }
 
@@ -138,8 +146,8 @@ export function GustFeedControls({
           {label}
         </Text>
         <ChevronDown
-          color={active === "following" ? "#bbbbbb" : "#ffffff"}
-          size={15}
+          color={active === "following" ? IDLE_COLOR : "#ffffff"}
+          size={14}
         />
       </Pressable>
       <MoreMenu<{ type: "latest" | "personalized" }>
@@ -207,7 +215,7 @@ export function GustFeedControls({
                 ]}
               >
                 <UserAvatar
-                  radius={7}
+                  radius={8}
                   seed={person.id}
                   size={24}
                   url={person.avatarUrl}
@@ -224,18 +232,23 @@ export function GustFeedControls({
   );
 }
 
+// Web's `text-white/70`: idle labels dim, keeping the same semibold weight.
+const IDLE_COLOR = "rgba(255, 255, 255, 0.7)";
+
 const styles = StyleSheet.create({
+  // `rounded-lg ring-1 ring-black/70` around each 24px avatar.
   avatar: {
-    borderRadius: 7,
+    borderRadius: 8,
+    boxShadow: "0 0 0 1px rgba(0, 0, 0, 0.7)",
     height: 24,
     width: 24,
   },
   control: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 5,
+    gap: 6,
     minHeight: 44,
-    paddingHorizontal: 9,
+    paddingHorizontal: 8,
     position: "relative",
   },
   followingLabel: {
@@ -243,8 +256,8 @@ const styles = StyleSheet.create({
     minHeight: 44,
     position: "relative",
   },
-  idle: { color: "#bbbbbb", fontFamily: "SofiaProMed" },
-  row: { alignItems: "center", flexDirection: "row", gap: 3 },
+  idle: { color: IDLE_COLOR },
+  row: { alignItems: "center", flexDirection: "row", gap: 4 },
   stack: { flexDirection: "row", marginLeft: 2 },
   text: {
     color: "#ffffff",
@@ -254,12 +267,13 @@ const styles = StyleSheet.create({
     textShadowOffset: { height: 1, width: 0 },
     textShadowRadius: 4,
   },
+  // `h-0.5 rounded-full bottom-0.5` with the orange gradient fill.
   underline: {
-    backgroundColor: "#ff9500",
-    borderRadius: 2,
+    borderRadius: 9999,
     bottom: 2,
-    height: 3,
+    height: 2,
     left: 0,
+    overflow: "hidden",
     position: "absolute",
     width: 24,
   },

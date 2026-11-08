@@ -18,6 +18,8 @@ import { ZephLoader } from "@/components/feedback/zeph-loader";
 import type { SearchPage } from "@/features/messages/lib/message-search";
 import { MIN_SEARCH_QUERY_LENGTH } from "@/features/messages/lib/message-search";
 import {
+  isMessageSearchQueryTooLong,
+  MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE,
   searchChatStatus,
   searchListStatus,
   searchCoverageLabel,
@@ -67,24 +69,29 @@ export function MessageSearchBar({
   page: SearchPage;
 }) {
   const { isDark, theme } = useAppTheme();
+  // An overlong query never runs: the bar says the contract instead of a
+  // count, and the list body says it instead of results. Same predicate and
+  // message as the empty state, so the two cannot disagree.
+  const queryTooLong = isMessageSearchQueryTooLong(query);
   const statusInput = {
     fullyCovered,
     indexingOlder,
-    queryReady: query.trim().length >= MIN_SEARCH_QUERY_LENGTH,
+    queryReady: query.trim().length >= MIN_SEARCH_QUERY_LENGTH && !queryTooLong,
   };
-  const status =
-    statusLabel ||
-    error ||
-    (listView
-      ? searchListStatus({
-          ...statusInput,
-          listPageStale: false,
-          rangeEnd: page.rangeEnd,
-          rangeStart: page.rangeStart,
-          resultCount: page.pageResults.length,
-          totalResults: matchCount,
-        })
-      : searchChatStatus({ ...statusInput, activePosition, matchCount }));
+  const status = queryTooLong
+    ? MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE
+    : statusLabel ||
+      error ||
+      (listView
+        ? searchListStatus({
+            ...statusInput,
+            listPageStale: false,
+            rangeEnd: page.rangeEnd,
+            rangeStart: page.rangeStart,
+            resultCount: page.pageResults.length,
+            totalResults: matchCount,
+          })
+        : searchChatStatus({ ...statusInput, activePosition, matchCount }));
   const coverage = searchCoverageLabel({
     indexFailed: Boolean(error),
     indexedCount,
@@ -100,7 +107,6 @@ export function MessageSearchBar({
       <Search color={theme.dividerText} size={16} />
       <TextInput
         accessibilityLabel="Search messages in this conversation"
-        maxLength={200}
         autoFocus
         className="min-w-0 flex-1 bg-transparent"
         style={{

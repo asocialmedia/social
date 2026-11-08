@@ -1,3 +1,4 @@
+import { authDeepLinkPath } from "@/features/auth/lib/auth-deep-link";
 import { nativeNetworkPath } from "@/features/network/lib/network-paths";
 
 export function redirectSystemPath({
@@ -7,7 +8,9 @@ export function redirectSystemPath({
   initial: boolean;
 }) {
   try {
-    return nativeNetworkPath(path) ?? "/notifications";
+    return (
+      authDeepLinkPath(path) ?? nativeNetworkPath(path) ?? "/notifications"
+    );
   } catch {
     return "/notifications";
   }

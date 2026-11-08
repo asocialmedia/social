@@ -208,15 +208,12 @@ export function useFeedTab({
           const unseen = isRankedFeed(variant)
             ? findUnseenRankedItems(fresh, currentKnown)
             : findUnseenItems(fresh, currentKnown);
+          // Held, not merged: prepending here would shift the visible rows
+          // (Android has no maintainVisibleContentPosition), jumping the
+          // content under the reader's finger. The pill offers them and
+          // showNewPosts merges on reveal, like web's head probe.
           if (!cancelled && unseen.length > 0) {
-            const next = prependPosts(current.pages, unseen);
-            if (next.added) {
-              feedCache.patch(key, { pages: next.pages });
-              setIncomingIds(
-                (ids) => new Set([...ids, ...unseen.map((post) => post.id)])
-              );
-              setNewItems((pending) => flattenUniquePosts([unseen, pending]));
-            }
+            setNewItems((pending) => flattenUniquePosts([unseen, pending]));
           }
         } catch {
           // Probe failures are silent by design (web swallows them too).
@@ -409,7 +406,21 @@ export function useFeedTab({
     setNewItems([]);
   }, []);
 
-  const showNewPosts = clearNewItems;
+  // Merges the held head into page one (deduped, cursors untouched) and marks
+  // the revealed ids so the thread grouping keeps them together at the top.
+  // Idempotent: a second call finds nothing held and only clears.
+  const showNewPosts = useCallback(() => {
+    if (newItems.length > 0) {
+      const current = feedCache.get(cacheKey);
+      const next = prependPosts(current.pages, newItems);
+      if (next.added) {
+        feedCache.patch(cacheKey, { pages: next.pages });
+        const revealed = new Set(newItems.map((post) => post.id));
+        setIncomingIds((ids) => new Set([...ids, ...revealed]));
+      }
+    }
+    setNewItems([]);
+  }, [cacheKey, newItems]);
 
   const dismissPost = useCallback(
     (postId: string) => {

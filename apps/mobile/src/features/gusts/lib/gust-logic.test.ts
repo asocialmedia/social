@@ -152,14 +152,16 @@ describe("reel gestures", () => {
   });
 
   test("prefetches near the end, never twice at once", () => {
-    const base = { hasNextPage: true, isFetching: false, total: 10 };
-    expect(shouldFetchMore({ ...base, activeIndex: 3 })).toBe(false);
-    expect(shouldFetchMore({ ...base, activeIndex: 7 })).toBe(true);
-    expect(shouldFetchMore({ ...base, activeIndex: 7, isFetching: true })).toBe(
-      false
-    );
+    const base = { hasNextPage: true, isFetching: false, total: 40 };
+    // Web's useGustPagination fires once 24 or fewer gusts remain.
+    expect(shouldFetchMore({ ...base, activeIndex: 15 })).toBe(false);
+    expect(shouldFetchMore({ ...base, activeIndex: 16 })).toBe(true);
+    expect(shouldFetchMore({ ...base, activeIndex: 0, total: 10 })).toBe(true);
     expect(
-      shouldFetchMore({ ...base, activeIndex: 9, hasNextPage: false })
+      shouldFetchMore({ ...base, activeIndex: 20, isFetching: true })
+    ).toBe(false);
+    expect(
+      shouldFetchMore({ ...base, activeIndex: 39, hasNextPage: false })
     ).toBe(false);
   });
 

@@ -46,7 +46,7 @@ import {
 import { GustsCommentsDrawer } from "@/components/gusts/gusts-comments-drawer";
 import { MobileGustEddies } from "@/components/gusts/mobile-gust-eddies";
 import { useGustPagination } from "@/components/gusts/use-gust-pagination";
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import { FeedSourceMenu } from "@/components/protocols/feed-source-menu";
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
 import { useExternalPost } from "@/components/protocols/use-external-post";
@@ -1289,7 +1289,7 @@ const GustStream = ({
 
             {isFetchingNextPage ? (
               <div className="flex h-24 items-center justify-center">
-                <ZephLoader variant="media" className="text-primary size-6" />
+                <Spinner3D className="size-6" />
               </div>
             ) : null}
             {hasNextPage || isFetchingNextPage ? null : (
@@ -1372,13 +1372,7 @@ const GustStream = ({
           className="absolute top-20 right-0 left-0 z-20 flex items-start justify-center overflow-hidden"
         >
           <div className="rail-3d-btn mt-1 flex h-10 w-10 items-center justify-center rounded-full">
-            <ZephLoader
-              variant="media"
-              className="text-primary size-5"
-              style={{
-                transform: `scale(${Math.min(1, 0.8 + pullDistance / 300)})`,
-              }}
-            />
+            <Spinner3D className="size-5" />
           </div>
         </motion.div>
 

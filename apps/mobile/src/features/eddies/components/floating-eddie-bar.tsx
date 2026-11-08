@@ -10,8 +10,14 @@
 //   (purple while the picker is open), the length counter, "Send", the GIF
 //   picker
 // It sits flush with the post viewport and rises above the keyboard.
-import { useLocalSearchParams } from "expo-router";
-import { Clapperboard, ImageIcon, SendHorizonal, X } from "lucide-react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import {
+  Clapperboard,
+  ImageIcon,
+  MessageSquare,
+  SendHorizonal,
+  X,
+} from "lucide-react-native";
 import { useEffect, useState, useRef } from "react";
 import {
   Dimensions,
@@ -42,6 +48,7 @@ import {
 } from "@/components/surface/recipes";
 import { useSessionContext } from "@/features/auth/state/session";
 import type { InlineRichInputRef } from "@/features/composer/components/inline-rich-input";
+import { formatNumber } from "@/lib/format/format-number";
 import {
   keyboardOverlap,
   keyboardScreenTop,
@@ -152,17 +159,26 @@ function SendPill({
 }
 
 export function FloatingEddieBar({
+  commentCount,
   onHeightChange,
+  onOpenComments,
   postId,
   viewportBottom,
 }: {
+  // Live eddie count for the shortcut pill, like web's comment-count button.
+  // The owner reads it with withCountDelta so streamed eddies move it at once.
+  commentCount?: number;
   onHeightChange?: (height: number) => void;
+  // Scrolls the thread into view (post detail passes the measured thread
+  // offset), mirroring web's onOpenComments.
+  onOpenComments?: () => void;
   postId: string;
   viewportBottom: number;
 }) {
   const { isDark } = useAppTheme();
   const text = themeText(isDark);
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { user } = useSessionContext();
   const viewerAvatar = useViewerAvatarUrl();
   const replyingTo = useEddieComposerStore((state) =>
@@ -218,7 +234,47 @@ export function FloatingEddieBar({
   }, []);
 
   if (!user) {
-    return null;
+    // Guests get the login pill, like web's FloatingPostEditor fallback and
+    // the gust floating bar. The detail screen's GuestAuthBar still owns the
+    // full-width banner; this pill keeps the composer slot actionable.
+    return (
+      <View
+        onLayout={(event) => {
+          onHeightChange?.(event.nativeEvent.layout.height);
+        }}
+        style={[
+          styles.anchor,
+          { paddingBottom: keyboardOverlap(viewportBottom, keyboardTop) },
+        ]}
+      >
+        <View
+          style={[
+            styles.bar,
+            {
+              backgroundColor: isDark
+                ? "rgba(31, 31, 31, 0.95)"
+                : "rgba(249, 249, 249, 0.95)",
+              borderTopColor: isDark
+                ? "rgba(255, 255, 255, 0.1)"
+                : "rgba(0, 0, 0, 0.08)",
+              paddingBottom: 8 + insets.bottom,
+            },
+          ]}
+        >
+          <View style={styles.inner}>
+            <Pressable
+              accessibilityLabel="Log in to add an Eddie"
+              accessibilityRole="button"
+              onPress={() => router.push("/(auth)/login")}
+              style={styles.guestPill}
+            >
+              <MessageSquare color="#ffffff" size={16} />
+              <Text style={styles.guestText}>Log in to add an Eddie</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    );
   }
 
   const expanded =
@@ -330,14 +386,30 @@ export function FloatingEddieBar({
               value={sender.text}
             />
             {expanded ? null : (
-              <SendPill
-                disabled={!sender.canSubmit}
-                height={36}
-                onPress={() => {
-                  void submit();
-                }}
-                sending={sender.sending}
-              />
+              <>
+                {commentCount !== undefined && onOpenComments ? (
+                  <Pressable
+                    accessibilityLabel={`View comments (${formatNumber(commentCount)})`}
+                    accessibilityRole="button"
+                    hitSlop={6}
+                    onPress={onOpenComments}
+                    style={styles.countPill}
+                  >
+                    <MessageSquare color={text.muted} size={14} />
+                    <Text style={[styles.countText, { color: text.muted }]}>
+                      {formatNumber(commentCount)}
+                    </Text>
+                  </Pressable>
+                ) : null}
+                <SendPill
+                  disabled={!sender.canSubmit}
+                  height={36}
+                  onPress={() => {
+                    void submit();
+                  }}
+                  sending={sender.sending}
+                />
+              </>
             )}
           </View>
           {expanded ? (
@@ -453,6 +525,20 @@ const styles = StyleSheet.create({
     boxShadow: "0 -4px 20px rgba(0, 0, 0, 0.15)",
     padding: 8,
   },
+  countPill: {
+    alignItems: "center",
+    borderRadius: 9999,
+    flexDirection: "row",
+    gap: 4,
+    height: 36,
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  countText: {
+    fontFamily: "SofiaProBold",
+    fontSize: 12,
+    fontVariant: ["tabular-nums"],
+  },
   counter: {
     fontFamily: "SofiaProMed",
     fontSize: 11,
@@ -490,6 +576,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginTop: 8,
     padding: 8,
+  },
+  guestPill: {
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    borderRadius: 9999,
+    flexDirection: "row",
+    gap: 8,
+    height: 48,
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  guestText: {
+    color: "#ffffff",
+    fontFamily: "SofiaProBold",
+    fontSize: 14,
   },
   iconCluster: {
     flexDirection: "row",

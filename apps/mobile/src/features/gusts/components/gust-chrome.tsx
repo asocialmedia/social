@@ -7,6 +7,7 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { ArrowUp, Plus } from "lucide-react-native";
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import type { LayoutRectangle } from "react-native";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import Reanimated, {
@@ -17,7 +18,8 @@ import type { SharedValue } from "react-native-reanimated";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import noMediaImage from "@/assets/images/nomedia.png";
-import { ZephLoader } from "@/components/feedback/zeph-loader";
+import { Spinner3D } from "@/components/feedback/spinner-3d";
+import { StatusActionButton } from "@/components/feedback/status-action-button";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { RAIL_BUTTON, themeText } from "@/components/surface/recipes";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
@@ -30,10 +32,11 @@ import {
   useAppTheme,
 } from "@/theme";
 
+import { failedGustSources, gustSourceRetryCopy } from "../lib/gust-sources";
+import type { GustRetrySource } from "../lib/gust-sources";
 import type { GustTab } from "../lib/gusts-api";
 import { RailButton } from "./rail-button";
 
-const PRIMARY = "#f66b15";
 const TABS: readonly { label: string; value: GustTab }[] = [
   { label: "Latest", value: "latest" },
   { label: "For you", value: "personalized" },
@@ -203,7 +206,7 @@ export function NewGustsPill({
 }
 
 function SpinningLoader({ size }: { size: number }) {
-  return <ZephLoader variant="media" size={size} />;
+  return <Spinner3D size={size} />;
 }
 
 // Web's pull indicator: grows to the pull distance under the tabs, with a
@@ -239,7 +242,7 @@ export function PullIndicator({
           <SpinningLoader size={20} />
         ) : (
           <Reanimated.View style={rotation}>
-            <ZephLoader variant="media" color={PRIMARY} size={20} />
+            <SpinningLoader size={20} />
           </Reanimated.View>
         )}
       </RailButton>
@@ -259,16 +262,25 @@ export function PagingSpinner() {
 // that failed after its retries, with a Try again action, plus the sign-in
 // prompt shown when a guest opens the account-only For you tab).
 export function GustsEmpty({
+  children,
   mode,
   onAction,
 }: {
-  mode: "auth" | "empty" | "error";
+  // Rendered under the action: the error state's per-source retries.
+  children?: ReactNode;
+  mode: "auth" | "empty" | "error" | "focused";
   onAction: () => void;
 }) {
   const { isDark } = useAppTheme();
   const text = themeText(isDark);
   let copy: { action: string; body: string; title: string };
-  if (mode === "empty") {
+  if (mode === "focused") {
+    copy = {
+      action: "Create a Gust",
+      body: "Try another profile or add interests in Network settings.",
+      title: "No Gusts match this profile yet",
+    };
+  } else if (mode === "empty") {
     copy = {
       action: "Create the First Gust",
       body: "Be the first to share a high-energy short-form video clip with the community!",
@@ -320,12 +332,68 @@ export function GustsEmpty({
               shadows={shadows}
               style={[styles.emptyButton, pressed && styles.pressed]}
             >
-              {mode === "empty" ? <Plus color="#ffffff" size={16} /> : null}
+              {mode === "empty" || mode === "focused" ? (
+                <Plus color="#ffffff" size={16} />
+              ) : null}
               <Text style={styles.emptyButtonText}>{copy.action}</Text>
             </Gradient3D>
           );
         }}
       </Pressable>
+      {children}
+    </View>
+  );
+}
+
+// Web's GustSourceRetries: one compact notice per failed source, each with
+// its own "Retry <source> videos" button, so a healthy peer stays usable.
+// "video" sits on the playing reel (rail glass, white text); "panel" sits
+// on the themed error surface.
+export function GustSourceRetries({
+  sources,
+  tone,
+}: {
+  sources: readonly GustRetrySource[];
+  tone: "panel" | "video";
+}) {
+  const { isDark } = useAppTheme();
+  const text = themeText(isDark);
+  const failed = failedGustSources(sources);
+  if (failed.length === 0) {
+    return null;
+  }
+  const onVideo = tone === "video";
+  return (
+    <View style={styles.retries}>
+      {failed.map((source) => {
+        const copy = gustSourceRetryCopy(source.label);
+        return (
+          <View
+            key={source.label}
+            style={[
+              styles.retryCard,
+              onVideo && {
+                backgroundColor: RAIL_BUTTON.background,
+                boxShadow: RAIL_BUTTON.shadows,
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.retryMessage,
+                { color: onVideo ? RAIL_BUTTON.color : text.muted },
+              ]}
+            >
+              {copy.message}
+            </Text>
+            <StatusActionButton
+              disabled={source.isFetching}
+              label={copy.action}
+              onPress={source.handleRetry}
+            />
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -418,6 +486,26 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 0,
     zIndex: 20,
+  },
+  retries: {
+    alignItems: "center",
+    gap: 12,
+    marginTop: 20,
+    paddingHorizontal: 16,
+    width: "100%",
+  },
+  retryCard: {
+    alignItems: "center",
+    borderRadius: 16,
+    gap: 10,
+    maxWidth: 384,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  retryMessage: {
+    fontFamily: "SofiaProReg",
+    fontSize: 13,
+    textAlign: "center",
   },
   stack: {
     flexDirection: "row",

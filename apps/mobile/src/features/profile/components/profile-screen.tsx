@@ -34,6 +34,7 @@ import {
   profileTabStorageKey,
 } from "../lib/profile-tab-memory";
 import type { ProfileViewTab } from "../lib/profile-tab-memory";
+import { useExternalProfileActivity } from "../lib/use-external-profile-activity";
 import { ProfileEditModal } from "./profile-edit-modal";
 import { ProfileFeed } from "./profile-feed";
 import { ProfileHeader } from "./profile-header";
@@ -43,7 +44,7 @@ import { ProfileTabs } from "./profile-tabs";
 function LoadingProfile() {
   return (
     <View style={styles.center}>
-      <Spinner3D variant="general" size={56} />
+      <Spinner3D size={56} />
       <Text style={styles.centerText}>Loading profile…</Text>
     </View>
   );
@@ -71,6 +72,10 @@ export function ProfileScreen() {
   // duplicate thread. The server is idempotent per pair, but two pushes would
   // still stack two identical screens.
   const [startingChat, setStartingChat] = useState(false);
+  // Set while the follow mutation is in flight. The header disables its pill
+  // meanwhile; the store-level in-flight guard in profile-state.ts ignores a
+  // second toggle, this is the UI half of the same S0-4 fix.
+  const [followPending, setFollowPending] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -135,6 +140,15 @@ export function ProfileScreen() {
     tab,
     username,
   });
+  // Bluesky amplifications and eddies, merged into those two tabs by the feed.
+  let externalKind: "amplified" | "eddies" | null = null;
+  if (tab === "amplified" || tab === "eddies") {
+    externalKind = tab;
+  }
+  const external = useExternalProfileActivity(
+    profile?.id ?? null,
+    externalKind
+  );
 
   // The tab strip sits inside the header, which the feed renders as its
   // ListHeaderComponent, so it scrolls away with the banner. Measuring its
@@ -266,6 +280,10 @@ export function ProfileScreen() {
       router.push("/(auth)/login");
       return;
     }
+    if (followPending) {
+      return;
+    }
+    setFollowPending(true);
     try {
       await follow(!isFollowing);
       toast({
@@ -279,6 +297,7 @@ export function ProfileScreen() {
         variant: "destructive",
       });
     }
+    setFollowPending(false);
   };
 
   // The pinned strip sits directly under the status bar, in the same band as
@@ -350,6 +369,7 @@ export function ProfileScreen() {
       <ProfileHeader
         canFollow={!own}
         canMessage={!own}
+        followPending={followPending}
         isFollowing={isFollowing}
         isOwnProfile={own}
         onEdit={() => setEditing(true)}
@@ -383,6 +403,7 @@ export function ProfileScreen() {
   return (
     <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
       <ProfileFeed
+        external={external}
         feed={feed}
         header={header}
         isOwnProfile={own}

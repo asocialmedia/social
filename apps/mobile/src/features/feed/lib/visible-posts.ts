@@ -82,6 +82,17 @@ export function isPostVisible(postId: string): boolean {
   return visibleIds.has(postId);
 }
 
+// Viewability ticks fire on every scroll nudge, usually with the same ids.
+// Lets publishers skip the exposure/view/mark fan-out when nothing moved.
+export function isSameVisibilityPublish(
+  previousIds: ReadonlySet<string>,
+  previousAutoplay: string | null,
+  nextIds: ReadonlySet<string>,
+  nextAutoplay: string | null
+): boolean {
+  return previousAutoplay === nextAutoplay && sameSet(previousIds, nextIds);
+}
+
 export function subscribePostVisibility(
   postId: string,
   notify: (visible: boolean) => void

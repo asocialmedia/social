@@ -9,14 +9,18 @@ import {
 import { useEffect, useState, useMemo } from "react";
 import { z } from "zod";
 
-import { networkRequest } from "@/features/network/lib/network-api";
+import {
+  NetworkRequestError,
+  networkRequest,
+} from "@/features/network/lib/network-api";
 import { useNetworkSettings } from "@/features/network/state/use-network-settings";
 
 import { parseSpotlightResponse } from "../lib/search-api";
 import type { SpotlightResponse } from "../lib/search-api";
+import { searchErrorCopy } from "../lib/search-errors";
+import type { SearchKind, SearchSource } from "../lib/search-scope";
 
-export type SearchSource = "all" | "asm" | "bluesky";
-export type SearchKind = "all" | "user" | "post" | "community";
+export type { SearchKind, SearchSource } from "../lib/search-scope";
 const remoteSchema = z.object({
   posts: z.array(externalPostSchema),
   profiles: z.array(externalAuthorSchema),
@@ -39,6 +43,15 @@ interface SearchState {
 }
 const cache = new Map<string, { value: SearchState; updatedAt: number }>();
 
+// The row-ready reason a source failed (web's SearchReadError message).
+function readErrorCopy(error: unknown): string {
+  return searchErrorCopy(
+    error instanceof NetworkRequestError
+      ? { retryAfter: error.retryAfter, status: error.status }
+      : null
+  );
+}
+
 export function useNetworkSearch(
   query: string,
   source: SearchSource,
@@ -48,7 +61,10 @@ export function useNetworkSearch(
   const network = useNetworkSettings();
   const trimmed = query.trim();
   const key = `${network.viewer}:${network.scope}:${source}:${kind}:${trimmed}`;
-  const [attempt, setAttempt] = useState(0);
+  // A retry forces a fresh read for the key it was pressed on only; later
+  // keys go back to the 30s cache instead of bypassing it forever.
+  const [retryOf, setRetryOf] = useState({ attempt: 0, key: "" });
+  const attempt = retryOf.key === key ? retryOf.attempt : 0;
   const empty = useMemo<SearchState>(
     () => ({
       asm: EMPTY_ASM,
@@ -101,13 +117,7 @@ export function useNetworkSearch(
         );
         patch({ asm: parseSpotlightResponse(data), asmLoading: false });
       } catch (error) {
-        patch({
-          asmError:
-            error instanceof Error
-              ? error.message
-              : "ASM search is unavailable",
-          asmLoading: false,
-        });
+        patch({ asmError: readErrorCopy(error), asmLoading: false });
       }
     };
     const readRemote = async () => {
@@ -126,13 +136,7 @@ export function useNetworkSearch(
           remoteLoading: false,
         });
       } catch (error) {
-        patch({
-          remoteError:
-            error instanceof Error
-              ? error.message
-              : "Bluesky search is unavailable",
-          remoteLoading: false,
-        });
+        patch({ remoteError: readErrorCopy(error), remoteLoading: false });
       }
     };
     const timer = setTimeout(() => {
@@ -191,6 +195,10 @@ export function useNetworkSearch(
     asm,
     bluesky,
     network,
-    retry: () => setAttempt((value) => value + 1),
+    retry: () =>
+      setRetryOf((previous) => ({
+        attempt: previous.key === key ? previous.attempt + 1 : 1,
+        key,
+      })),
   };
 }

@@ -1,7 +1,9 @@
 "use client";
 
+import type { ExternalPost } from "@asm/protocols/contracts";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useEffect } from "react";
 
@@ -10,7 +12,6 @@ import ClientPost, {
 } from "@/app/(main)/posts/[postId]/client-post";
 import { useSession } from "@/app/(main)/session-provider";
 import { FeedErrorState } from "@/components/feeds/feed-error-state";
-import MediaViewer from "@/components/home/feedview/media-viewer";
 import MediaRouteSkeleton from "@/components/layouts/skeletons/media-route-skeleton";
 import PostDetailSkeleton from "@/components/layouts/skeletons/post-detail-skeleton";
 import kyInstance from "@/lib/ky";
@@ -23,11 +24,20 @@ import { ExternalDiscussion } from "./external-discussion";
 import { useBlueskyProfile } from "./use-bluesky-profile";
 import { useExternalPost } from "./use-external-post";
 
-export function ExternalPostPage() {
+const MediaViewer = dynamic(
+  () => import("@/components/home/feedview/media-viewer"),
+  { loading: () => <MediaRouteSkeleton /> }
+);
+
+export function ExternalPostPage({
+  initialPost,
+}: {
+  initialPost?: ExternalPost;
+}) {
   const params = useSearchParams();
   const uri = params.get("uri") ?? "";
   const router = useRouter();
-  const query = useExternalPost(uri);
+  const query = useExternalPost(uri, initialPost);
 
   const session = useSession();
   const isLoggedIn = Boolean(session.user);

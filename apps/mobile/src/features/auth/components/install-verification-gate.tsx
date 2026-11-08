@@ -124,7 +124,7 @@ export function InstallVerificationGate({
 
           {status === "verifying" ? (
             <View style={styles.verifying}>
-              <Spinner3D variant="security" size={32} />
+              <Spinner3D size={32} />
               <Text style={[styles.body, { color: theme.dividerText }]}>
                 Verifying…
               </Text>

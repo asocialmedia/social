@@ -4,7 +4,7 @@ import { useLinkStatus } from "next/link";
 
 import { cn } from "@/lib/utils";
 
-import { ZephLoader } from "./zeph-loader";
+import Spinner3D from "./spinner-3d";
 
 // Rendered as a child of a <Link>: shows a small spinner while that link's
 // navigation is pending so slow transitions give immediate feedback. Only
@@ -15,5 +15,5 @@ export function LinkStatusHint({ className }: { className?: string }) {
   if (!pending) {
     return null;
   }
-  return <ZephLoader aria-hidden className={cn("size-3.5", className)} />;
+  return <Spinner3D className={cn("inline-block size-3.5", className)} />;
 }

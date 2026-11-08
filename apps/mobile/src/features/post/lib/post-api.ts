@@ -134,3 +134,29 @@ export async function recordPostVisit(
     // Best-effort visit tracking; ignore failures like web client-post.
   }
 }
+
+// Web client-post's body for a Bluesky post: the snapshot plus its at:// URI
+// as both postId and uri, so the route can record it without refetching.
+export function externalVisitBody(externalPost: { id: string }): {
+  externalPost: { id: string };
+  postId: string;
+  uri: string;
+} {
+  return { externalPost, postId: externalPost.id, uri: externalPost.id };
+}
+
+// The Bluesky twin of recordPostVisit. Signed-in callers only; silent on failure.
+export async function recordExternalPostVisit(
+  externalPost: { id: string },
+  options: ApiCallOptions
+): Promise<void> {
+  try {
+    await callPostApi("/api/posts/visit", {
+      ...options,
+      body: JSON.stringify(externalVisitBody(externalPost)),
+      method: "POST",
+    });
+  } catch {
+    // Best-effort visit tracking; ignore failures like web client-post.
+  }
+}

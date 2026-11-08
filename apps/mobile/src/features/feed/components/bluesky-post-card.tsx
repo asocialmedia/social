@@ -7,19 +7,20 @@ import {
   UserRoundMinus,
 } from "lucide-react-native";
 import { memo, useEffect, useMemo, useState } from "react";
-import { Linking, Share } from "react-native";
+import { Linking } from "react-native";
 
 import { useSessionContext } from "@/features/auth/state/session";
-import { externalShareUrl } from "@/features/network/lib/network-paths";
 import { PostDetailCard } from "@/features/post/components/post-detail-card";
 
 import { rememberExternalPost } from "../lib/external-cache";
 import { externalPostView } from "../lib/external-post-view";
+import type { FeedPost } from "../lib/feed-types";
 import { useExternalFeedback } from "../state/use-external-feedback";
 import { useExternalFollow } from "../state/use-external-follow";
 import { MoreMenu } from "./more-menu";
 import type { MenuAnchor } from "./more-menu";
 import { PostCard } from "./post-card";
+import { ShareSheet } from "./share-sheet";
 
 export { BlueskyIcon } from "./bluesky-icon";
 
@@ -28,10 +29,12 @@ export const BlueskyPostCard = memo(
     post,
     detail = false,
     onDiscussion,
+    onShare,
   }: {
     post: ExternalPost;
     detail?: boolean;
     onDiscussion?: () => void;
+    onShare?: (post: FeedPost) => void;
   }) => {
     const view = useMemo(() => externalPostView(post), [post]);
     const { user } = useSessionContext();
@@ -55,11 +58,12 @@ export const BlueskyPostCard = memo(
       onDiscussion
         ? onDiscussion()
         : router.push({ params: { uri: post.id }, pathname: "/external-post" });
-    const share = () => {
-      void Share.share({
-        message: `${post.text}\n${externalShareUrl(post.id)}`,
-      });
-    };
+    // Web's ExternalShareButton opens the in-app share dialog. Surfaces that
+    // already mount a ShareSheet pass onShare so one sheet serves the list;
+    // a card without one falls back to its own sheet, mounted only while open.
+    const [localShare, setLocalShare] = useState<FeedPost | null>(null);
+    const share = (target: FeedPost) =>
+      onShare ? onShare(target) : setLocalShare(target);
     return (
       <>
         {detail ? (
@@ -123,6 +127,9 @@ export const BlueskyPostCard = memo(
           }}
           onClose={() => setAnchor(null)}
         />
+        {onShare ? null : (
+          <ShareSheet onClose={() => setLocalShare(null)} post={localShare} />
+        )}
       </>
     );
   }

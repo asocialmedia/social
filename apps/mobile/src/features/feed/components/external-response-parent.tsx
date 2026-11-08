@@ -1,111 +1,107 @@
-import { useRouter } from "expo-router";
-import { Text, View } from "react-native";
+// Native port of web's ExternalResponseParent
+// (components/protocols/external-response-parent.tsx): the Bluesky post an ASM
+// response replies to. While it loads, a 36px avatar plus two lines of
+// skeleton; a failed read with nothing cached is web's compact FeedErrorState;
+// otherwise the same ResponseParentRow a native parent uses, so a Bluesky
+// source reads like any other parent (avatar on the rail, name, handle, time).
+import { Image } from "expo-image";
+import { StyleSheet, Text, View } from "react-native";
+import Animated from "react-native-reanimated";
 
+import errorImage from "@/assets/images/error.png";
+import { StatusActionButton } from "@/components/feedback/status-action-button";
+import { useSkeletonPulse } from "@/components/feedback/use-skeleton-pulse";
 import { useSessionContext } from "@/features/auth/state/session";
-import { BioContent } from "@/features/home/components/bio-content";
 import { useProtocolResource } from "@/features/network/state/use-protocol-resource";
-import { SettingsButton } from "@/features/settings/components/settings-ui";
-import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import { cachedExternalPost } from "../lib/external-cache";
 import { readExternal } from "../lib/external-interactions";
-import { externalPostView } from "../lib/external-post-view";
-import { MediaGallery, ExplicitGate } from "./post-media";
+import type { FeedPost } from "../lib/feed-types";
+import { ResponseParentRow } from "./post-embeds";
 
-export function ExternalResponseParent({ uri }: { uri: string }) {
+function ParentSkeleton() {
+  const { theme } = useAppTheme();
+  const pulse = useSkeletonPulse();
+  const block = { backgroundColor: theme.dividerLine, opacity: pulse };
+  return (
+    <View
+      accessibilityLabel="Loading original post"
+      accessibilityState={{ busy: true }}
+      style={styles.skeleton}
+    >
+      <Animated.View style={[styles.skeletonAvatar, block]} />
+      <View style={styles.skeletonLines}>
+        <Animated.View style={[styles.skeletonName, block]} />
+        <Animated.View style={[styles.skeletonBody, block]} />
+      </View>
+    </View>
+  );
+}
+
+export function ExternalResponseParent({ post }: { post: FeedPost }) {
   const { user } = useSessionContext();
   const { theme } = useAppTheme();
-  const router = useRouter();
+  const uri = post.externalParent?.uri ?? "";
+  const viewer = user?.id ?? "guest";
   const query = useProtocolResource(
-    `external-parent:${user?.id ?? "guest"}:${uri}`,
+    `external-parent:${viewer}:${uri}`,
     async (signal) => {
       const result = await readExternal(uri, undefined, signal);
       return result.post;
     }
   );
-  const post =
-    query.data === undefined
-      ? cachedExternalPost(uri, user?.id ?? "guest")
-      : query.data;
-  const presented = post ? externalPostView(post) : null;
-  const media = presented?.attachments?.length ? (
-    <MediaGallery
-      apiBase={getApiBaseUrl()}
-      attachments={presented.attachments}
-      postId={uri}
-      post={presented}
-      onPressMedia={(index) =>
-        router.push({
-          params: { index: String(index), uri },
-          pathname: "/external-media",
-        })
-      }
-    />
-  ) : null;
-  const gatedMedia = presented?.explicitContent ? (
-    <ExplicitGate
-      apiBase={getApiBaseUrl()}
-      attachments={presented.attachments ?? []}
-      revealKey={uri}
-    >
-      {media}
-    </ExplicitGate>
-  ) : (
-    media
-  );
-  return (
-    <View
-      className="mb-3 gap-2 px-4 py-2"
-      style={{ borderLeftColor: theme.cardBorder, borderLeftWidth: 2 }}
-    >
-      {post ? (
-        <>
-          <SettingsButton
-            tone="gray"
-            size="sm"
-            label={`${post.author.displayName} · @${post.author.handle}`}
-            onPress={() =>
-              router.push({
-                params: { actor: post.author.id },
-                pathname: "/external-profile",
-              })
-            }
-          />
-          <BioContent
-            apiBase={getApiBaseUrl()}
-            bio={post.text}
-            sourceSegments={post.segments}
-            clampLength={400}
-          />
-          {gatedMedia}
-          <SettingsButton
-            tone="gray"
-            size="sm"
-            label="Open original post"
-            onPress={() =>
-              router.push({ params: { uri }, pathname: "/external-post" })
-            }
-          />
-        </>
-      ) : (
-        <Text style={{ color: theme.dividerText }}>
-          {query.loading
-            ? "Loading original Bluesky post…"
-            : query.error ||
-              "The original source post is unavailable. Its ASM response is preserved."}
+  const source =
+    query.data === undefined ? cachedExternalPost(uri, viewer) : query.data;
+
+  if (source === undefined && query.loading) {
+    return <ParentSkeleton />;
+  }
+  if (query.error && !source) {
+    return (
+      <View style={styles.error}>
+        <Image contentFit="contain" source={errorImage} style={styles.art} />
+        <Text
+          accessibilityRole="alert"
+          style={[styles.message, { color: theme.dividerText }]}
+        >
+          Couldn't load the original Bluesky post.
         </Text>
-      )}
-      {query.error ? (
-        <SettingsButton
-          label="Retry original post"
-          tone="gray"
-          size="sm"
+        <StatusActionButton
+          disabled={query.loading}
+          label={query.loading ? "Trying again…" : "Try again"}
           onPress={() => {
             void query.refetch();
           }}
         />
-      ) : null}
-    </View>
-  );
+      </View>
+    );
+  }
+  return <ResponseParentRow externalSource={source ?? null} post={post} />;
 }
+
+const styles = StyleSheet.create({
+  art: { height: 64, width: 64 },
+  // `flex flex-col items-center gap-3 p-4 text-center`.
+  error: {
+    alignItems: "center",
+    gap: 12,
+    padding: 16,
+  },
+  message: {
+    fontFamily: "SofiaProReg",
+    fontSize: 14,
+    maxWidth: 320,
+    textAlign: "center",
+  },
+  // `flex gap-3 pb-3`.
+  skeleton: {
+    flexDirection: "row",
+    gap: 12,
+    paddingBottom: 12,
+  },
+  skeletonAvatar: { borderRadius: 12, height: 36, width: 36 },
+  skeletonBody: { borderRadius: 6, height: 48, width: "100%" },
+  skeletonLines: { flex: 1, gap: 8 },
+  skeletonName: { borderRadius: 4, height: 16, width: 144 },
+});

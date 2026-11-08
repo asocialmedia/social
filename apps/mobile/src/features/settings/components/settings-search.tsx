@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
-  root: { position: "relative", zIndex: 50 },
+  root: { flex: 1, minWidth: 0, position: "relative", zIndex: 50 },
   tabTag: {
     borderRadius: 9999,
     borderWidth: 1,

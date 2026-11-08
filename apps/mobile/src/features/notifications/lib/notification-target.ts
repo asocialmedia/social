@@ -11,9 +11,6 @@ export interface NativeNotificationAction {
   // Shown as a toast when the target cannot be opened here. `title` is the
   // headline, `description` the sentence under it.
   notice?: { description: string; title: string };
-  // True when the ROW is expected to have already navigated (a post target owns
-  // its own short-id conversion), so the screen must not navigate a second time.
-  handledByRow?: boolean;
 }
 
 const WEB_ONLY_NOTICE = {
@@ -21,15 +18,33 @@ const WEB_ONLY_NOTICE = {
   title: "Not in this app yet",
 };
 
+export interface NativeNotificationOptions {
+  // Community chat ships behind a flag. With it off the chat route redirects
+  // home, so a chat notification opens the community page instead.
+  communityChatEnabled?: boolean;
+  // A join-request row lands on the community with its requests panel open,
+  // matching web's `?requests=1` href.
+  requestsLink?: boolean;
+}
+
 export function nativeNotificationAction(
-  target: NotificationTarget
+  target: NotificationTarget,
+  options: NativeNotificationOptions = {}
 ): NativeNotificationAction {
+  const communityChatEnabled = options.communityChatEnabled ?? true;
   switch (target.kind) {
     case "post": {
-      // The row pushes the detail screen itself, because only it knows the
-      // short-id convention. Saying so explicitly beats letting the screen guess
-      // and push a second, wrong route.
-      return { handledByRow: true };
+      // Full id: truncated prefixes 404 when they match more than one post.
+      // A comment notification carries `comment`, the same query web appends
+      // so the detail screen can scroll the thread to that eddie.
+      return {
+        path: {
+          params: target.commentId
+            ? { comment: target.commentId, postId: target.postId }
+            : { postId: target.postId },
+          pathname: "/posts/[postId]",
+        },
+      };
     }
     case "user": {
       return {
@@ -40,9 +55,21 @@ export function nativeNotificationAction(
       };
     }
     case "community": {
-      return { path: { params: { slug: target.slug }, pathname: "/a/[slug]" } };
+      return {
+        path: {
+          params: options.requestsLink
+            ? { requests: "1", slug: target.slug }
+            : { slug: target.slug },
+          pathname: "/a/[slug]",
+        },
+      };
     }
     case "communityChat": {
+      if (!communityChatEnabled) {
+        return {
+          path: { params: { slug: target.slug }, pathname: "/a/[slug]" },
+        };
+      }
       return {
         path: {
           params: { slug: target.slug },

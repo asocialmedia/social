@@ -9,6 +9,7 @@ import { Alert, Linking, Pressable, Text, View } from "react-native";
 
 import chatDoodle from "@/assets/images/chat-doodle.webp";
 import { UserAvatar } from "@/components/avatar/user-avatar";
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { StatusActionButton } from "@/components/feedback/status-action-button";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { uploadMedia } from "@/features/media-upload/lib/upload-client";
@@ -87,8 +88,11 @@ export function ConversationDetails({
   const [denError, setDenError] = useState<string | null>(null);
   const [denRevision, setDenRevision] = useState(0);
   const [shared, setShared] = useState<SharedConversationPage | null>(null);
+  // The web media tab badges GIF tiles; the kind rides the row so the tile can
+  // draw it without re-reading the payload.
   const [references, setReferences] = useState<
     {
+      gif: boolean;
       key: string;
       messageId: string;
       url: string | null;
@@ -234,6 +238,7 @@ export function ConversationDetails({
                 let url: string | null = null;
                 let postId: string | null = null;
                 let label = payload.content ?? "Shared item";
+                let gif = false;
                 if (kind === "media" && payload.type === "media") {
                   // Keep server ordinals aligned with the normalized mixed attachment list.
                   const attachment = getMediaAttachments(payload)[item.ordinal];
@@ -242,6 +247,7 @@ export function ConversationDetails({
                     (attachment.kind === "gif" || attachment.kind === "image")
                       ? attachment.url
                       : null;
+                  gif = attachment?.kind === "gif";
                   label = payload.content || "Shared image";
                 }
                 if (kind === "post") {
@@ -256,6 +262,7 @@ export function ConversationDetails({
                   label = url ?? "Shared link";
                 }
                 rows.push({
+                  gif,
                   key: `${item.messageId}:${item.ordinal}`,
                   label,
                   messageId: item.messageId,
@@ -452,13 +459,46 @@ export function ConversationDetails({
     onClose();
     onJump(reference.messageId);
   };
+  // Web's per-kind empty copy for the shared tabs: a title plus the footnote
+  // that says where items collect, so an empty tab reads as a state rather
+  // than a gap.
+  const SHARED_EMPTY_COPY = {
+    link: {
+      footnote: "Links sent in this chat collect here.",
+      title: "No links yet",
+    },
+    media: {
+      footnote: "Images and GIFs sent in this chat collect here.",
+      title: "No media yet",
+    },
+    post: {
+      footnote: "Posts shared in this chat collect here.",
+      title: "No posts yet",
+    },
+  } as const;
+  const SHARED_FOOTER_NOUN = {
+    link: "links",
+    media: "media",
+    post: "posts",
+  } as const;
   let sharedHint: string | null = null;
-  if (loading) {
-    sharedHint = "Loading shared items…";
+  let sharedFootnote: string | null = null;
+  let sharedLoadingMore = false;
+  if (loading && references.length === 0) {
+    // The skeleton slot: web draws its 3D ring spinner here while the first
+    // shared page loads (see the render below).
+    sharedHint = null;
   } else if (references.length === 0) {
-    sharedHint = shared?.coverageComplete
-      ? "No shared items yet"
-      : "Shared history isn't available yet. Try again shortly.";
+    if (shared?.coverageComplete) {
+      sharedHint = SHARED_EMPTY_COPY[kind].title;
+      sharedFootnote = SHARED_EMPTY_COPY[kind].footnote;
+    } else {
+      sharedHint = "Shared history isn't available yet. Try again shortly.";
+    }
+  } else if (loading) {
+    // A follow-up page is in flight below rows that are already readable.
+    // Says which direction it is looking, like web's list footer.
+    sharedLoadingMore = true;
   }
   useEffect(
     () => () => {
@@ -962,8 +1002,28 @@ export function ConversationDetails({
               </Pressable>
             ))}
           </View>
+          {loading && references.length === 0 ? (
+            <View
+              accessibilityLabel="Loading shared items"
+              accessibilityRole="progressbar"
+              style={{ alignItems: "center", paddingVertical: 16 }}
+            >
+              <Spinner3D size={40} />
+            </View>
+          ) : null}
           {sharedHint ? (
             <Text style={{ color: theme.dividerText }}>{sharedHint}</Text>
+          ) : null}
+          {sharedFootnote ? (
+            <Text
+              style={{
+                color: theme.dividerText,
+                fontFamily: "SofiaProReg",
+                fontSize: 12,
+              }}
+            >
+              {sharedFootnote}
+            </Text>
           ) : null}
           <View
             style={{
@@ -991,10 +1051,35 @@ export function ConversationDetails({
                   />
                 ) : null}
                 {kind === "media" && reference.url ? (
-                  <MessageImage
-                    source={reference.url}
-                    style={{ aspectRatio: 1, width: "100%" }}
-                  />
+                  <View>
+                    <MessageImage
+                      source={reference.url}
+                      style={{ aspectRatio: 1, width: "100%" }}
+                    />
+                    {reference.gif ? (
+                      <View
+                        style={{
+                          backgroundColor: "#00000099",
+                          borderRadius: 6,
+                          bottom: 6,
+                          left: 6,
+                          paddingHorizontal: 6,
+                          paddingVertical: 2,
+                          position: "absolute",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: "#ffffff",
+                            fontFamily: "SofiaProBold",
+                            fontSize: 10,
+                          }}
+                        >
+                          GIF
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
                 ) : (
                   <Text
                     numberOfLines={2}
@@ -1009,6 +1094,17 @@ export function ConversationDetails({
               </Pressable>
             ))}
           </View>
+          {sharedLoadingMore ? (
+            <Text
+              style={{
+                color: theme.dividerText,
+                fontFamily: "SofiaProReg",
+                fontSize: 12,
+              }}
+            >
+              {`Looking further back for older ${SHARED_FOOTER_NOUN[kind]}…`}
+            </Text>
+          ) : null}
           {shared?.nextCursor ? (
             <StatusActionButton
               label="More shared items"

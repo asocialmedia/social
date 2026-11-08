@@ -28,6 +28,10 @@ import { getApiBaseUrl } from "@/lib/network/api-env";
 import { withAuthHeaders } from "@/lib/network/auth-headers";
 import { useAppTheme } from "@/theme";
 
+import {
+  altSuggestToastCopy,
+  classifyAltSuggest,
+} from "../lib/alt-text-suggest";
 import type { MentionPick } from "../lib/inline-relations";
 import { pickAudioFile, pickPhotosAndVideos } from "../lib/pick-media";
 import { useComposerStore } from "../state/composer-store";
@@ -335,7 +339,7 @@ export function GustEditor({
       active = false;
     };
   }, []);
-  const processing = attachment.stage !== "ready" || attachment.isProcessing;
+  const processing = attachment.status !== "ready";
   const disabled = options.busy || !attachment.mediaId || processing;
   const poster = attachment.mediaId
     ? `${mediaPosterUrl(getApiBaseUrl(), attachment.mediaId)}&t=${options.thumbRevision}`
@@ -374,7 +378,7 @@ export function GustEditor({
   const replaceVideo = async () => {
     if (
       options.busy ||
-      (attachment.stage !== "ready" && !attachment.isProcessing)
+      (attachment.status !== "ready" && attachment.status !== "processing")
     ) {
       return;
     }
@@ -409,27 +413,26 @@ export function GustEditor({
     }
   };
   const autoAlt = async () => {
-    if (!attachment.mediaId || analyzing) {
+    // Same toast matrix as the fleet alt panel: every analysis outcome tells
+    // the writer what happened instead of failing silently.
+    if (!attachment.mediaId) {
+      toast(altSuggestToastCopy(classifyAltSuggest({})));
+      return;
+    }
+    if (analyzing) {
       return;
     }
     setAnalyzing(true);
     try {
       const result = await suggestAltText(attachment.mediaId);
-      if (result.suggestedAlt) {
-        setGustAlt(attachment.localId, result.suggestedAlt.slice(0, 1000));
-      } else {
-        toast({
-          description: result.isProcessing
-            ? "The video is still processing. Try again shortly."
-            : "Add a description of your video below.",
-          title: "No description yet",
-        });
+      const outcome = classifyAltSuggest({ result });
+      if (outcome.kind === "success") {
+        setGustAlt(attachment.localId, outcome.suggestion);
       }
-    } catch {
-      toast({
-        description: "Try again or write a description below.",
-        title: "Couldn't generate alt text",
-      });
+      toast(altSuggestToastCopy(outcome));
+    } catch (error) {
+      const outcome = classifyAltSuggest({ error });
+      toast(altSuggestToastCopy(outcome));
     }
     setAnalyzing(false);
   };

@@ -57,17 +57,23 @@ import { normalizePostData } from "@/features/feed/lib/feed-types";
 import { viewBatcher } from "@/features/feed/lib/view-batcher";
 import { findCachedFeedPost } from "@/features/feed/state/feed-store";
 import { GuestAuthBar } from "@/features/home/components/guest-auth-bar";
+import { resolveProfileImageUrl } from "@/features/home/components/profile-utils";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import {
+  subscribeCountDeltas,
+  withCountDelta,
+} from "../lib/comment-count-deltas";
+import {
   fetchPostDetail,
   fetchRelatedPosts,
   recordPostVisit,
 } from "../lib/post-api";
 import { postDetailCache, postDetailKey } from "../lib/post-cache";
+import { postHeaderImage, postHeaderTitles } from "../lib/post-header";
 import { PostDetailCard } from "./post-detail-card";
 import { PostDetailHeader } from "./post-detail-header";
 import { PostDetailSkeleton } from "./post-detail-skeleton";
@@ -78,7 +84,18 @@ const detailScrollMemory = new Map<string, number>();
 
 type DetailStatus = "error" | "loading" | "not-found" | "ready";
 
-export function PostDetailScreen({ postId }: { postId: string }) {
+export function PostDetailScreen({
+  postId,
+  communitySlug,
+}: {
+  postId: string;
+  // Community namespace guard (native twin of web PostRoute's canonical
+  // redirect): a namespaced a/[slug]/posts route passes its slug; when the
+  // loaded post belongs to another community, replace to its canonical
+  // address instead of showing it out of context. Omitted everywhere else,
+  // so global and reshare behavior is unchanged.
+  communitySlug?: string;
+}) {
   const { theme } = useAppTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -105,6 +122,9 @@ export function PostDetailScreen({ postId }: { postId: string }) {
   const [related, setRelated] = useState<FeedPost[]>([]);
   const [ancestorsExpanded, setAncestorsExpanded] = useState(false);
   const [showEddies, setShowEddies] = useState(true);
+  // Cold-start route compiles and flaky links fail the first load; the error
+  // state offers a retry that re-runs the load below.
+  const [retryNonce, setRetryNonce] = useState(0);
   const [sharePost, setSharePost] = useState<FeedPost | null>(null);
   const [altVisibleIds, setAltVisibleIds] = useState<ReadonlySet<string>>(
     () => new Set()
@@ -141,6 +161,13 @@ export function PostDetailScreen({ postId }: { postId: string }) {
     : (params.comment ?? null);
   const threadY = useRef(0);
   const scrolledTo = useRef<string | null>(null);
+  // Live count deltas tick the shortcut pill in the floating bar without a
+  // refetch, like the detail card's counts.
+  const [, setDeltaTick] = useState(0);
+  useEffect(
+    () => subscribeCountDeltas(() => setDeltaTick((value) => value + 1)),
+    []
+  );
   const handleThreadLayout = useCallback((event: LayoutChangeEvent) => {
     threadY.current = event.nativeEvent.layout.y;
   }, []);
@@ -292,7 +319,7 @@ export function PostDetailScreen({ postId }: { postId: string }) {
     // postId + viewer identity key the load; viewerId is read for visit
     // gating only (a guest-to-user upgrade refetches with identity).
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- intentional detail load keyed by post
-  }, [cacheKey, postId, viewerId]);
+  }, [cacheKey, postId, retryNonce, viewerId]);
 
   // Restore the exact scroll position when returning from the fullscreen
   // media viewer, instead of landing back at the top.
@@ -309,6 +336,18 @@ export function PostDetailScreen({ postId }: { postId: string }) {
     }
   }, [postId, status]);
 
+  useEffect(() => {
+    if (!communitySlug || status !== "ready" || !post) {
+      return;
+    }
+    const actual = post.community?.slug ?? null;
+    if (actual !== communitySlug) {
+      router.replace(
+        actual ? `/a/${actual}/posts/${post.id}` : `/posts/${post.id}`
+      );
+    }
+  }, [communitySlug, post, router, status]);
+
   const handleGoBack = useCallback(() => {
     if (router.canGoBack()) {
       router.back();
@@ -316,6 +355,18 @@ export function PostDetailScreen({ postId }: { postId: string }) {
     }
     router.replace("/");
   }, [router]);
+
+  // Comment-count shortcut in the floating bar: reveal the thread and scroll
+  // it into view at the measured thread offset, like web's onOpenComments.
+  const handleOpenComments = useCallback(() => {
+    setShowEddies(true);
+    setTimeout(() => {
+      scrollRef.current?.scrollTo({
+        animated: true,
+        y: Math.max(0, threadY.current - 24),
+      });
+    }, 60);
+  }, []);
 
   const thread = useMemo(() => {
     if (ancestors.length === 0 || !post) {
@@ -485,6 +536,17 @@ export function PostDetailScreen({ postId }: { postId: string }) {
               ? "It may have been deleted or the link is wrong."
               : "Check your connection and try again."}
           </Text>
+          {missing ? null : (
+            <Pressable
+              accessibilityLabel="Try loading this post again"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => setRetryNonce((value) => value + 1)}
+              style={styles.retry}
+            >
+              <Text style={styles.retryText}>Try again</Text>
+            </Pressable>
+          )}
         </View>
         {showGuestBar ? (
           <Animated.View
@@ -501,7 +563,13 @@ export function PostDetailScreen({ postId }: { postId: string }) {
     );
   }
 
-  if (!post) {
+  const headerTitles = post ? postHeaderTitles(post) : null;
+  const rawHeaderImage = post ? postHeaderImage(post) : null;
+  const headerImage = rawHeaderImage
+    ? resolveProfileImageUrl(rawHeaderImage, getApiBaseUrl())
+    : null;
+
+  if (!post || !headerTitles) {
     return (
       <View style={[styles.root, { backgroundColor: theme.containerBg }]}>
         <View style={styles.centerWrap}>
@@ -517,7 +585,12 @@ export function PostDetailScreen({ postId }: { postId: string }) {
       ref={viewportRef}
       style={[styles.root, { backgroundColor: theme.containerBg }]}
     >
-      <PostDetailHeader onBack={handleGoBack} />
+      <PostDetailHeader
+        bannerUrl={headerImage}
+        onBack={handleGoBack}
+        subtitle={headerTitles.subtitle}
+        title={headerTitles.title}
+      />
       <ScrollView
         contentContainerStyle={{ paddingBottom: feedBottomPad }}
         onMomentumScrollEnd={(event) => {
@@ -586,7 +659,13 @@ export function PostDetailScreen({ postId }: { postId: string }) {
       ) : null}
       {showEddies && viewerId ? (
         <FloatingEddieBar
+          commentCount={
+            post
+              ? withCountDelta(post.id, "comments", post._count?.comments ?? 0)
+              : 0
+          }
           onHeightChange={setEddieBarHeight}
+          onOpenComments={handleOpenComments}
           postId={post.id}
           viewportBottom={viewportBottom}
         />
@@ -744,6 +823,19 @@ const styles = StyleSheet.create({
   },
   related: {
     borderTopWidth: 1,
+  },
+  retry: {
+    alignItems: "center",
+    borderRadius: 9999,
+    justifyContent: "center",
+    marginTop: 16,
+    minHeight: 44,
+    paddingHorizontal: 24,
+  },
+  retryText: {
+    color: "#f66b15",
+    fontFamily: "SofiaProBold",
+    fontSize: 15,
   },
   root: {
     flex: 1,

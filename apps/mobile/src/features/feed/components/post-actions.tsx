@@ -45,6 +45,7 @@ import {
   formatNumber,
   getAuraFlameStyle,
 } from "../../home/components/profile-utils";
+import { FeedApiError } from "../lib/feed-api";
 import type { FeedPost } from "../lib/feed-types";
 import { usePostEngagement } from "../state/use-post-engagement";
 import { usePostViews } from "../state/use-post-views";
@@ -182,10 +183,18 @@ export function VoteCluster({
           title: "Mute Removed",
         });
       }
-    } catch {
+    } catch (error) {
       // The hook already rolled the optimistic value back and logged why. Web
       // still says so out loud, because a vote that silently reverts reads as the
-      // app ignoring the tap.
+      // app ignoring the tap. A 404 means the target is gone, and web says so
+      // instead of inviting a retry that can never succeed.
+      if (error instanceof FeedApiError && error.status === 404) {
+        toast({
+          description: `This ${noun} is no longer available.`,
+          variant: "destructive",
+        });
+        return;
+      }
       toast({
         description: "That didn't go through, give it another try?",
         variant: "destructive",
@@ -361,21 +370,22 @@ export function BookmarkToggle({
       onRequireLogin();
       return;
     }
+    // Web's `onMutate` (`apps/web/src/components/posts/actions/bookmark-button.tsx`)
+    // announces both directions as the tap lands, before the request, with
+    // the icon matching the outcome.
+    toast({
+      description: bookmarked
+        ? "Removed from your bookmarks"
+        : "Post saved, find it anytime in your bookmarks",
+      icon: bookmarked ? (
+        <BookmarkX color="#fbbf24" fill="#fbbf24" />
+      ) : (
+        <BookmarkCheck color="#fbbf24" fill="#fbbf24" />
+      ),
+      title: bookmarked ? "Bookmark Removed" : "Bookmarked",
+    });
     try {
       await toggleBookmark();
-      // Web's `onMutate` (`apps/web/src/components/posts/actions/bookmark-button.tsx`)
-      // announces both directions, with the icon matching the outcome.
-      toast({
-        description: bookmarked
-          ? "Removed from your bookmarks"
-          : "Post saved, find it anytime in your bookmarks",
-        icon: bookmarked ? (
-          <BookmarkX color="#fbbf24" fill="#fbbf24" />
-        ) : (
-          <BookmarkCheck color="#fbbf24" fill="#fbbf24" />
-        ),
-        title: bookmarked ? "Bookmark Removed" : "Bookmarked",
-      });
     } catch {
       // Rolled back and logged by the hook, but web still tells the reader: the
       // bookmark icon springs back with no explanation otherwise.
@@ -509,7 +519,9 @@ export function CommentButton({
 
 // Web's RespondButton: the direct response count, and a tap that opens the
 // composer as a Respond (a threaded post reply) to this post. Guests go to
-// login first, like every other gated action.
+// login first, like every other gated action. A nonzero count renders the
+// glyph in the foreground tone with a heavier stroke, like web's
+// `text-foreground stroke-[2.25px]` treatment.
 export function RespondButton({
   count,
   post,
@@ -521,10 +533,17 @@ export function RespondButton({
   const router = useRouter();
   const { user } = useSessionContext();
   const openComposer = useComposerStore((state) => state.open);
+  const hasResponses = count > 0;
   return (
     <CountButton
       count={count}
-      icon={<CornerDownRight color={theme.dividerText} size={16} />}
+      icon={
+        <CornerDownRight
+          color={hasResponses ? theme.inputText : theme.dividerText}
+          size={16}
+          strokeWidth={hasResponses ? 2.25 : 2}
+        />
+      }
       label="Respond to this post"
       onPress={
         post
@@ -538,6 +557,32 @@ export function RespondButton({
           : undefined
       }
     />
+  );
+}
+
+// Standalone aura header count, ported from web's posts/actions/aura-count.tsx
+// (text-lg semibold flame + count). Web pairs it with a hover tooltip reading
+// "Aura"; touch has no hover, so the count carries an accessibility label
+// instead. Web itself leaves this component unmounted (no callers in
+// apps/web/src), so this ships for the same future header use.
+export function AuraCount({ aura }: { aura: number }) {
+  const { theme } = useAppTheme();
+  const flame = getAuraFlameStyle(aura);
+  return (
+    <View
+      accessibilityLabel={`Aura: ${aura}`}
+      accessibilityRole="text"
+      style={styles.auraCount}
+    >
+      <Flame
+        color={flame.color}
+        fill={flame.filled ? flame.color : "none"}
+        size={20}
+      />
+      <Text style={[styles.auraCountText, { color: theme.inputText }]}>
+        {aura}
+      </Text>
+    </View>
   );
 }
 
@@ -577,15 +622,46 @@ export function ShareButton({ onPress }: { onPress: () => void }) {
 
 // Web's `...` trigger: a 28px round pill-3d-hover button in muted
 // foreground that nudges down while pressed. It reports its own window rect
-// so the dropdown can anchor under it.
+// so the dropdown can anchor under it. The media-page variant is web's dark
+// 3D chip (same look as the mobile viewer's control buttons): a 40px dark
+// gradient circle with a white glyph, used on dark media surfaces.
 export function MoreButton({
   onPress,
+  variant = "default",
 }: {
   onPress: (anchor: MenuAnchor) => void;
+  variant?: "default" | "media-page";
 }) {
   const { isDark, theme } = useAppTheme();
   const triggerRef = useRef<ViewInstance>(null);
   const pressedTone = isDark ? TRIGGER_PRESSED_DARK : TRIGGER_PRESSED_LIGHT;
+  if (variant === "media-page") {
+    return (
+      <Pressable
+        accessibilityLabel="Post options"
+        accessibilityRole="button"
+        hitSlop={6}
+        onPress={() => {
+          triggerRef.current?.measureInWindow((x, y, width, height) => {
+            onPress({ height, width, x, y });
+          });
+        }}
+        ref={triggerRef}
+        style={styles.iconHitMedia}
+      >
+        {({ pressed }) => (
+          <Gradient3D
+            colors={MEDIA_PAGE_GRADIENT}
+            radius={9999}
+            shadows={MEDIA_PAGE_SHADOWS}
+            style={[styles.mediaTrigger, pressed && styles.moreTriggerPressed]}
+          >
+            <MoreHorizontal color="#ffffff" size={16} />
+          </Gradient3D>
+        )}
+      </Pressable>
+    );
+  }
   return (
     <Pressable
       accessibilityLabel="Post options"
@@ -636,7 +712,26 @@ const TRIGGER_PRESSED_DARK = {
     "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 0 0 1px rgba(45, 50, 60, 0.95), 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 5px rgba(0, 0, 0, 0.12)",
 } as const;
 
+// Web's media-page trigger: dark gradient chip with its own shadow stack,
+// taken from PostMoreButton's media-page branch. Same in both themes: the
+// media surface it sits on is always dark.
+const MEDIA_PAGE_GRADIENT = ["#3a3f4a", "#23262e"] as const;
+const MEDIA_PAGE_SHADOWS =
+  "inset 0 0 0 1px rgba(255, 255, 255, 0.15), inset 0 1px 2px rgba(255, 255, 255, 0.18), 0 2px 6px rgba(0, 0, 0, 0.35)";
+
 const styles = StyleSheet.create({
+  auraCount: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+    marginBottom: 8,
+  },
+  auraCountText: {
+    fontFamily: "SofiaProBold",
+    fontSize: 18,
+    fontWeight: "normal",
+    lineHeight: 22,
+  },
   bookmarkActive: {
     alignItems: "center",
     justifyContent: "center",
@@ -654,10 +749,22 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 28,
   },
+  iconHitMedia: {
+    alignItems: "center",
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
   label: {
     fontFamily: "SofiaProMed",
     fontSize: 12,
     fontWeight: "normal",
+  },
+  mediaTrigger: {
+    alignItems: "center",
+    height: 40,
+    justifyContent: "center",
+    width: 40,
   },
   moreTrigger: {
     alignItems: "center",

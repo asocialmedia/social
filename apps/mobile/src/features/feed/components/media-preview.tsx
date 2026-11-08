@@ -72,7 +72,11 @@ import {
   mediaDimensionsCache,
   mediaDimensionsKey,
 } from "../lib/media-dimensions";
-import { mediaDownloadDescriptor } from "../lib/media-download";
+import {
+  DownloadRateLimitedError,
+  isRateLimitedDownload,
+  mediaDownloadDescriptor,
+} from "../lib/media-download";
 import { mediaPreviewLayout } from "../lib/media-preview-layout";
 import {
   isVideoMedia,
@@ -452,6 +456,11 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
         if (file.exists) {
           file.delete();
         }
+        // The server rate-limits media downloads; surface web's 429 copy
+        // instead of the generic failure toast.
+        if (isRateLimitedDownload(error)) {
+          throw new DownloadRateLimitedError();
+        }
         throw error;
       }
     }
@@ -472,12 +481,20 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
       if (feedback) {
         haptic("error");
       }
-      toast({
-        description:
-          error instanceof Error ? error.message : "Please try again.",
-        title: "Couldn't complete the action",
-        variant: "destructive",
-      });
+      if (error instanceof DownloadRateLimitedError) {
+        toast({
+          description: "Slow down and try again.",
+          title: "Too many downloads",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          description:
+            error instanceof Error ? error.message : "Please try again.",
+          title: "Couldn't complete the action",
+          variant: "destructive",
+        });
+      }
     }
     busyRef.current = false;
     if (mounted.current) {

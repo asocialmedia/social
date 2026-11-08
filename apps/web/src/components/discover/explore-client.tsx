@@ -889,8 +889,10 @@ const ExploreClient: React.FC<{ publicLinks?: React.ReactNode }> = ({
           </div>
         ) : null}
         <div className="hide-native-scrollbar flex flex-1 flex-col gap-4 overflow-y-auto">
-          {isLoggedIn ? <PostHistoryCard /> : null}
-          <TrendingTopics />
+          {isLoggedIn ? (
+            <PostHistoryCard mediaQuery="(min-width: 80rem)" />
+          ) : null}
+          <TrendingTopics mediaQuery="(min-width: 80rem)" />
         </div>
       </aside>
       <MobileBottomNav />

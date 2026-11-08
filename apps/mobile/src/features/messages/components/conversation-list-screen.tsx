@@ -9,21 +9,31 @@
 // a conversation later is instant.
 
 import { MESSAGES_CONNECTION_ERROR } from "@asm/ui/lib/messages-errors";
+import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "expo-router";
-import { Plus, Search, Ticket, X, MessageCircle } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  BellOff,
+  MessageCircle,
+  Plus,
+  Search,
+  Ticket,
+  Users,
+  X,
+} from "lucide-react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
+  Keyboard,
   RefreshControl,
   StyleSheet,
   Text,
   TextInput,
   Pressable,
-  ScrollView,
   View,
 } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
+import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { resetHeaderScroll } from "@/features/feed/lib/header-visibility";
@@ -31,16 +41,22 @@ import { MobileBottomNav } from "@/features/home/components/mobile-bottom-nav";
 import { MobileHeader } from "@/features/home/components/mobile-header";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { createConversation } from "@/features/messages/lib/client";
-import type { PresenceUser } from "@/features/messages/lib/client";
+import type {
+  PresenceUser,
+  SearchUserResult,
+} from "@/features/messages/lib/client";
 import {
   CONVERSATION_FILTERS,
   conversationCounts,
   conversationKind,
   conversationLeft,
+  unreadConversationCounts,
 } from "@/features/messages/lib/conversation-presentation";
 import type { ConversationFilter } from "@/features/messages/lib/conversation-presentation";
+import { previewBatchForItems } from "@/features/messages/lib/conversation-preview-requests";
 import { messageDecryptor } from "@/features/messages/lib/decryptor";
 import type { DecryptItem } from "@/features/messages/lib/decryptor";
+import type { GlobalMessageSearchResult } from "@/features/messages/lib/global-message-search";
 import {
   formatArrivalCount,
   formatListTimestamp,
@@ -53,32 +69,40 @@ import {
 import { conversationListStore } from "@/features/messages/state/conversation-list-store";
 import type { ConversationRowView } from "@/features/messages/state/conversation-list-store";
 import { useMessagesIdentity } from "@/features/messages/state/message-identity";
+import { useGlobalMessageSearch } from "@/features/messages/state/use-global-message-search";
 import { useMessagePresence } from "@/features/messages/state/use-message-presence";
 import { useConversationList } from "@/features/messages/state/use-messages-data";
+import { useProfileSearch } from "@/features/messages/state/use-profile-search";
 import { useUnreadNotificationCount } from "@/features/notifications/state/use-unread-count";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/layout/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
+import { CommunityChatStrip } from "./community-chat-strip";
 import { DenAvatar } from "./den-avatar";
 import { DenDialog } from "./den-dialog";
-import { MessagePeoplePanel } from "./message-people-panel";
+import { GlobalMessageSearchResults } from "./global-message-search-results";
 import { MessagePresenceIndicator } from "./message-presence-indicator";
 import { MessagesErrorState } from "./messages-error-state";
-import {
-  MessagesIconButton,
-  MutedGlyph,
-  PressableRow,
-} from "./messages-primitives";
+import { MessagesIconButton, PressableRow } from "./messages-primitives";
 import { ConversationListSkeleton } from "./messages-skeleton";
+import { OnlineFriendsStrip } from "./online-friends-strip";
 
 export { conversationListStore } from "@/features/messages/state/conversation-list-store";
 
 export function ConversationListScreen({
+  dmUserId,
+  onDmHandled,
   onOpen,
+  onOpenMessage,
 }: {
+  // `?dm=<userId>` from a profile's Message button: create-or-open that DM once
+  // the identity is ready, then the route clears the param.
+  dmUserId?: string | null;
+  onDmHandled?: () => void;
   onOpen: (conversationId: string) => void;
+  onOpenMessage?: (conversationId: string, messageId: string) => void;
 }) {
   const { theme, isDark } = useAppTheme();
   const { user } = useSessionContext();
@@ -92,6 +116,7 @@ export function ConversationListScreen({
     }, [])
   );
   const [query, setQuery] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
   const [filter, setFilter] = useState<ConversationFilter>("ALL");
   const [denDialog, setDenDialog] = useState<"create" | "join" | null>(null);
   const identity = useMessagesIdentity();
@@ -111,39 +136,130 @@ export function ConversationListScreen({
     }
     list.refresh();
   };
-  const [openingPerson, setOpeningPerson] = useState(false);
-  const handleOnlinePerson = async (person: PresenceUser) => {
-    if (openingPerson) {
+  // One create-or-open flow for every entry point: an online friend, a profile
+  // search result, and the `?dm=` deep link. The ref is the lock, so a double tap
+  // cannot create two conversations while the first request is in flight.
+  const [creatingId, setCreatingId] = useState<string | null>(null);
+  const creatingRef = useRef(false);
+  const startConversation = useCallback(
+    async (recipientId: string): Promise<boolean> => {
+      if (creatingRef.current) {
+        return false;
+      }
+      creatingRef.current = true;
+      setCreatingId(recipientId);
+      let opened = false;
+      try {
+        const existing = conversationListStore
+          .getSnapshot()
+          .rows.find(
+            (row) =>
+              conversationKind(row.conversation) === "DM" &&
+              row.peerId === recipientId
+          );
+        if (existing) {
+          onOpen(existing.conversation.id);
+        } else {
+          const result = await createConversation(recipientId, {
+            apiBase: getApiBaseUrl(),
+            cookie: await authClient.getCookie(),
+          });
+          list.refresh();
+          onOpen(result.conversation.id);
+        }
+        opened = true;
+      } catch (error) {
+        toast({
+          description:
+            error instanceof Error && error.message
+              ? error.message
+              : "Please try again.",
+          title: "Couldn't open conversation",
+          variant: "destructive",
+        });
+      }
+      creatingRef.current = false;
+      setCreatingId(null);
+      return opened;
+    },
+    [list, onOpen]
+  );
+  const handleOnlinePerson = (person: PresenceUser) => {
+    void startConversation(person.id);
+  };
+
+  // `?dm=` waits for a ready identity (the new conversation needs keys) and is
+  // consumed exactly once, whatever the outcome.
+  const handledDm = useRef<string | null>(null);
+  useEffect(() => {
+    if (!dmUserId || identity.status !== "ready") {
       return;
     }
-    setOpeningPerson(true);
-    try {
-      const existing = list.rows.find(
-        (row) =>
-          conversationKind(row.conversation) === "DM" &&
-          row.peerId === person.id
-      );
-      if (existing) {
-        onOpen(existing.conversation.id);
-      } else {
-        const result = await createConversation(person.id, {
-          apiBase: getApiBaseUrl(),
-          cookie: await authClient.getCookie(),
-        });
-        list.refresh();
-        onOpen(result.conversation.id);
-      }
-    } catch {
-      conversationListStore.setSnapshot({
-        error: "Couldn't open this conversation. Try again.",
-      });
+    if (handledDm.current === dmUserId) {
+      return;
     }
-    setOpeningPerson(false);
-  };
+    handledDm.current = dmUserId;
+    onDmHandled?.();
+    setQuery("");
+    void startConversation(dmUserId);
+  }, [dmUserId, identity.status, onDmHandled, startConversation]);
+
+  const searchQuery = query.trim();
+  const searching = searchQuery.length > 0;
+  const globalSearch = useGlobalMessageSearch({
+    conversationType: filter,
+    query,
+  });
+  const profileSearch = useProfileSearch(query);
+  const [profilesExpanded, setProfilesExpanded] = useState(false);
+  const [focusMessageId, setFocusMessageId] = useState<string | null>(null);
+  const changeQuery = useCallback((value: string) => {
+    setProfilesExpanded(false);
+    setFocusMessageId(null);
+    setQuery(value);
+  }, []);
+  const handleProfileSelect = useCallback(
+    (profile: SearchUserResult) => {
+      if (!profile.hasIdentity) {
+        toast({
+          description: `${profile.displayName} hasn't enabled Messages yet`,
+          title: "Can't message",
+          variant: "destructive",
+        });
+        return;
+      }
+      void (async () => {
+        if (await startConversation(profile.id)) {
+          changeQuery("");
+        }
+      })();
+    },
+    [changeQuery, startConversation]
+  );
+  const handleSearchSelect = useCallback(
+    (result: GlobalMessageSearchResult) => {
+      setFocusMessageId(result.hit.id);
+      Keyboard.dismiss();
+      if (onOpenMessage) {
+        onOpenMessage(result.hit.conversationId, result.hit.id);
+      } else {
+        onOpen(result.hit.conversationId);
+      }
+    },
+    [onOpen, onOpenMessage]
+  );
+  const handleFailedPageRetry =
+    globalSearch.results.length > 0 && globalSearch.hasMore
+      ? globalSearch.loadMore
+      : globalSearch.retry;
+  const handleSearchLoadMore = globalSearch.loadMore;
+  const handleSearchRefresh = globalSearch.retry;
+  const handleProfileRetry = profileSearch.retry;
 
   const handleLoadMore = list.loadMore;
   const presence = useMessagePresence();
   const counts = conversationCounts(list.rows.map((row) => row.conversation));
+  const unreadCounts = unreadConversationCounts(list.rows);
   const rows = list.rows.filter(
     (row) => filter === "ALL" || conversationKind(row.conversation) === filter
   );
@@ -153,20 +269,12 @@ export function ConversationListScreen({
     [presence]
   );
 
+  // Web's useConversationPreviewRequests: the server stores only ciphertext,
+  // so a list preview is a decrypt like any other. A deleted last message
+  // previews from the row alone, so decrypting it would be work whose result is
+  // thrown away.
   const decryptItems = useMemo<DecryptItem[]>(
-    () =>
-      list.rows
-        .filter((row) => row.lastMessage !== null)
-        .map((row) => ({
-          conversationId: row.conversation.id,
-          message: {
-            ciphertext: row.lastMessage?.ciphertext ?? "",
-            id: row.lastMessage?.id ?? row.conversation.id,
-            iv: row.lastMessage?.iv ?? "",
-            ratchetIndex: row.lastMessage?.ratchetIndex ?? 0,
-            senderId: row.lastMessage?.senderId ?? "",
-          },
-        })),
+    () => previewBatchForItems(list.rows),
     [list.rows]
   );
 
@@ -197,261 +305,315 @@ export function ConversationListScreen({
         unreadCount={unreadNotifications}
         user={user ? { ...user, username: user.username ?? "" } : null}
       />
-      <View style={{ backgroundColor: theme.containerBg }}>
-        <View
-          style={{
-            alignItems: "center",
-            flexDirection: "row",
-            gap: 8,
-            height: 56,
-            paddingHorizontal: 10,
-            zIndex: 20,
-          }}
-        >
-          <View
-            style={{
-              alignItems: "center",
-              backgroundColor: field.background,
-              borderRadius: 12,
-              boxShadow: field.shadows,
-              flex: 1,
-              flexDirection: "row",
-              gap: 8,
-              height: 36,
-              paddingHorizontal: 12,
-            }}
-          >
-            <Search size={16} color={theme.dividerText} />
-            <TextInput
-              accessibilityLabel="Search people you follow"
-              placeholder="Search people you follow…"
-              placeholderTextColor={theme.dividerText}
-              value={query}
-              onChangeText={setQuery}
-              autoCapitalize="none"
+      {/* Web's `flex min-h-0 flex-1` row: the 64px community strip, then the
+          list pane. */}
+      <View style={styles.panes}>
+        <CommunityChatStrip />
+        <View style={styles.listPane}>
+          <View style={{ backgroundColor: theme.containerBg }}>
+            <View
               style={{
-                color: theme.inputText,
-                flex: 1,
-                fontFamily: "SofiaProReg",
-                fontSize: 14,
-                minWidth: 0,
-                padding: 0,
+                alignItems: "center",
+                flexDirection: "row",
+                gap: 8,
+                height: 56,
+                paddingHorizontal: 10,
+                zIndex: 20,
               }}
-            />
-            {query ? (
-              <MessagesIconButton
-                icon={X}
-                label="Clear search"
-                size={24}
-                onPress={() => setQuery("")}
+            >
+              {/* Web's `premium-input h-11 rounded-xl pl-9 pr-11 text-base`. */}
+              <View
+                style={{
+                  alignItems: "center",
+                  backgroundColor: field.background,
+                  borderRadius: 12,
+                  boxShadow: field.shadows,
+                  flex: 1,
+                  flexDirection: "row",
+                  gap: 8,
+                  height: 44,
+                  paddingLeft: 12,
+                }}
+              >
+                <Search size={16} color={theme.dividerText} />
+                <TextInput
+                  accessibilityLabel="Search profiles and messages"
+                  placeholder="Search…"
+                  placeholderTextColor={theme.dividerText}
+                  value={query}
+                  onBlur={() => setSearchFocused(false)}
+                  onChangeText={changeQuery}
+                  onFocus={() => setSearchFocused(true)}
+                  autoCapitalize="none"
+                  maxLength={512}
+                  returnKeyType="search"
+                  style={{
+                    color: theme.inputText,
+                    flex: 1,
+                    fontFamily: "SofiaProReg",
+                    fontSize: 16,
+                    minWidth: 0,
+                    padding: 0,
+                    paddingRight: query ? 0 : 12,
+                  }}
+                />
+                {query ? (
+                  <Pressable
+                    accessibilityLabel="Clear search"
+                    accessibilityRole="button"
+                    onPress={() => changeQuery("")}
+                    style={{
+                      alignItems: "center",
+                      height: 44,
+                      justifyContent: "center",
+                      width: 44,
+                    }}
+                  >
+                    <X color={theme.dividerText} size={16} />
+                  </Pressable>
+                ) : null}
+              </View>
+              {/* Web collapses both den keys while the search is in use. */}
+              {searchFocused || query ? null : (
+                <>
+                  <MessagesIconButton
+                    icon={Ticket}
+                    iconSize={16}
+                    label="Join a den"
+                    size={44}
+                    onPress={() => setDenDialog("join")}
+                  />
+                  <MessagesIconButton
+                    icon={Plus}
+                    iconSize={16}
+                    label="New den"
+                    size={44}
+                    onPress={() => setDenDialog("create")}
+                  />
+                </>
+              )}
+            </View>
+            {query ? null : (
+              <OnlineFriendsStrip
+                creating={creatingId}
+                onSelect={(userId) => {
+                  const person = presence.find((entry) => entry.id === userId);
+                  if (person) {
+                    handleOnlinePerson(person);
+                  }
+                }}
+                users={presence}
+              />
+            )}
+            <View
+              accessibilityLabel={
+                searching ? "Filter message results" : "Filter conversations"
+              }
+              accessibilityRole="tablist"
+              style={{
+                backgroundColor: raised.background,
+                borderRadius: 16,
+                boxShadow: raised.shadows,
+                flexDirection: "row",
+                gap: 4,
+                marginHorizontal: 10,
+                marginVertical: 4,
+                padding: 4,
+              }}
+            >
+              {CONVERSATION_FILTERS.map((option) => (
+                <Pressable
+                  accessibilityRole="tab"
+                  accessibilityLabel={
+                    searching
+                      ? `${option.label} message results`
+                      : `${option.label}, ${counts[option.key]} conversations${unreadCounts[option.key] > 0 ? ", unread messages" : ""}`
+                  }
+                  accessibilityState={{ selected: filter === option.key }}
+                  key={option.key}
+                  onPress={() => {
+                    setFocusMessageId(null);
+                    setFilter(option.key);
+                  }}
+                  style={{
+                    alignItems: "center",
+                    backgroundColor:
+                      filter === option.key ? chip.background : "transparent",
+                    borderRadius: 12,
+                    boxShadow: filter === option.key ? chip.shadows : undefined,
+                    flex: 1,
+                    flexDirection: "row",
+                    gap: 8,
+                    justifyContent: "center",
+                    minHeight: 44,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: theme.inputText,
+                      fontFamily:
+                        filter === option.key ? "SofiaProBold" : "SofiaProMed",
+                      fontSize: 12,
+                    }}
+                  >
+                    {option.label}
+                  </Text>
+                  {/* Web hides the counts while a search is showing results. */}
+                  {query.trim() ? null : (
+                    <View
+                      style={{
+                        backgroundColor: chip.background,
+                        borderRadius: 999,
+                        boxShadow: chip.shadows,
+                        minWidth: 20,
+                        paddingHorizontal: 6,
+                        paddingVertical: 2,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: theme.inputText,
+                          fontFamily: "SofiaProMed",
+                          fontSize: 10,
+                          textAlign: "center",
+                        }}
+                      >
+                        {counts[option.key]}
+                      </Text>
+                    </View>
+                  )}
+                  {!query.trim() && unreadCounts[option.key] > 0 ? (
+                    // `size-1.5 top-1.5 right-1.5` dot, #ffb45c to #e65500 with a glow.
+                    <LinearGradient
+                      colors={["#ffb45c", "#e65500"]}
+                      end={{ x: 0.5, y: 1 }}
+                      pointerEvents="none"
+                      start={{ x: 0.5, y: 0 }}
+                      style={styles.tabUnreadDot}
+                    />
+                  ) : null}
+                </Pressable>
+              ))}
+            </View>
+          </View>
+          {searching ? (
+            <View style={styles.searchBody}>
+              {[...searchQuery].length > 256 ? (
+                <Text
+                  style={[styles.searchLimit, { color: theme.dividerText }]}
+                >
+                  Use 256 characters or fewer to search.
+                </Text>
+              ) : (
+                <GlobalMessageSearchResults
+                  coverageComplete={globalSearch.coverageComplete}
+                  coveragePaused={globalSearch.coveragePaused}
+                  creatingProfileId={creatingId}
+                  error={globalSearch.error}
+                  focusMessageId={focusMessageId}
+                  hasMore={globalSearch.hasMore}
+                  loading={globalSearch.loading}
+                  loadingMore={globalSearch.loadingMore}
+                  messageQueryValid={globalSearch.messageQueryValid}
+                  myUserId={user?.id ?? ""}
+                  onLoadMore={handleSearchLoadMore}
+                  onProfileRetry={handleProfileRetry}
+                  onProfileSelect={handleProfileSelect}
+                  onProfileToggleExpanded={() =>
+                    setProfilesExpanded((expanded) => !expanded)
+                  }
+                  onRefresh={handleSearchRefresh}
+                  onRetry={handleFailedPageRetry}
+                  onSelect={handleSearchSelect}
+                  profileError={profileSearch.error}
+                  profileExpanded={profilesExpanded}
+                  profileLoading={profileSearch.loading}
+                  profileRetryAt={profileSearch.retryAt}
+                  profiles={profileSearch.profiles}
+                  query={query}
+                  results={globalSearch.results}
+                  retryAt={globalSearch.retryAt}
+                />
+              )}
+            </View>
+          ) : null}
+          <View style={searching ? styles.hidden : styles.listBody}>
+            {messageError && list.rows.length > 0 ? (
+              <MessagesErrorState
+                compact
+                message={messageError}
+                onRetry={retryMessages}
+              />
+            ) : null}
+            {messageError && list.rows.length === 0 ? (
+              <MessagesErrorState
+                message={messageError}
+                onRetry={retryMessages}
+              />
+            ) : null}
+            {!messageError &&
+            (identity.status === "loading" || list.loading) &&
+            list.rows.length === 0 ? (
+              <ConversationListSkeleton />
+            ) : null}
+            {(!messageError || list.rows.length > 0) &&
+            ((identity.status !== "loading" && !list.loading) ||
+              list.rows.length > 0) ? (
+              <FlatList
+                contentContainerStyle={styles.listContent}
+                data={rows}
+                onEndReached={handleLoadMore}
+                onEndReachedThreshold={0.5}
+                ListFooterComponent={
+                  list.loadingMore ? <ConversationListSkeleton /> : undefined
+                }
+                ListEmptyComponent={
+                  messageError ? undefined : (
+                    <View
+                      style={{
+                        alignItems: "center",
+                        gap: 8,
+                        paddingHorizontal: 24,
+                        paddingVertical: 40,
+                      }}
+                    >
+                      {/* No conversations at all is "search for somebody"; an
+                      empty filter is "you are on the wrong tab". */}
+                      {list.rows.length === 0 ? (
+                        <MessageCircle size={24} color={theme.dividerText} />
+                      ) : (
+                        <Users size={24} color={theme.dividerText} />
+                      )}
+                      <Text
+                        style={{
+                          color: theme.dividerText,
+                          fontFamily: "SofiaProReg",
+                          fontSize: 12,
+                          textAlign: "center",
+                        }}
+                      >
+                        {list.rows.length === 0
+                          ? "No conversations yet. Search for someone you follow to start one, or make a den for a group."
+                          : `No ${filter === "DM" ? "DMs" : "dens"} yet.`}
+                      </Text>
+                    </View>
+                  )
+                }
+                keyExtractor={(row) => row.conversation.id}
+                refreshControl={
+                  <RefreshControl
+                    onRefresh={handleRefresh}
+                    refreshing={list.refreshing}
+                    tintColor={theme.dividerText}
+                  />
+                }
+                renderItem={renderRow}
+                showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+                {...LIST_VIRTUALIZATION_PROPS}
               />
             ) : null}
           </View>
-          <MessagesIconButton
-            icon={Ticket}
-            label="Join a den"
-            size={36}
-            onPress={() => setDenDialog("join")}
-          />
-          <MessagesIconButton
-            icon={Plus}
-            label="New den"
-            size={36}
-            onPress={() => setDenDialog("create")}
-          />
-          {query.trim() ? (
-            <View
-              style={{
-                left: 10,
-                position: "absolute",
-                right: 10,
-                top: 56,
-                zIndex: 30,
-              }}
-            >
-              <MessagePeoplePanel
-                mode="search"
-                searchQuery={query}
-                onClose={() => {
-                  setQuery("");
-                  list.refresh();
-                }}
-              />
-            </View>
-          ) : null}
         </View>
-        {presence.some(
-          (person) => person.status === "online" && person.isFollowing
-        ) ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{
-              gap: 12,
-              paddingHorizontal: 10,
-              paddingVertical: 8,
-            }}
-          >
-            {presence
-              .filter(
-                (person) => person.status === "online" && person.isFollowing
-              )
-              .map((person) => (
-                <Pressable
-                  key={person.id}
-                  accessibilityLabel={`Message ${person.displayName}, online`}
-                  disabled={openingPerson}
-                  onPress={() => {
-                    void handleOnlinePerson(person);
-                  }}
-                >
-                  <UserAvatar
-                    size={48}
-                    url={person.avatarUrl}
-                    userId={person.id}
-                  />
-                  <MessagePresenceIndicator
-                    status="online"
-                    testID="online-friend-presence"
-                  />
-                </Pressable>
-              ))}
-          </ScrollView>
-        ) : null}
-        <View
-          accessibilityRole="tablist"
-          style={{
-            backgroundColor: raised.background,
-            borderRadius: 16,
-            boxShadow: raised.shadows,
-            flexDirection: "row",
-            gap: 4,
-            marginHorizontal: 10,
-            marginVertical: 4,
-            padding: 4,
-          }}
-        >
-          {CONVERSATION_FILTERS.map((option) => (
-            <Pressable
-              accessibilityRole="tab"
-              accessibilityLabel={`${option.label}, ${counts[option.key]} conversations`}
-              accessibilityState={{ selected: filter === option.key }}
-              key={option.key}
-              onPress={() => setFilter(option.key)}
-              style={{
-                alignItems: "center",
-                backgroundColor:
-                  filter === option.key ? chip.background : "transparent",
-                borderRadius: 12,
-                boxShadow: filter === option.key ? chip.shadows : undefined,
-                flex: 1,
-                flexDirection: "row",
-                gap: 8,
-                justifyContent: "center",
-                minHeight: 44,
-              }}
-            >
-              <Text
-                style={{
-                  color: theme.inputText,
-                  fontFamily:
-                    filter === option.key ? "SofiaProBold" : "SofiaProMed",
-                  fontSize: 12,
-                }}
-              >
-                {option.label}
-              </Text>
-              <View
-                style={{
-                  backgroundColor: chip.background,
-                  borderRadius: 999,
-                  boxShadow: chip.shadows,
-                  minWidth: 20,
-                  paddingHorizontal: 6,
-                  paddingVertical: 2,
-                }}
-              >
-                <Text
-                  style={{
-                    color: theme.inputText,
-                    fontFamily: "SofiaProMed",
-                    fontSize: 10,
-                    textAlign: "center",
-                  }}
-                >
-                  {counts[option.key]}
-                </Text>
-              </View>
-            </Pressable>
-          ))}
-        </View>
-      </View>
-      <View style={{ flex: 1 }}>
-        {messageError && list.rows.length > 0 ? (
-          <MessagesErrorState
-            compact
-            message={messageError}
-            onRetry={retryMessages}
-          />
-        ) : null}
-        {messageError && list.rows.length === 0 ? (
-          <MessagesErrorState message={messageError} onRetry={retryMessages} />
-        ) : null}
-        {!messageError &&
-        (identity.status === "loading" || list.loading) &&
-        list.rows.length === 0 ? (
-          <ConversationListSkeleton />
-        ) : null}
-        {(!messageError || list.rows.length > 0) &&
-        ((identity.status !== "loading" && !list.loading) ||
-          list.rows.length > 0) ? (
-          <FlatList
-            contentContainerStyle={styles.listContent}
-            data={rows}
-            onEndReached={handleLoadMore}
-            onEndReachedThreshold={0.5}
-            ListFooterComponent={
-              list.loadingMore ? <ConversationListSkeleton /> : undefined
-            }
-            ListEmptyComponent={
-              messageError ? undefined : (
-                <View
-                  style={{
-                    alignItems: "center",
-                    gap: 8,
-                    paddingHorizontal: 24,
-                    paddingVertical: 40,
-                  }}
-                >
-                  <MessageCircle size={24} color={theme.dividerText} />
-                  <Text
-                    style={{
-                      color: theme.dividerText,
-                      fontFamily: "SofiaProReg",
-                      fontSize: 12,
-                      textAlign: "center",
-                    }}
-                  >
-                    {list.rows.length === 0
-                      ? "No conversations yet. Search for someone you follow to start one, or make a den for a group."
-                      : `No ${filter === "DM" ? "DMs" : "dens"} yet.`}
-                  </Text>
-                </View>
-              )
-            }
-            keyExtractor={(row) => row.conversation.id}
-            refreshControl={
-              <RefreshControl
-                onRefresh={handleRefresh}
-                refreshing={list.refreshing}
-                tintColor={theme.dividerText}
-              />
-            }
-            renderItem={renderRow}
-            showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-            {...LIST_VIRTUALIZATION_PROPS}
-          />
-        ) : null}
       </View>
       <MobileBottomNav />
       {denDialog ? (
@@ -471,15 +633,31 @@ export function ConversationListScreen({
 
 // A row with no messages at all says so; a row whose last message has not
 // decrypted yet says nothing rather than flashing "No messages yet".
-function previewTextFor(row: ConversationRowView, decrypted: boolean): string {
+// Web's fallbacks: a departed den states the reader's own position, and a muted
+// row with nothing to preview says it is muted.
+function previewTextFor(
+  row: ConversationRowView,
+  decrypted: boolean,
+  left: boolean
+): string {
+  if (left) {
+    return "You left this den";
+  }
+  const preview = decrypted ? row.preview : "";
+  if (preview.length > 0) {
+    return preview;
+  }
+  if (row.muted) {
+    return "Muted";
+  }
   if (!decrypted) {
     return "";
   }
-  if (row.preview.length > 0) {
-    return row.preview;
-  }
   return row.lastMessage ? "" : "No messages yet";
 }
+
+// text-primary: hsl(22.93 92.59% 52.35%) in both themes.
+const PRIMARY = "#f66b15";
 
 // Unread rows are louder than read ones: a heavier face and brighter ink. Two
 // steps rather than a ramp, so a row never reads as "half-read".
@@ -505,25 +683,42 @@ function ConversationRow({
   const { isDark, theme } = useAppTheme();
   const unread = row.unreadCount > 0;
   const { payload } = row;
+  const isDen = conversationKind(row.conversation) === "DEN";
+  const left = conversationLeft(row.conversation, row.mineUserId);
+  const peer = row.conversation.members.find(
+    (member) => member.userId === row.peerId
+  )?.user;
+  const chip = chip3d(isDark);
   return (
     <PressableRow onPress={onPress} style={styles.row}>
       <View style={styles.avatarWrap}>
-        {conversationKind(row.conversation) === "DEN" ? (
-          <DenAvatar conversation={row.conversation} />
-        ) : (
-          <UserAvatar
-            size={40}
-            url={row.avatarUrl}
-            userId={row.peerId}
-            username={row.peerUsername}
-          />
-        )}
-        {conversationKind(row.conversation) === "DEN" ? null : (
+        {/* Web dims every inactive row's avatar to 65%. */}
+        <View style={styles.avatarDim}>
+          {isDen ? (
+            <DenAvatar conversation={row.conversation} />
+          ) : (
+            <UserAvatar
+              size={40}
+              url={row.avatarUrl}
+              userId={row.peerId}
+              username={row.peerUsername}
+            />
+          )}
+        </View>
+        {isDen || presence === "offline" ? null : (
           <MessagePresenceIndicator
             status={presence}
             testID="conversation-list-presence"
           />
         )}
+        {row.muted ? (
+          <View
+            accessibilityLabel="Muted"
+            style={[styles.mutedBadge, { backgroundColor: theme.containerBg }]}
+          >
+            <BellOff color={theme.dividerText} size={10} />
+          </View>
+        ) : null}
       </View>
       <View style={styles.rowBody}>
         <View style={styles.rowTop}>
@@ -539,26 +734,34 @@ function ConversationRow({
           >
             {row.displayName}
           </Text>
-          {conversationKind(row.conversation) === "DM" ? (
+          {left ? (
+            <View
+              style={[
+                styles.leftChip,
+                { backgroundColor: chip.background, boxShadow: chip.shadows },
+              ]}
+            >
+              <Text style={[styles.leftChipText, { color: theme.dividerText }]}>
+                Left
+              </Text>
+            </View>
+          ) : null}
+          {isDen ? null : (
             <UserBadge
-              badge={
-                row.conversation.members.find(
-                  (member) => member.userId === row.peerId
-                )?.user.badge
-              }
-              badges={
-                row.conversation.members.find(
-                  (member) => member.userId === row.peerId
-                )?.user.badges
-              }
+              badge={peer?.badge}
+              badges={peer?.badges}
+              communityRoles={peer?.communityMemberships}
             />
-          ) : null}
-          {conversationLeft(row.conversation, row.mineUserId) ? (
-            <Text style={{ color: theme.dividerText, fontSize: 10 }}>Left</Text>
-          ) : null}
+          )}
           <View style={styles.rowMeta}>
-            {row.muted ? <MutedGlyph /> : null}
-            <Text style={[styles.rowTime, { color: theme.dividerText }]}>
+            <Text
+              style={[
+                styles.rowTime,
+                unread
+                  ? { color: PRIMARY, fontFamily: "SofiaProBold" }
+                  : { color: theme.dividerText },
+              ]}
+            >
               {row.lastMessage
                 ? formatListTimestamp(row.lastMessage.createdAt)
                 : ""}
@@ -573,15 +776,10 @@ function ConversationRow({
               previewTone(unread, isDark, theme.dividerText),
             ]}
           >
-            {previewTextFor(row, payload !== undefined)}
+            {previewTextFor(row, payload !== undefined, left)}
           </Text>
           {unread ? (
-            <View
-              style={[
-                styles.unreadPill,
-                { backgroundColor: isDark ? "#e65500" : "#ff9500" },
-              ]}
-            >
+            <View style={[styles.unreadPill, { backgroundColor: PRIMARY }]}>
               <Text style={styles.unreadPillText}>
                 {formatArrivalCount(row.unreadCount)}
               </Text>
@@ -621,14 +819,41 @@ function useDecryptPreviews(items: DecryptItem[]) {
 }
 
 const styles = StyleSheet.create({
+  avatarDim: { opacity: 0.65 },
   avatarWrap: {
     height: 40,
     width: 40,
   },
+  // The list stays mounted under a search so its scroll position survives.
+  hidden: { display: "none" },
+  // `chip-3d rounded-full px-1.5 py-0.5 text-[10px] font-medium`.
+  leftChip: {
+    borderRadius: 9999,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  leftChipText: {
+    fontFamily: "SofiaProMed",
+    fontSize: 10,
+  },
+  listBody: { flex: 1 },
   listContent: {
     paddingBottom: 120,
     paddingHorizontal: 8,
   },
+  listPane: { flex: 1, minWidth: 0 },
+  // `size-4 bg-background rounded-full -bottom-0.5 -left-0.5` holding a 10px BellOff.
+  mutedBadge: {
+    alignItems: "center",
+    borderRadius: 8,
+    bottom: -2,
+    height: 16,
+    justifyContent: "center",
+    left: -2,
+    position: "absolute",
+    width: 16,
+  },
+  panes: { flex: 1, flexDirection: "row", minHeight: 0 },
   root: {
     flex: 1,
   },
@@ -664,20 +889,39 @@ const styles = StyleSheet.create({
   },
   rowTime: {
     fontFamily: "SofiaProReg",
-    fontSize: 11,
+    fontSize: 10,
+    fontVariant: ["tabular-nums"],
   },
   rowTop: {
     alignItems: "center",
     flexDirection: "row",
     gap: 8,
   },
+  // Web's `p-2` list container around the unified results.
+  searchBody: { flex: 1, paddingHorizontal: 8 },
+  searchLimit: {
+    fontFamily: "SofiaProReg",
+    fontSize: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 16,
+  },
+  tabUnreadDot: {
+    borderRadius: 3,
+    boxShadow: "0 0 6px rgba(255, 149, 0, 0.5)",
+    height: 6,
+    position: "absolute",
+    right: 6,
+    top: 6,
+    width: 6,
+  },
+  // `bg-primary h-4 min-w-4 rounded-full px-1 text-[10px] font-semibold`.
   unreadPill: {
     alignItems: "center",
     borderRadius: 9999,
     justifyContent: "center",
-    minHeight: 18,
-    minWidth: 18,
-    paddingHorizontal: 5,
+    minHeight: 16,
+    minWidth: 16,
+    paddingHorizontal: 4,
   },
   unreadPillText: {
     color: "#ffffff",

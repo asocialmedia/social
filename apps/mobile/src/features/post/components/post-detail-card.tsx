@@ -539,6 +539,7 @@ function DetailBody({
           hideBookmark={hideBookmark}
           post={post.external}
           onDiscussion={onToggleEddies}
+          onShare={() => onShare(post)}
         />
       ) : (
         <View style={styles.actions}>

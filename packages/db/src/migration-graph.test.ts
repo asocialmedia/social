@@ -3,6 +3,24 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dir, "../prisma/migrations");
+
+test("every historical migration declaration remains available unpacked or compressed", async () => {
+  const snapshots = await readdir(path.join(root, "snapshots"));
+  await Promise.all(
+    snapshots.map(async (hash) => {
+      const declaration = Bun.file(
+        path.join(root, "snapshots", hash, "contract.d.ts")
+      );
+      const contents = (await declaration.exists())
+        ? await declaration.text()
+        : new TextDecoder().decode(
+            Bun.gunzipSync(await Bun.file(`${declaration.name}.gz`).bytes())
+          );
+      expect(contents).toContain("export type Contract");
+      expect(contents).toContain(hash);
+    })
+  );
+});
 interface Edge {
   from: string | null;
   to: string;

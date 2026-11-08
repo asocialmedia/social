@@ -119,6 +119,8 @@ function parseNotification(raw: unknown): NotificationItem | null {
       username: stringOrNull(issuerRow.username),
     },
     issuerId: typeof row.issuerId === "string" ? row.issuerId : issuerRow.id,
+    // Ties a COMMUNITY_JOIN_REQUEST row to the request it can accept or decline.
+    membershipRequestId: stringOrNull(row.membershipRequestId),
     post: parsePost(row.post),
     postId: typeof row.postId === "string" ? row.postId : null,
     read: Boolean(row.read),

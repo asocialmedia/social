@@ -197,6 +197,7 @@ export function parseProfileHeader(
       : [],
     bannerUrl: textOf(user.bannerUrl),
     bio: textOf(user.bio),
+    blueskyHandle: textOf(user.blueskyHandle),
     communityMemberships: memberships,
     createdAt: dateOf(user.createdAt),
     customDomain: textOf(user.customDomain),
@@ -314,9 +315,17 @@ function parseReply(value: unknown): ProfileReply | null {
 }
 
 export type ProfileFeedPage =
-  | { items: FeedPost[]; kind: "posts"; nextCursor: string | null }
-  | { items: ProfileMedia[]; kind: "media"; nextCursor: string | null }
-  | { items: ProfileReply[]; kind: "replies"; nextCursor: string | null };
+  | ({ items: FeedPost[]; kind: "posts" } & ProfileFeedCursor)
+  | ({ items: ProfileMedia[]; kind: "media" } & ProfileFeedCursor)
+  | ({ items: ProfileReply[]; kind: "replies" } & ProfileFeedCursor);
+
+// nextCursorAt is the timestamp of the last row on the page, sent by the
+// amplified and replies routes so Bluesky activity can be interleaved at the
+// right point. Other routes omit it.
+export interface ProfileFeedCursor {
+  nextCursor: string | null;
+  nextCursorAt?: string | null;
+}
 
 export function parseProfileFeedPage(
   payload: unknown,
@@ -324,6 +333,10 @@ export function parseProfileFeedPage(
 ): ProfileFeedPage {
   const page = objectOf(payload) ?? {};
   const nextCursor = cursorValue(page);
+  const nextCursorAt =
+    nextCursor && typeof page.nextCursorAt === "string" && page.nextCursorAt
+      ? page.nextCursorAt
+      : null;
   if (kind === "media") {
     return {
       items: Array.isArray(page.media)
@@ -334,6 +347,7 @@ export function parseProfileFeedPage(
         : [],
       kind,
       nextCursor,
+      nextCursorAt,
     };
   }
   if (kind === "replies") {
@@ -346,6 +360,7 @@ export function parseProfileFeedPage(
         : [],
       kind,
       nextCursor,
+      nextCursorAt,
     };
   }
   return {
@@ -354,6 +369,7 @@ export function parseProfileFeedPage(
       : [],
     kind: "posts",
     nextCursor,
+    nextCursorAt,
   };
 }
 

@@ -4,6 +4,7 @@ import loginImage from "@assets/auth/login-image.jpg";
 import signupImage from "@assets/auth/signup-image.jpg";
 import { ArrowLeft } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -25,69 +26,66 @@ export default function AuthPage({ initialMode }: { initialMode: AuthMode }) {
   const isLogin = mode === "login";
 
   return (
-    <AnimatePresence>
-      <motion.div
-        animate="visible"
-        className="bg-background relative flex min-h-dvh overflow-hidden"
-        initial="hidden"
-        transition={{ duration: 0.6, ease: "easeOut" }}
-        variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }}
+    <div className="bg-background animate-in fade-in relative flex min-h-dvh overflow-hidden [animation-duration:600ms] [animation-timing-function:ease-out] motion-reduce:animate-none">
+      <div
+        className={`absolute inset-0 z-0 ${
+          isLogin
+            ? "from-primary/5 via-background to-background/95 bg-gradient-to-br"
+            : "from-primary/5 via-background to-background/95 bg-gradient-to-bl"
+        }`}
+      />
+
+      <div
+        className={`absolute hidden h-full items-center md:flex ${
+          isLogin ? "left-20" : "right-20"
+        }`}
       >
-        <div
-          className={`absolute inset-0 z-0 ${
-            isLogin
-              ? "from-primary/5 via-background to-background/95 bg-gradient-to-br"
-              : "from-primary/5 via-background to-background/95 bg-gradient-to-bl"
-          }`}
-        />
-
-        <div
-          className={`absolute hidden h-full items-center md:flex ${
-            isLogin ? "left-20" : "right-20"
-          }`}
-        >
-          <AnimatePresence initial={false} mode="wait">
-            <motion.h1
-              animate={{ opacity: 1, x: 0 }}
-              className={`text-3d absolute top-1/2 -translate-y-1/2 text-6xl font-bold tracking-wider whitespace-nowrap select-none xl:text-8xl 2xl:text-9xl ${
-                isLogin ? "vertical-left left-0" : "vertical-right right-0"
-              }`}
-              exit={{ opacity: 0, x: isLogin ? 40 : -40 }}
-              initial={{ opacity: 0, x: isLogin ? -80 : 80 }}
-              key={mode}
-              transition={{
-                duration: 0.5,
-                ease: [0.22, 1, 0.36, 1],
-              }}
-            >
-              {isLogin ? "LOGIN" : "SIGN UP"}
-            </motion.h1>
-          </AnimatePresence>
-        </div>
-
-        <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-5 p-4 sm:p-8">
-          <AuthCard mode={mode} onSwitch={setMode} />
-          <Link
-            className="text-muted-foreground hover:text-foreground group inline-flex items-center gap-1.5 text-sm transition-colors"
-            href="/"
+        <AnimatePresence initial={false} mode="wait">
+          <motion.h1
+            animate={{ opacity: 1, x: 0 }}
+            className={`text-3d absolute top-1/2 -translate-y-1/2 text-6xl font-bold tracking-wider whitespace-nowrap select-none xl:text-8xl 2xl:text-9xl ${
+              isLogin ? "vertical-left left-0" : "vertical-right right-0"
+            }`}
+            exit={{ opacity: 0, x: isLogin ? 40 : -40 }}
+            initial={{ opacity: 0, x: isLogin ? -80 : 80 }}
+            key={mode}
+            transition={{
+              duration: 0.5,
+              ease: [0.22, 1, 0.36, 1],
+            }}
           >
-            <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
-            Skip for now — continue browsing as guest
-          </Link>
-        </div>
+            {isLogin ? "LOGIN" : "SIGN UP"}
+          </motion.h1>
+        </AnimatePresence>
+      </div>
 
-        <motion.div
-          animate={{ opacity: 0.05 }}
-          className={`absolute top-0 h-full w-full bg-cover bg-center opacity-5 blur-md lg:w-1/2 ${
-            isLogin ? "right-0" : "left-0"
-          }`}
-          initial={{ opacity: 0 }}
-          style={{
-            backgroundImage: `url(${isLogin ? loginImage.src : signupImage.src})`,
-          }}
-          transition={{ duration: 1 }}
+      <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-5 p-4 sm:p-8">
+        <AuthCard mode={mode} onSwitch={setMode} />
+        <Link
+          className="text-muted-foreground hover:text-foreground group inline-flex items-center gap-1.5 text-sm transition-colors"
+          href="/"
+        >
+          <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
+          Skip for now — continue browsing as guest
+        </Link>
+      </div>
+
+      <motion.div
+        animate={{ opacity: 0.05 }}
+        className={`absolute top-0 h-full w-full opacity-5 blur-md lg:w-1/2 ${
+          isLogin ? "right-0" : "left-0"
+        }`}
+        initial={{ opacity: 0 }}
+        transition={{ duration: 1 }}
+      >
+        <Image
+          alt=""
+          className="object-cover"
+          fill
+          sizes="(min-width: 1024px) 50vw, 100vw"
+          src={isLogin ? loginImage : signupImage}
         />
       </motion.div>
-    </AnimatePresence>
+    </div>
   );
 }

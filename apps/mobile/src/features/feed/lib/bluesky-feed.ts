@@ -43,7 +43,6 @@ export function createBlueskyFeed(
   let retryable = false;
   let retryAt = 0;
   let failedRead: { cursor: string | null; replace: boolean } | null = null;
-  let expiry: ReturnType<typeof setTimeout> | undefined;
   const listeners = new Set<() => void>();
   const update = (patch: Partial<DiscoveryState>) => {
     state = { ...state, ...patch };
@@ -187,7 +186,6 @@ export function createBlueskyFeed(
       }
     },
     activate: () => {
-      clearTimeout(expiry);
       if (
         state.pages.length === 0 ||
         (failedRead && retryable && Date.now() >= retryAt)
@@ -196,7 +194,6 @@ export function createBlueskyFeed(
       }
     },
     dispose: () => {
-      clearTimeout(expiry);
       cancel();
       failedRead = null;
       retryable = false;
@@ -215,15 +212,13 @@ export function createBlueskyFeed(
       }
       return Promise.resolve();
     },
+    // Backgrounding a tab only cancels in-flight reads. Loaded pages stay
+    // cached (like the native feedCache) so returning paints instantly and
+    // never refetches: the background wipe used to drop scrolled pages and
+    // reshuffle the mixed rows on return.
     pause: () => {
       cancel();
       update({ loadingMore: false });
-      clearTimeout(expiry);
-      expiry = setTimeout(
-        () => update({ newItems: [], pages: [], status: "loading" }),
-        120_000
-      );
-      expiry.unref?.();
     },
     probe,
     recover: () => {
@@ -234,6 +229,14 @@ export function createBlueskyFeed(
     },
     refresh: () => {
       cancel();
+      return load(null, true);
+    },
+    // A manual retry of whatever read failed, ignoring the background backoff:
+    // a failed later page re-reads its cursor and keeps the loaded pages.
+    retry: () => {
+      if (failedRead) {
+        return load(failedRead.cursor, failedRead.replace);
+      }
       return load(null, true);
     },
     snapshot: () => state,

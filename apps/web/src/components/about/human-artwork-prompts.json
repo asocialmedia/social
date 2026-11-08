@@ -1,0 +1,36 @@
+{
+  "base": "Create one finished editorial image for the Asocialmedia About page. Landscape 4:3, composition survives both square and portrait crops with key people near the center. This is a HUMAN social world: depict actual human adults with distinct faces, hands, personal clothing and natural gestures. Emotionally specific, candid, welcoming and lived-in. Warm daylight, restrained cream, terracotta and sage accents, but allow the scene's own blue, lavender or red colours; avoid an all-orange monochrome wash. No typography, logos, watermarks, grids, multi-panel collages, perfect stock-photo grins or corporate teamwork clichés. People are individuals, not repeated uniform characters. ",
+  "scenes": {
+    "making": {
+      "style": "Hand-cut paper collage with tactile torn edges, layered coloured paper, subtle pencil details and generous cream negative space.",
+      "scene": "A young Black woman with short natural curls in a blue cardigan sits cross-legged on an oatmeal rug, sketching a personal idea in a notebook. A terracotta mug and a few playful paper shapes nearby. Relaxed, absorbed expression, human hands holding a pencil. NO mascot in this image."
+    },
+    "code": {
+      "style": "Natural analogue editorial photography, subtle 35mm grain, realistic skin texture and soft window light, unposed.",
+      "scene": "A South Asian young adult man in a faded sage shirt works on a personal laptop project at a small wooden desk in an ordinary cozy apartment. Side view of face and hands, a plant, books, a ceramic mug, understated orange accents. Laptop screen has indistinct abstract shapes, NO readable code or interface. A VERY SMALL yellow cloud speech-bubble Zeph figurine with orange outline and cap sits at the far edge of the desk as a personal belonging, under five percent of image area. The reference defines only this small figurine, not the style or subject of the photograph."
+    },
+    "music": {
+      "style": "Expressive risograph editorial illustration, visible ink grain, slightly misregistered terracotta and cornflower-blue layers, cream paper, dark indigo linework.",
+      "scene": "Two human friends, a young East Asian woman with a short bob and a brown-skinned man with curly hair, listen to a record together in a small room. One sits on a patterned rug, the other leans on a low sofa; a simple record player, interesting clothes, relaxed poses. A moment of sharing a song rather than posing. NO mascot in this image."
+    },
+    "art": {
+      "style": "Loose ink and translucent watercolor with visible brush marks, textured cold-press paper and imperfect expressive human linework; cream, muted coral and sage with little cobalt accents.",
+      "scene": "A middle-aged woman with brown skin and silver-streaked hair painting a small canvas in her sunlit home studio. Side profile, paint on her fingers, linen apron, a few unfinished paintings and a plant. She is an actual human person with a face, not a mascot. Intimate, spontaneous, not polished corporate art. NO mascot."
+    },
+    "space": {
+      "style": "Dreamlike gouache editorial painting with velvety brush textures, deep blue twilight, warm amber windows, apricot and lavender sky, minimal lovely shapes.",
+      "scene": "Two human friends, one wearing a headscarf and the other with a red knit sweater, sit on an apartment rooftop with a small telescope and look up at the first stars. Human faces in three-quarter profile, thoughtful companionship, tactile folded blanket and two cups. The sky has breathing room and only a few small stars, no giant planets or fantasy mascots. NO mascot."
+    },
+    "people": {
+      "style": "Beautiful hand-painted 2D editorial illustration with colored-pencil outlines, gouache colour, visible paper texture, softly angular human anatomy and expressive faces; cozy but not plush 3D.",
+      "scene": "Three actual human adult friends of different backgrounds chat in a small living room on a terracotta sofa and a sage floor cushion: a woman with dark curly hair, a South Asian man with glasses, and a light-skinned woman with short hair. Everyone has their own natural posture, clothing and personality. One is mid-story, one is laughing gently, one listens. Warm cream walls, blue details, a woven rug and a plant. A small Zeph yellow cloud speech-bubble plush with an orange outline rests on the bookshelf in the background, under five percent of image area; use the reference only for this tiny character. Humans dominate the composition."
+    },
+    "reading": {
+      "style": "Soft dry-pastel and charcoal editorial drawing on warm textured paper, dusty lavender, muted golden yellow and sage, fine human facial details, painterly soft edges.",
+      "scene": "A young woman with olive skin and long dark hair wearing a dusty lavender sweater is absorbed in a book by a window in a tiny neighborhood bookshop. A middle-aged Black man browses a shelf quietly in the background. A comfortable wool chair, uneven stacks of books with blank spines and afternoon light. Actual human proportions and individual faces, quiet shared space. NO mascot."
+    }
+  },
+  "mode": "built-in image_gen",
+  "references": ["apps/web/public/avatars/default-1.png"],
+  "direction": "Seven human-led scenes in distinct media, one existing Zeph nature scene retained; Zeph only a small supporting detail in code and people."
+}

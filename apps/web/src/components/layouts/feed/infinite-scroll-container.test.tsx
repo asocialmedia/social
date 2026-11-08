@@ -235,3 +235,62 @@ test("unmount cancels an outstanding sparse continuation", async () => {
   await Bun.sleep(60);
   expect(load).not.toHaveBeenCalled();
 });
+
+test("pagination waits for a staged feed and resumes when its rows are ready", async () => {
+  const host = dom.document.createElement("div");
+  dom.document.body.append(host);
+  const root = createRoot(host as unknown as HTMLElement);
+  const load = mock(() => {});
+  try {
+    await act(() =>
+      root.render(
+        <InfiniteScrollContainer paused onBottomReached={load}>
+          Staged rows
+        </InfiniteScrollContainer>
+      )
+    );
+    expect(load).not.toHaveBeenCalled();
+    await act(() =>
+      root.render(
+        <InfiniteScrollContainer paused={false} onBottomReached={load}>
+          Rendered rows
+        </InfiniteScrollContainer>
+      )
+    );
+    expect(load).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(() => root.unmount());
+    host.remove();
+  }
+});
+
+test("pausing cancels a queued continuation and restarting retains automatic loading", async () => {
+  const host = dom.document.createElement("div");
+  dom.document.body.append(host);
+  const root = createRoot(host as unknown as HTMLElement);
+  const load = mock(() => {});
+  const render = (paused: boolean) =>
+    act(() =>
+      root.render(
+        <InfiniteScrollContainer
+          paused={paused}
+          continuationDelay={30}
+          onBottomReached={load}
+        >
+          Rows
+        </InfiniteScrollContainer>
+      )
+    );
+  try {
+    await render(false);
+    await render(true);
+    await act(() => Bun.sleep(60));
+    expect(load).not.toHaveBeenCalled();
+    await render(false);
+    await act(() => Bun.sleep(60));
+    expect(load).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(() => root.unmount());
+    host.remove();
+  }
+});

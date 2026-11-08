@@ -48,21 +48,46 @@ describe("buildMoreEntries", () => {
   test("the author is offered moderation, tags and delete but not hide", () => {
     const got = labels(post(), { id: "author-1" });
     expect(got).toContain("Moderation");
-    expect(got).toContain("Edit tags");
+    expect(got).toContain("Edit tags & mentions");
     expect(got).toContain("Delete");
     // Hiding your own post is not a thing web offers.
     expect(got).not.toContain("Not interested");
   });
 
-  test("staff may moderate someone else's post", () => {
-    expect(labels(post(), { id: "mod", role: "moderator" })).toContain(
-      "Moderation"
-    );
-    expect(labels(post(), { id: "mod", role: "admin" })).toContain(
+  test("the app admin may moderate someone else's post but not edit or delete it", () => {
+    const got = labels(post(), { id: "admin", role: "admin" });
+    expect(got).toContain("Moderation");
+    expect(got).not.toContain("Edit tags & mentions");
+    expect(got).not.toContain("Delete");
+  });
+
+  test("a community moderator role is not app staff", () => {
+    expect(labels(post(), { id: "mod", role: "moderator" })).not.toContain(
       "Moderation"
     );
   });
 
+  test("entries follow web's order", () => {
+    const got = buildMoreEntries({
+      post: post({
+        attachments: [
+          { altText: "a cat", id: "m1", type: "VIDEO" },
+        ] as FeedPost["attachments"],
+        community,
+      }),
+      showCaptions: false,
+      showingAlt: false,
+      viewerId: "author-1",
+    }).map((entry) => entry.label);
+    expect(got).toEqual([
+      "Share to feed",
+      "Moderation",
+      "Show alt",
+      "Show captions",
+      "Edit tags & mentions",
+      "Delete",
+    ]);
+  });
   test("an ordinary reader may not moderate someone else's post", () => {
     const got = labels(post(), { id: "reader", role: "user" });
     expect(got).not.toContain("Moderation");

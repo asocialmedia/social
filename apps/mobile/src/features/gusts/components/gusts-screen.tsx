@@ -1,3 +1,4 @@
+import { activeNetworkInterests } from "@asm/protocols/discovery";
 import {
   advanceGustHeader,
   followingGustAvatars,
@@ -24,7 +25,7 @@ import {
   Speech,
   Subtitles,
 } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FlatList } from "react-native";
 import { StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -52,6 +53,10 @@ import { ShareSheet } from "@/features/feed/components/share-sheet";
 import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { viewBatcher } from "@/features/feed/lib/view-batcher";
 import { useFeedSourceStore } from "@/features/feed/state/feed-source-store";
+import {
+  consumeFeedTop,
+  subscribeFeedTopRequests,
+} from "@/features/feed/state/feed-store";
 import { resolveGustResumeTab } from "@/features/feed/state/tab-store";
 import {
   useHomeTabMemoryReady,
@@ -61,6 +66,7 @@ import { useVideoCaptionsStore } from "@/features/feed/state/video-captions-stor
 import { networkRequest } from "@/features/network/lib/network-api";
 import { trackNetworkObservation } from "@/features/network/lib/network-learning";
 import { externalShareUrl } from "@/features/network/lib/network-paths";
+import { useNetworkSettings } from "@/features/network/state/use-network-settings";
 import { haptic } from "@/lib/interaction/haptics";
 import type { ViewToken } from "@/lib/layout/list-virtualization";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
@@ -69,6 +75,7 @@ import { PROD_API_URL } from "@/lib/network/api-base";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
+import { failedGustSources, showGustFeedError } from "../lib/gust-sources";
 import {
   gustShareUrl,
   markPostVisited,
@@ -90,8 +97,10 @@ import { useGustMuteStore } from "../state/gust-mute-store";
 import { useFollowingGustPreview } from "../state/use-following-gust-preview";
 import { useGustsFeed } from "../state/use-gusts-feed";
 import { GustCard } from "./gust-card";
+import type { GustCardProps } from "./gust-card";
 import { GustCardSkeleton } from "./gust-card-skeleton";
 import {
+  GustSourceRetries,
   GustsEmpty,
   GustTabs,
   NewGustsPill,
@@ -112,6 +121,35 @@ function firstParam(value: string | string[] | undefined): string | null {
 function reason(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+type GustEngagementEvent = Parameters<
+  NonNullable<GustCardProps["onRecommendationEvent"]>
+>[0];
+
+// One reel page. Memoised with post-scoped handlers bound here, so the
+// screen can hand every row the same stable callbacks.
+const GustReelRow = memo(
+  ({
+    onRecommendation,
+    onToggleAltFor,
+    ...card
+  }: Omit<GustCardProps, "onRecommendationEvent" | "onToggleAlt"> & {
+    onRecommendation: (post: FeedPost, event: GustEngagementEvent) => void;
+    onToggleAltFor: (postId: string) => void;
+  }) => {
+    const { pageHeight, post } = card;
+    return (
+      <View style={{ height: pageHeight }}>
+        <GustCard
+          {...card}
+          onRecommendationEvent={(event) => onRecommendation(post, event)}
+          onToggleAlt={() => onToggleAltFor(post.id)}
+        />
+      </View>
+    );
+  }
+);
+GustReelRow.displayName = "GustReelRow";
 
 // Web's gust More menu, in order: the per-card captions and transcript
 // toggles (hidden when moderated), Not interested (signed in, not the
@@ -166,6 +204,7 @@ export function GustsScreen() {
     tab?: string;
   }>();
   const { isPending, user } = useSessionContext();
+  const network = useNetworkSettings();
   const viewerId = user?.id ?? null;
   const apiBase = getApiBaseUrl();
   const openComposer = useComposerStore((state) => state.open);
@@ -231,7 +270,10 @@ export function GustsScreen() {
   const pullOrigin = useSharedValue({ x: 0, y: 0 });
   const refreshing = useSharedValue(false);
   const eddiePreviewProgress = useSharedValue(0);
-  const [eddiesPostId, setEddiesPostId] = useState<string | null>(null);
+  // The gust whose eddies sheet is open. Bluesky gusts open it too, showing
+  // the asocialmedia discussion in-reel like web's GustsCommentsDrawer.
+  const [eddiesPost, setEddiesPost] = useState<FeedPost | null>(null);
+  const eddiesPostId = eddiesPost?.id ?? null;
   const [sharePost, setSharePost] = useState<FeedPost | null>(null);
   const [moreTarget, setMoreTarget] = useState<{
     anchor: MenuAnchor;
@@ -300,6 +342,19 @@ export function GustsScreen() {
     };
   }, [feed, refreshing]);
 
+  // Dock reselect (web's reselectFeedNavigation on /gusts): tapping the Gusts
+  // tab while already there scrolls the reel list back to the top.
+  useEffect(
+    () =>
+      subscribeFeedTopRequests(() => {
+        if (!consumeFeedTop("gusts")) {
+          return;
+        }
+        listRef.current?.scrollToOffset({ animated: true, offset: 0 });
+      }),
+    []
+  );
+
   // Keep the active index inside the list when it shrinks (a hide).
   const safeIndex = Math.min(activeIndex, Math.max(0, posts.length - 1));
   const activePost = posts[safeIndex] ?? null;
@@ -310,7 +365,9 @@ export function GustsScreen() {
     if (
       shouldFetchMore({
         activeIndex: safeIndex,
-        hasNextPage: feed.hasNextPage,
+        // A source whose last page failed waits for its own retry (web's
+        // canFetchNextPage), so it is not re-requested on every render.
+        hasNextPage: feed.canFetchNextPage,
         isFetching: feed.fetchingNext,
         total: posts.length,
       })
@@ -378,7 +435,15 @@ export function GustsScreen() {
   );
 
   const changeTab = (next: GustTab) => {
+    // Web's reselect: tapping the tab you are on returns to its first gust
+    // and brings the header back, instead of doing nothing.
     if (next === tab && !initialId) {
+      headerScroll.set({ anchor: 0, visible: true });
+      headerVisibility.set(withTiming(1, { duration: 180 }));
+      if (safeIndex > 0) {
+        haptic("selection");
+        listRef.current?.scrollToOffset({ animated: true, offset: 0 });
+      }
       return;
     }
     haptic("selection");
@@ -394,11 +459,37 @@ export function GustsScreen() {
     listRef.current?.scrollToOffset({ animated: false, offset: 0 });
   };
 
+  // Web's showNewGusts: near the top the reel jumps to the newest clip; deep
+  // in the reel the clip being watched keeps playing in its new slot and the
+  // fresh clips wait above it, one swipe up.
+  const prependAnchor = useRef<string | null>(null);
   const showNew = () => {
+    const watched = posts[safeIndex];
     feed.showNewItems();
+    if (safeIndex > 1 && watched) {
+      prependAnchor.current = watched.id;
+      return;
+    }
     setActiveIndex(0);
     listRef.current?.scrollToOffset({ animated: true, offset: 0 });
   };
+  useEffect(() => {
+    const anchor = prependAnchor.current;
+    if (!anchor || pageHeight <= 0) {
+      return;
+    }
+    const index = posts.findIndex((post) => post.id === anchor);
+    if (index === -1) {
+      return;
+    }
+    prependAnchor.current = null;
+    // oxlint-disable-next-line react/set-state-in-effect -- the prepended page moved the watched gust; follow it to its new slot
+    setActiveIndex(index);
+    listRef.current?.scrollToOffset({
+      animated: false,
+      offset: index * pageHeight,
+    });
+  }, [pageHeight, posts]);
 
   const goBack = () => {
     if (router.canGoBack()) {
@@ -415,25 +506,33 @@ export function GustsScreen() {
         postId: post.id,
         scope: "post",
       };
-      const save = async (remove: boolean) => {
-        await networkRequest("/api/protocols/bluesky/feedback", {
-          body: JSON.stringify(payload),
-          method: remove ? "DELETE" : "POST",
-        });
-        useFeedSourceStore
-          .getState()
-          .exclude(viewerId ?? "guest", `post:${post.id}`, !remove);
-      };
+      // Web's useExternalFeedback (2a8dc6ce): the gust leaves the reel at
+      // once, the save runs behind it, and a failure puts it back. There is
+      // no Undo: the preference is a POST only.
+      const viewer = viewerId ?? "guest";
+      const key = `post:${post.id}`;
+      const store = useFeedSourceStore.getState();
+      const wasHidden = store.excluded[viewer]?.has(key) ?? false;
+      store.exclude(viewer, key, true);
       const saveFeedback = async () => {
         try {
-          await save(false);
+          if (viewerId) {
+            await networkRequest("/api/protocols/bluesky/feedback", {
+              body: JSON.stringify(payload),
+              method: "POST",
+            });
+          }
+          trackNetworkObservation(viewer, post, "NOT_INTERESTED");
           toast({
-            button: { onClick: () => save(true), title: "Undo" },
+            description: viewerId
+              ? "Saved to your asocialmedia feed preferences."
+              : "Saved for this session.",
             title: "Not interested",
           });
         } catch {
+          useFeedSourceStore.getState().exclude(viewer, key, wasHidden);
           toast({
-            title: "Couldn't save preference. Try again.",
+            title: "Couldn't save preference. Please try again.",
             variant: "destructive",
           });
         }
@@ -617,83 +716,95 @@ export function GustsScreen() {
     return { nativeScroll, pageSwipe, pan };
   });
 
+  // Every handler a card receives is stable, so a swipe re-renders only the
+  // rows whose active or mounted state actually flipped (GustReelRow is
+  // memoised); the other mounted cards and their players stay untouched.
+  const handleRecommendation = useCallback(
+    (post: FeedPost, event: GustEngagementEvent) => {
+      if (post.external) {
+        trackNetworkObservation(
+          viewerId ?? "guest",
+          post,
+          event.eventType,
+          event.durationMs
+        );
+        return;
+      }
+      queueRef.current?.push(
+        event.eventType,
+        post.id,
+        event.durationMs,
+        undefined,
+        post.recommendation?.requestId
+      );
+    },
+    [viewerId]
+  );
+  const toggleAltFor = useCallback((postId: string) => {
+    setAltVisibleIds((current) => {
+      const next = new Set(current);
+      if (next.has(postId)) {
+        next.delete(postId);
+      } else {
+        next.add(postId);
+      }
+      return next;
+    });
+  }, []);
+  const closeTranscript = useCallback(() => setTranscriptPostId(null), []);
+  const openMore = useCallback(
+    (post: FeedPost, anchor: MenuAnchor) => setMoreTarget({ anchor, post }),
+    []
+  );
+  const openEddies = useCallback((post: FeedPost) => setEddiesPost(post), []);
+  const openShare = useCallback((post: FeedPost) => setSharePost(post), []);
+  const pagerGestures = useMemo(
+    () => [gestures.nativeScroll, gestures.pan, gestures.pageSwipe],
+    [gestures]
+  );
+
   const renderItem = useCallback(
     ({ index, item }: { index: number; item: FeedPost }) => (
-      <View style={{ height: pageHeight }}>
-        <GustCard
-          apiBase={apiBase}
-          captionsOn={captionsOn}
-          onRecommendationEvent={(event) => {
-            if (item.external) {
-              trackNetworkObservation(
-                viewerId ?? "guest",
-                item,
-                event.eventType,
-                event.durationMs
-              );
-              return;
-            }
-            queueRef.current?.push(
-              event.eventType,
-              item.id,
-              event.durationMs,
-              undefined,
-              item.recommendation?.requestId
-            );
-          }}
-          eddiesOpen={eddiesPostId === item.id}
-          previewProgress={eddiePreviewProgress}
-          pageHeight={pageHeight}
-          pagerGestures={[
-            gestures.nativeScroll,
-            gestures.pan,
-            gestures.pageSwipe,
-          ]}
-          isActive={index === safeIndex}
-          mountVideo={shouldMountVideo(index, safeIndex)}
-          onCloseTranscript={() => setTranscriptPostId(null)}
-          onMore={(post, anchor) => setMoreTarget({ anchor, post })}
-          onOpenEddies={(post) =>
-            post.external
-              ? router.push({
-                  params: { uri: post.id },
-                  pathname: "/external-post",
-                })
-              : setEddiesPostId(post.id)
-          }
-          onShare={(post) => setSharePost(post)}
-          onToggleAlt={() =>
-            setAltVisibleIds((current) => {
-              const next = new Set(current);
-              if (next.has(item.id)) {
-                next.delete(item.id);
-              } else {
-                next.add(item.id);
-              }
-              return next;
-            })
-          }
-          post={item}
-          showAlt={altVisibleIds.has(item.id)}
-          suspended={!focused}
-          transcriptOpen={transcriptPostId === item.id}
-          viewerId={viewerId}
-        />
-      </View>
+      <GustReelRow
+        apiBase={apiBase}
+        captionsOn={captionsOn}
+        eddiesOpen={eddiesPostId === item.id}
+        isActive={index === safeIndex}
+        mountVideo={shouldMountVideo(index, safeIndex)}
+        onCloseTranscript={closeTranscript}
+        onMore={openMore}
+        onOpenEddies={openEddies}
+        onRecommendation={handleRecommendation}
+        onShare={openShare}
+        onToggleAltFor={toggleAltFor}
+        pageHeight={pageHeight}
+        pagerGestures={pagerGestures}
+        post={item}
+        previewProgress={eddiePreviewProgress}
+        showAlt={altVisibleIds.has(item.id)}
+        suspended={!focused}
+        transcriptOpen={transcriptPostId === item.id}
+        viewerId={viewerId}
+      />
     ),
     [
       altVisibleIds,
       apiBase,
       captionsOn,
+      closeTranscript,
       eddiePreviewProgress,
       eddiesPostId,
       focused,
-      gestures,
+      handleRecommendation,
+      openEddies,
+      openMore,
+      openShare,
       pageHeight,
+      pagerGestures,
       safeIndex,
+      toggleAltFor,
       transcriptPostId,
       viewerId,
-      router,
     ]
   );
 
@@ -711,10 +822,27 @@ export function GustsScreen() {
     [altVisibleIds, captionsOn, moreTarget, transcriptPostId, viewerId]
   );
 
+  const feedError =
+    feed.status === "error" ||
+    showGustFeedError({
+      canFetchNextPage: feed.canFetchNextPage,
+      pageError: feed.pageError,
+      postCount: posts.length,
+      status: feed.status,
+    });
   const loading =
-    feed.status === "loading" ||
-    (feed.status === "ready" && posts.length === 0 && feed.hasNextPage);
-  const empty = feed.status === "ready" && posts.length === 0 && !loading;
+    !feedError &&
+    (feed.status === "loading" ||
+      (feed.status === "ready" && posts.length === 0 && feed.canFetchNextPage));
+  const empty =
+    feed.status === "ready" && posts.length === 0 && !loading && !feedError;
+  // Web renders GustSourceRetries in the reel's last slot; native floats it
+  // under the header once the viewer reaches the last loaded gust.
+  const endRetries =
+    posts.length > 0 &&
+    safeIndex >= posts.length - 1 &&
+    !feed.fetchingNext &&
+    failedGustSources(feed.sources).length > 0;
   const chromeTop = insets.top + 16;
 
   let body;
@@ -722,14 +850,24 @@ export function GustsScreen() {
     body = (
       <GustsEmpty mode="auth" onAction={() => router.push("/(auth)/login")} />
     );
+  } else if (feedError) {
+    body = (
+      <GustsEmpty mode="error" onAction={() => feed.retry()}>
+        <GustSourceRetries sources={feed.sources} tone="panel" />
+      </GustsEmpty>
+    );
   } else if (loading) {
     body = <GustCardSkeleton />;
-  } else if (feed.status === "error") {
-    body = <GustsEmpty mode="error" onAction={() => feed.retry()} />;
   } else if (empty) {
+    // Web's focused copy: an empty discovery reel while the active network
+    // profile carries interests means the profile filtered everything out.
+    const profileFiltered =
+      tab !== "following" &&
+      !initialId &&
+      activeNetworkInterests(network.settings.preferences).length > 0;
     body = (
       <GustsEmpty
-        mode="empty"
+        mode={profileFiltered ? "focused" : "empty"}
         onAction={() => {
           if (viewerId) {
             openComposer("gust");
@@ -831,19 +969,27 @@ export function GustsScreen() {
                 <GustTabs active={tab} onChange={changeTab} />
               )}
             </View>
-            <FeedSourceMenu following={tab === "following"} />
+            {/* Web's 2.5rem side column, matching the back button's width. */}
+            <View style={styles.backBalance}>
+              <FeedSourceMenu following={tab === "following"} />
+            </View>
           </Animated.View>
 
-          {feed.newItems.length > 0 && !initialId ? (
+          {(feed.newItems.length > 0 && !initialId) || endRetries ? (
             <View
               pointerEvents="box-none"
               style={[styles.pillRow, { top: insets.top + 64 }]}
             >
-              <NewGustsPill
-                apiBase={apiBase}
-                items={feed.newItems}
-                onPress={showNew}
-              />
+              {feed.newItems.length > 0 && !initialId ? (
+                <NewGustsPill
+                  apiBase={apiBase}
+                  items={feed.newItems}
+                  onPress={showNew}
+                />
+              ) : null}
+              {endRetries ? (
+                <GustSourceRetries sources={feed.sources} tone="video" />
+              ) : null}
             </View>
           ) : null}
 
@@ -853,9 +999,10 @@ export function GustsScreen() {
         </>
       ) : null}
       <GustEddiesSheet
+        external={eddiesPost?.external ?? null}
         previewProgress={eddiePreviewProgress}
         viewportHeight={pageHeight}
-        onClose={() => setEddiesPostId(null)}
+        onClose={() => setEddiesPost(null)}
         postId={eddiesPostId}
         viewerId={viewerId ?? undefined}
       />
@@ -881,7 +1028,7 @@ export function GustsScreen() {
 }
 
 const styles = StyleSheet.create({
-  backBalance: { width: 40 },
+  backBalance: { alignItems: "center", justifyContent: "center", width: 40 },
   controls: { alignItems: "center", flex: 1 },
   header: {
     alignItems: "center",

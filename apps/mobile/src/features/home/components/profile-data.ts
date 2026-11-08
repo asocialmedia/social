@@ -15,6 +15,7 @@ export interface PopupProfile {
   badges: string[];
   bannerUrl: string | null;
   bio: string | null;
+  blueskyHandle: string | null;
   communityMemberships: PopupCommunityRole[];
   createdAt: string;
   customDomain: string | null;
@@ -79,6 +80,7 @@ export function parsePopupProfile(payload: unknown): PopupProfile | null {
     badges,
     bannerUrl: textOf(data["bannerUrl"]),
     bio: textOf(data["bio"]),
+    blueskyHandle: textOf(data["blueskyHandle"]),
     communityMemberships,
     createdAt: textOf(data["createdAt"]) ?? "",
     customDomain: textOf(data["customDomain"]),

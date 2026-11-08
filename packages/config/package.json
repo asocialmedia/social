@@ -1,6 +1,6 @@
 {
   "name": "@asm/config",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "private": true,
   "description": "asocialmedia configuration package contains shared configs for typescript",
   "license": "AGPL-3.0"

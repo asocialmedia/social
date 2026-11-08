@@ -60,6 +60,7 @@ export function formatJoinedDate(iso: string): string {
 }
 
 export type SocialLinkKind =
+  | "bluesky"
   | "github"
   | "linkedin"
   | "reddit"
@@ -73,6 +74,7 @@ export interface SocialLink {
 }
 
 interface SocialSource {
+  blueskyHandle?: string | null;
   customDomain?: string | null;
   githubUsername?: string | null;
   linkedinUsername?: string | null;
@@ -90,6 +92,16 @@ export function getSocialLinks(user: SocialSource): SocialLink[] {
         href: `https://${domain}`,
         kind: "website",
         label: `Website: ${domain}`,
+      });
+    }
+  }
+  if (user.blueskyHandle) {
+    const handle = user.blueskyHandle.replace(/^@/, "");
+    if (handle) {
+      links.push({
+        href: `https://bsky.app/profile/${handle}`,
+        kind: "bluesky",
+        label: `Bluesky: @${handle}`,
       });
     }
   }
@@ -234,6 +246,7 @@ export function resolveAvatarWithFallback(
 }
 
 const SOCIAL_HOSTS: Record<SocialLinkKind, string> = {
+  bluesky: "bsky.app",
   github: "github.com",
   linkedin: "www.linkedin.com",
   reddit: "www.reddit.com",
@@ -721,6 +734,23 @@ export function parseLinkPreview(payload: unknown): BioLinkPreview | null {
     return null;
   }
   return { title: title.trim() };
+}
+
+// Web's UserAvatar serves the lighter avatar_thumbnail derivative for small
+// sizes (<=64px): the same blob, cheaper to fetch on mobile radios. Only the
+// exact cdn.bsky.app plain-avatar prefix is rewritten; every other URL
+// (ASM proxy paths already serve sized variants) passes through untouched.
+const BSKY_AVATAR_PLAIN_PREFIX = "https://cdn.bsky.app/img/avatar/plain/";
+
+export function bskyAvatarForSize(rawUrl: string, size: number): string {
+  if (
+    size <= 64 &&
+    rawUrl.startsWith(BSKY_AVATAR_PLAIN_PREFIX) &&
+    rawUrl.length > BSKY_AVATAR_PLAIN_PREFIX.length
+  ) {
+    return rawUrl.replace("/img/avatar/plain/", "/img/avatar_thumbnail/plain/");
+  }
+  return rawUrl;
 }
 
 // Cuts segments to a character budget at segment boundaries so pills never

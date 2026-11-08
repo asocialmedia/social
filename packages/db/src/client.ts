@@ -1,7 +1,15 @@
 import type { RecommendationSource } from "@asm/protocols/contracts";
 import type { ResultType } from "@prisma/orm-postgres/components/runtime";
 import { and } from "@prisma/orm-postgres/orm-client";
+import type {
+  Collection,
+  CollectionRowOf,
+  CollectionTypeStateOf,
+  HasRow,
+  HasTypeState,
+} from "@prisma/orm-postgres/orm-client";
 
+import type { Contract } from "../generated/prisma/contract";
 import {
   communityContentVisibilityWhere,
   communityVisibilityWhere,
@@ -245,65 +253,88 @@ export type PrivateUserData = ResultType<
   ReturnType<typeof getPrivateUserQuery>
 >;
 
-export function getPostDataQuery(orm: PrismaOrm, loggedInUserId: string) {
-  return orm.public.Posts.include("bookmarks", (bookmarks) =>
-    bookmarks.combine({
-      total: bookmarks.count(),
-      viewer: bookmarks.where({ userId: loggedInUserId }).select("userId"),
-    })
-  )
-    .include("comments", (comments) =>
-      comments.where((comment) => comment.deleted.eq(false)).count()
-    )
-    .include("mentions", (mentions) =>
-      mentions.include("user", (user) =>
-        user.select("avatarUrl", "displayName", "id", "username")
-      )
-    )
-    .include("postMedias", (media) =>
-      media
-        .select(
-          "id",
-          "_type",
-          "thumbnailKey",
-          "hasHls",
-          "width",
-          "height",
-          "mimeType",
-          "techMetadata",
-          "aiGenerated",
-          "altText",
-          "generatedAltText",
-          "originalProvenanceId",
-          "blurDataUrl",
-          "transcript"
-        )
-        .limit(1)
-    )
-    .include("posts", (responses) => responses.count())
-    .include("postToTags", (postTags) =>
-      postTags.include("tag", (tag) => tag.select("name"))
-    )
-    .include("votes", (votes) =>
-      votes.combine({
-        totalUp: votes.where((vote) => vote.value.eq(1)).count(),
-        viewer: votes
-          .where({ userId: loggedInUserId })
-          .select("userId", "value"),
+type NormalizedQuery<Query extends HasRow & HasTypeState> = Collection<
+  Contract,
+  "Posts",
+  CollectionRowOf<Query>,
+  CollectionTypeStateOf<Query>
+>;
+
+// Keep one row shape instead of retaining every intermediate include intersection.
+function normalizeQuery<Query extends PrismaOrm["public"]["Posts"]>(
+  query: Query
+): NormalizedQuery<Query> {
+  return query as NormalizedQuery<Query>;
+}
+
+function buildPostDataQuery(orm: PrismaOrm, loggedInUserId: string) {
+  const interactions = normalizeQuery(
+    orm.public.Posts.include("bookmarks", (bookmarks) =>
+      bookmarks.combine({
+        total: bookmarks.count(),
+        viewer: bookmarks.where({ userId: loggedInUserId }).select("userId"),
       })
     )
-    .include("community", (community) =>
-      community.select("accentColor", "id", "name", "slug")
-    )
-    .include("communityPostShares", (share) =>
-      share
-        .select("sourcePostId")
-        .include("community", (community) => community.select("slug"))
-    )
-    .include("hnStoryShares")
-    .include("externalParent", (parent) => parent.select("uri"))
-    .include("user", (_user) => getUserDataQuery(orm, loggedInUserId))
-    .include("parentPost", (parent) =>
+      .include("comments", (comments) =>
+        comments.where((comment) => comment.deleted.eq(false)).count()
+      )
+      .include("mentions", (mentions) =>
+        mentions.include("user", (user) =>
+          user.select("avatarUrl", "displayName", "id", "username")
+        )
+      )
+  );
+  const mediaAndVotes = normalizeQuery(
+    interactions
+      .include("postMedias", (media) =>
+        media
+          .select(
+            "id",
+            "_type",
+            "thumbnailKey",
+            "hasHls",
+            "width",
+            "height",
+            "mimeType",
+            "techMetadata",
+            "aiGenerated",
+            "altText",
+            "generatedAltText",
+            "originalProvenanceId",
+            "blurDataUrl",
+            "transcript"
+          )
+          .limit(1)
+      )
+      .include("posts", (responses) => responses.count())
+      .include("postToTags", (postTags) =>
+        postTags.include("tag", (tag) => tag.select("name"))
+      )
+      .include("votes", (votes) =>
+        votes.combine({
+          totalUp: votes.where((vote) => vote.value.eq(1)).count(),
+          viewer: votes
+            .where({ userId: loggedInUserId })
+            .select("userId", "value"),
+        })
+      )
+  );
+  const context = normalizeQuery(
+    mediaAndVotes
+      .include("community", (community) =>
+        community.select("accentColor", "id", "name", "slug")
+      )
+      .include("communityPostShares", (share) =>
+        share
+          .select("sourcePostId")
+          .include("community", (community) => community.select("slug"))
+      )
+      .include("hnStoryShares")
+      .include("externalParent", (parent) => parent.select("uri"))
+      .include("user", (_user) => getUserDataQuery(orm, loggedInUserId))
+  );
+  return normalizeQuery(
+    context.include("parentPost", (parent) =>
       parent
         .where(communityVisibilityWhere(loggedInUserId))
         .select(
@@ -349,10 +380,25 @@ export function getPostDataQuery(orm: PrismaOrm, loggedInUserId: string) {
                 )
             )
         )
-    );
+    )
+  );
 }
 
-export type PostQueryData = ResultType<ReturnType<typeof getPostDataQuery>>;
+export type PostQueryData = ResultType<ReturnType<typeof buildPostDataQuery>>;
+
+type PostDataQuery = Collection<
+  Contract,
+  "Posts",
+  PostQueryData,
+  CollectionTypeStateOf<PrismaOrm["public"]["Posts"]>
+>;
+
+export function getPostDataQuery(
+  orm: PrismaOrm,
+  loggedInUserId: string
+): PostDataQuery {
+  return buildPostDataQuery(orm, loggedInUserId);
+}
 
 export interface PostParentData {
   attachments: {

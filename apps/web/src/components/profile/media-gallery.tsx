@@ -3,6 +3,7 @@
 import { Button } from "@asm/ui/shadui/button";
 import noMediaImage from "@assets/general/nomedia.png";
 import { FileIcon, Volume2 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -11,7 +12,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MdPlayArrow } from "react-icons/md";
 import { useMediaQuery } from "usehooks-ts";
 
-import MediaViewer from "@/components/home/feedview/media-viewer";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { MediaHoldDrawer } from "@/components/media/media-hold-drawer";
@@ -27,6 +27,11 @@ import {
   getMediaProxyUrl,
   getMediaVideoUrl,
 } from "@/lib/utils/image-url";
+
+const MediaViewer = dynamic(
+  () => import("@/components/home/feedview/media-viewer"),
+  { ssr: false }
+);
 
 // Full skeleton grid with the login prompt centered on top. Shared between the
 // desktop locked sidebar and the mobile media tab so guests see the same look.

@@ -1,3 +1,4 @@
+import { externalAiDeclaration } from "@asm/protocols/contracts";
 import type { ExternalPost } from "@asm/protocols/contracts";
 
 import type { FeedPost } from "./feed-types";
@@ -43,6 +44,9 @@ const EXPLICIT_HASHTAG_REGEX =
   /#(?:18\+|adult|ecchi|erotic|gore|hentai|lewd|nsfw|porn|r18|r-18|xxx)\b/i;
 
 export function externalPostView(post: ExternalPost): FeedPost {
+  // Web's presentation.ts: a Bluesky AI label marks every attachment, with
+  // its source so the badge never implies verified provenance.
+  const aiDeclaration = externalAiDeclaration(post);
   return {
     _count: {
       bookmarks: 0,
@@ -51,6 +55,9 @@ export function externalPostView(post: ExternalPost): FeedPost {
       vote: post.upstreamCounts?.likes ?? 0,
     },
     attachments: post.media.map((media) => ({
+      ...(aiDeclaration
+        ? { aiGenerated: true, aiGeneratedSource: "bluesky-label" as const }
+        : {}),
       altText: media.alt,
       hasHls: media.type === "video",
       height: media.height,
@@ -92,4 +99,21 @@ export function externalPostView(post: ExternalPost): FeedPost {
     },
     userId: post.author.id,
   };
+}
+
+// Hot-path memo for per-tick callers (viewability publishing, impression
+// mapping) and cards: the view allocates a fresh FeedPost plus per-media
+// objects and runs label regexes, so calling it per visible row per scroll
+// tick is pure garbage. External posts are treated as immutable everywhere
+// (BlueskyPostCard memos on post identity), so caching by object identity is
+// sound; WeakMap entries die with their pages.
+const externalPostViewCache = new WeakMap<ExternalPost, FeedPost>();
+export function getExternalPostView(post: ExternalPost): FeedPost {
+  const cached = externalPostViewCache.get(post);
+  if (cached) {
+    return cached;
+  }
+  const view = externalPostView(post);
+  externalPostViewCache.set(post, view);
+  return view;
 }

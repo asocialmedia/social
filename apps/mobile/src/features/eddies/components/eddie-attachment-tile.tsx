@@ -21,8 +21,9 @@ export function EddieAttachmentTile({
   onRetry: () => void;
 }) {
   const { isDark } = useAppTheme();
-  const failed = attachment.stage === "error";
-  const uploading = !failed && attachment.stage !== "ready";
+  const failed =
+    attachment.status === "error" || attachment.status === "detached";
+  const uploading = attachment.status === "uploading";
   const ratio =
     attachment.width && attachment.height
       ? attachment.width / attachment.height

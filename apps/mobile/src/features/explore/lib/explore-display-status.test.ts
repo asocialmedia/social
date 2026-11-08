@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
 
 import type { ExploreData } from "./explore-cache";
-import { exploreDisplayStatus } from "./explore-display-status";
+import {
+  exploreDisplayStatus,
+  peopleDiscoveryStatus,
+} from "./explore-display-status";
 
 const emptyPage: ExploreData = {
   communities: [],
@@ -60,4 +63,11 @@ test("completed empty sources and people browsing settle without a phantom loade
   expect(
     exploreDisplayStatus(false, { data: null, error: "ASM unavailable" })
   ).toBe("error");
+});
+
+test("people discovery follows the suggestions query, not the explore cache", () => {
+  expect(peopleDiscoveryStatus(true, true, "stale error")).toBe("success");
+  expect(peopleDiscoveryStatus(false, true, null)).toBe("loading");
+  expect(peopleDiscoveryStatus(false, false, "Couldn't load")).toBe("error");
+  expect(peopleDiscoveryStatus(false, false, null)).toBe("success");
 });

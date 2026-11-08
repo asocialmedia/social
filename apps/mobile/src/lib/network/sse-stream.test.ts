@@ -31,6 +31,11 @@ describe("drainSseFrames", () => {
   test("drops a frame with no data line", () => {
     expect(drainSseFrames("event: comment\n\n").frames).toEqual([]);
   });
+
+  test("joins multi-line data with newlines per the SSE spec", () => {
+    const result = drainSseFrames('event: comment\ndata: {"a":\ndata: 1}\n\n');
+    expect(result.frames).toEqual([{ data: '{"a":\n1}', event: "comment" }]);
+  });
 });
 
 function streamOf(chunks: string[]): ReadableStream<Uint8Array> {

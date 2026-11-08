@@ -2,13 +2,17 @@ import { afterEach, expect, mock, test } from "bun:test";
 
 mock.module("server-only", () => ({}));
 let withholdMedia = false;
+let sessionReads = 0;
 mock.module("@asm/db", () => ({
   filterExternalMediaSafety: <T>(posts: T[]) =>
     Promise.resolve(withholdMedia ? [] : posts),
   readNetworkPreferences: () => Promise.resolve(null),
 }));
 mock.module("@/lib/auth/session", () => ({
-  getSessionFromApi: () => Promise.resolve(null),
+  getSessionFromApi: () => {
+    sessionReads += 1;
+    return Promise.resolve(null);
+  },
 }));
 class ProtocolGatewayError extends Error {
   readonly status: number;
@@ -30,6 +34,7 @@ const originalService = process.env.PROTOCOLS_SERVICE_URL;
 const originalToken = process.env.PROTOCOLS_INTERNAL_TOKEN;
 afterEach(() => {
   withholdMedia = false;
+  sessionReads = 0;
   globalThis.fetch = originalFetch;
   if (originalService === undefined) {
     delete process.env.PROTOCOLS_SERVICE_URL;
@@ -41,6 +46,31 @@ afterEach(() => {
   } else {
     process.env.PROTOCOLS_INTERNAL_TOKEN = originalToken;
   }
+});
+
+test("public SSR post reads never consult viewer cookies or enable explicit media", async () => {
+  process.env.PROTOCOLS_SERVICE_URL = "http://protocols.test";
+  process.env.PROTOCOLS_INTERNAL_TOKEN = "test-fixture";
+  globalThis.fetch = Object.assign(
+    mock((input: string | URL | Request) => {
+      const query = new URL(String(input)).searchParams;
+      expect(query.has("explicit")).toBe(false);
+      expect(query.get("presence")).toBe("1");
+      return Promise.resolve(Response.json([]));
+    }),
+    { preconnect: originalFetch.preconnect }
+  );
+  expect(
+    await readBlueskyPosts(
+      ["at://did:plc:author/app.bsky.feed.post/example"],
+      undefined,
+      "seo-test",
+      false,
+      true,
+      false
+    )
+  ).toEqual([]);
+  expect(sessionReads).toBe(0);
 });
 
 test.each(["profile", "author-feed"] as const)(

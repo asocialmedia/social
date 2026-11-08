@@ -8,6 +8,8 @@ test("Bluesky avatar derivatives load directly instead of timing out in the Next
   const src =
     "https://cdn.bsky.app/img/avatar/plain/did:plc:alice/example@jpeg";
   const html = renderToStaticMarkup(<UserAvatar avatarUrl={src} />);
-  expect(html).toContain(`src="${src}"`);
+  expect(html).toContain(
+    `src="${src.replace("/avatar/", "/avatar_thumbnail/")}"`
+  );
   expect(html).not.toContain("/_next/image");
 });

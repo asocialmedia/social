@@ -16,6 +16,7 @@ export interface ProfileHeaderProfile {
   badges: string[];
   bannerUrl: string | null;
   bio: string | null;
+  blueskyHandle: string | null;
   communityMemberships: CommunityRoleLike[];
   createdAt: string;
   customDomain: string | null;
@@ -74,7 +75,12 @@ export type ProfileFeedStatus =
   | "success";
 
 interface ProfileFeedViewBase {
+  // Timestamp of the last loaded row, when the route reports one. Amplified
+  // and Eddies use it to interleave Bluesky activity in the right place.
+  boundary: string | null;
   error: string | null;
+  // True once any page has landed, even an empty one, matching web's `data`.
+  hasData: boolean;
   fetchNext: () => void;
   hasMore: boolean;
   // Pull-to-refresh. Replaces the tab's list with a fresh page one and resolves

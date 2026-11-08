@@ -3,7 +3,6 @@ import {
   loadReactionCatalog,
   QUICK_MESSAGE_REACTIONS,
   REACTION_CATEGORIES,
-  REACTION_SKIN_TONES,
   searchReactionEmojis,
 } from "@asm/messages";
 import type { ReactionCatalog, ReactionEmoji } from "@asm/messages";
@@ -26,6 +25,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { panel3d } from "@/features/messages/lib/message-recipes";
 import { useAppTheme } from "@/theme";
+
+import { EmojiSkinTonePicker } from "./emoji-skin-tone-picker";
 
 export function MessageReactionSheet({
   onClose,
@@ -140,16 +141,11 @@ export function MessageReactionSheet({
               Reactions
             </Text>
             {expanded ? (
-              <Pressable
-                accessibilityLabel={`Skin tone: ${REACTION_SKIN_TONES[tone]}. Change skin tone`}
-                accessibilityRole="button"
-                onPress={() => setTone((value) => (value + 1) % 6)}
-                style={styles.icon}
-              >
-                <Text style={styles.emoji}>
-                  {["✋", "✋🏻", "✋🏼", "✋🏽", "✋🏾", "✋🏿"][tone]}
-                </Text>
-              </Pressable>
+              <EmojiSkinTonePicker
+                disabled={!catalog}
+                onChange={setTone}
+                tone={tone}
+              />
             ) : null}
             <Pressable
               accessibilityLabel="Close reactions"

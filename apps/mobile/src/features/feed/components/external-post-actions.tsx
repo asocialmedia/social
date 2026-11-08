@@ -2,11 +2,10 @@ import type { ExternalPost } from "@asm/protocols/contracts";
 import { externalReplyTarget } from "@asm/protocols/discovery";
 import { useRouter } from "expo-router";
 import { CornerDownRight, MessageSquare } from "lucide-react-native";
-import { Share, View } from "react-native";
+import { View } from "react-native";
 
 import { useSessionContext } from "@/features/auth/state/session";
 import { useComposerStore } from "@/features/composer/state/composer-store";
-import { externalShareUrl } from "@/features/network/lib/network-paths";
 import { useAppTheme } from "@/theme";
 
 import { useExternalFeedback } from "../state/use-external-feedback";
@@ -23,10 +22,13 @@ import {
 export function ExternalPostActions({
   post,
   onDiscussion,
+  onShare,
   hideBookmark = false,
 }: {
   post: ExternalPost;
   onDiscussion: () => void;
+  // Opens the surface's in-app ShareSheet (web's ExternalShareButton).
+  onShare: () => void;
   hideBookmark?: boolean;
 }) {
   const { theme } = useAppTheme();
@@ -56,13 +58,7 @@ export function ExternalPostActions({
         }}
       />
       <View className="flex-row items-center gap-1">
-        <ShareButton
-          onPress={() => {
-            void Share.share({
-              message: `${post.text}\n${externalShareUrl(post.id)}`,
-            });
-          }}
-        />
+        <ShareButton onPress={onShare} />
         {hideBookmark ? null : <ExternalBookmarkAction post={post} />}
       </View>
     </PostActionRow>

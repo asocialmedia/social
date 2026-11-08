@@ -26,6 +26,7 @@ import {
   postTitle,
   siteConfig,
 } from "@/lib/seo/seo";
+import { videoWatchPath } from "@/lib/seo/video";
 import { profilePath } from "@/lib/users/profile-path";
 
 import { ClientGusts } from "./client-gusts";
@@ -253,6 +254,7 @@ async function GustsContent({ searchParams }: GustsPageProps) {
             createdAt: selectedPost.createdAt,
             description: postDescription(selectedPost),
             headline: postTitle(selectedPost),
+            id: selectedPost.id,
             media: selectedPost.attachments,
             url: getPostUrl(selectedPost),
             viewCount: selectedPost.viewCount,
@@ -267,6 +269,21 @@ async function GustsContent({ searchParams }: GustsPageProps) {
         loggedInUserData={loggedInUserData}
       />
       {/* Visible crawlable fallback below the interactive area on no-JS */}
+      {selectedPost ? (
+        <nav aria-label="Watch this gust" className="px-4 py-3 text-sm">
+          {selectedPost.attachments
+            .filter((media) => media.type === "VIDEO")
+            .map((media) => (
+              <a
+                className="underline underline-offset-4"
+                key={media.id}
+                href={videoWatchPath(selectedPost.id, media.id)}
+              >
+                Open video watch page ↗
+              </a>
+            ))}
+        </nav>
+      ) : null}
       <noscript>
         <div style={{ padding: 16 }}>
           <p>Recent gusts:</p>

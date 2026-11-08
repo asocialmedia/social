@@ -11,6 +11,7 @@ import { getSessionFromApi } from "@/lib/auth/session";
 import Bookmarks from "./bookmarks";
 
 export const metadata: Metadata = {
+  robots: { follow: false, index: false },
   title: "Bookmarks",
 };
 

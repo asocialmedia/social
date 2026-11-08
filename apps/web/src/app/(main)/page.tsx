@@ -1,5 +1,6 @@
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
@@ -7,10 +8,15 @@ import HomePageSkeleton from "@/components/layouts/skeletons/home-skeleton";
 import JsonLd from "@/components/seo/json-ld";
 import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
+import {
+  getGuestBlueskyFeed,
+  guestDiscoveryLocale,
+} from "@/lib/posts/guest-bluesky-feed";
 import { getRecentPostDataForCrawl } from "@/lib/posts/server-feed";
 import { getPostUrl } from "@/lib/seo/seo";
 
 import ClientHome from "./client-home";
+import HomeComposer from "./home-composer";
 
 export const metadata: Metadata = {
   alternates: {
@@ -73,7 +79,15 @@ async function HomeContent() {
   // interactive features are available without an account.
   const userData = session?.user ? await getUserData(session.user.id) : null;
 
-  const recentPosts = session?.user ? [] : await getRecentPostDataForCrawl(12);
+  const requestHeaders = await headers();
+  const locale = guestDiscoveryLocale(
+    requestHeaders.get("accept-language"),
+    requestHeaders.get("cf-ipcountry")
+  );
+  const [recentPosts, guestExternalPosts] = await Promise.all([
+    session?.user ? [] : getRecentPostDataForCrawl(12),
+    session?.user ? [] : getGuestBlueskyFeed(locale),
+  ]);
 
   const itemListJsonLd =
     recentPosts.length > 0
@@ -94,6 +108,10 @@ async function HomeContent() {
     <>
       {itemListJsonLd ? <JsonLd data={itemListJsonLd} /> : null}
       <ClientHome
+        composer={session?.user ? <HomeComposer /> : undefined}
+        initialGuestExternalPosts={
+          session?.user ? undefined : guestExternalPosts
+        }
         initialGuestPosts={session?.user ? undefined : recentPosts}
         userData={userData}
       />

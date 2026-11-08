@@ -12,6 +12,7 @@ import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { CARD_QUERY_POLICY } from "@/lib/cards/query-policy";
 import { profilePath } from "@/lib/users/profile-path";
@@ -189,7 +190,8 @@ const TrendingRow: React.FC<TrendingRowProps> = ({ item }) => {
   );
 };
 
-const TrendingTopics: React.FC = () => {
+const TrendingTopics: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
+  const enabled = useMediaQuery(mediaQuery || "all", !mediaQuery);
   const queryClient = useQueryClient();
   const { user } = useSession();
   const network = useNetworkSettings();
@@ -197,7 +199,7 @@ const TrendingTopics: React.FC = () => {
   const profileId = network.settings.preferences.activeProfileId;
   const queryKey = ["trending-feed", "v5", user?.id ?? "guest", network.scope];
   const { data, isError, isFetching, isLoading } = useQuery<TrendingFeed>({
-    enabled: network.ready,
+    enabled: enabled && network.ready,
     queryFn: async () =>
       mergeTrendingFeed(
         queryClient.getQueryData<TrendingFeed>(queryKey),
@@ -233,7 +235,7 @@ const TrendingTopics: React.FC = () => {
   const handleRefresh = () =>
     refresh.mutate({ key: queryKey, profile: profileId });
 
-  if (isLoading || !network.ready) {
+  if (!enabled || isLoading || !network.ready) {
     return <TrendingTopicsSkeleton />;
   }
 

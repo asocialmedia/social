@@ -117,5 +117,6 @@ export function useBlueskyFeed(
     ),
     posts: state.pages.flatMap((page) => page.items),
     refresh: store.refresh,
+    retry: store.retry,
   };
 }

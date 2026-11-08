@@ -5,6 +5,7 @@ import {
   fetchFeedHead,
   fetchFeedHeadId,
   isRankedFeed,
+  submitShareClick,
 } from "./feed-api";
 
 // The new-content probe runs every 45 seconds per open client, so what it costs
@@ -114,5 +115,33 @@ describe("fetchFeedHeadId", () => {
 
     expect(posts).toHaveLength(2);
     expect(calls[0]).toBe("https://api.test/api/posts/latest");
+  });
+});
+
+describe("submitShareClick", () => {
+  test("posts the platform to the click counter like web's trackClick", async () => {
+    const calls: { body: unknown; method: string; url: string }[] = [];
+    const baseFetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({
+        body: init?.body,
+        method: init?.method ?? "GET",
+        url: String(input),
+      });
+      return Promise.resolve(jsonResponse({ clicks: 1 }));
+    }) as unknown as typeof fetch;
+    await submitShareClick("post 1", "facebook", { ...OPTIONS, baseFetch });
+    expect(calls).toEqual([
+      {
+        body: '{"platform":"facebook"}',
+        method: "POST",
+        url: "https://api.test/api/posts/post%201/share/click",
+      },
+    ]);
+  });
+
+  test("a failed counter rejects so the caller can log it", async () => {
+    await expect(
+      submitShareClick("p", "x", { ...OPTIONS, baseFetch: failingFetch })
+    ).rejects.toThrow("503");
   });
 });

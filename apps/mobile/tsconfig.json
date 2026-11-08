@@ -1,6 +1,7 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
+    "incremental": true,
     "strict": true,
     "types": ["bun-types"],
     "paths": {

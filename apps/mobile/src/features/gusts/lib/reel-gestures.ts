@@ -114,15 +114,18 @@ export function addBurst(
   );
 }
 
-// Only active +- 1 mounts a player (web's shouldMountVideo).
+// Only active +- 1 mounts a player. Web mounts +- 2, but every mounted
+// native player holds a decoder and its buffers, so a fast fling through
+// five live players drops frames on mid-range Android. One neighbour each
+// way is enough to make the next swipe start instantly.
 export function shouldMountVideo(index: number, activeIndex: number): boolean {
   return Math.abs(index - activeIndex) <= 1;
 }
 
-// The live caption and paging spinner sit relative to the card; the pager
-// asks for the next page this many items before the end (web's 200px
-// sentinel is roughly the last card).
-export const PREFETCH_REMAINING = 2;
+// Web's useGustPagination: the next page is requested once 24 or fewer
+// loaded gusts remain past the active one, so a fast swiper never reaches
+// the pending slot while a page is still in flight.
+export const PREFETCH_REMAINING = 24;
 
 export function shouldFetchMore(options: {
   activeIndex: number;
@@ -133,7 +136,7 @@ export function shouldFetchMore(options: {
   return (
     options.hasNextPage &&
     !options.isFetching &&
-    options.total - 1 - options.activeIndex <= PREFETCH_REMAINING
+    options.total - options.activeIndex <= PREFETCH_REMAINING
   );
 }
 

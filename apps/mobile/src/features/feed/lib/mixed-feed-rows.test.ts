@@ -3,7 +3,12 @@ import { expect, test } from "bun:test";
 import type { ExternalPost } from "@asm/protocols/contracts";
 
 import type { FeedRow } from "./feed-rows";
-import { mixedFeedRows, nativePostForRow } from "./mixed-feed-rows";
+import {
+  mixedFeedRows,
+  areTimelineRowsIdentical,
+  nativePostForRow,
+  stableTimelineRows,
+} from "./mixed-feed-rows";
 
 const external: ExternalPost = {
   author: {
@@ -58,4 +63,79 @@ test("outside posts never split native reply rails", () => {
   ]);
   expect(nativePostForRow(mixed[0])?.id).toBe("parent");
   expect(nativePostForRow(mixed[2])).toBeUndefined();
+});
+
+test("stableTimelineRows reuses row objects when posts are untouched", () => {
+  const rows: FeedRow[] = [
+    {
+      hasThreadChild: false,
+      hasThreadParent: false,
+      post: {
+        createdAt: "2026-10-14T00:00:00Z",
+        id: "parent",
+        userId: "author",
+      },
+    },
+  ];
+  const first = mixedFeedRows(rows, [external], "all", true);
+  // A reconcile rebuilds every wrapper around the same post references.
+  const rebuilt = mixedFeedRows(rows, [external], "all", true);
+  const stable = stableTimelineRows(first, rebuilt);
+  expect(stable.map((row) => row.id)).toEqual(first.map((row) => row.id));
+  for (const [index, row] of stable.entries()) {
+    expect(row).toBe(first[index]);
+  }
+});
+
+test("stableTimelineRows replaces rows whose post moved", () => {
+  const post = {
+    createdAt: "2026-10-14T00:00:00Z",
+    id: "parent",
+    userId: "author",
+  };
+  const rows: FeedRow[] = [
+    { hasThreadChild: false, hasThreadParent: false, post },
+  ];
+  const first = mixedFeedRows(rows, [external], "all", true);
+  const changed: FeedRow = {
+    hasThreadChild: false,
+    hasThreadParent: false,
+    post: { ...post, viewCount: 42 },
+  };
+  const rebuilt = mixedFeedRows([changed], [external], "all", true);
+  const stable = stableTimelineRows(first, rebuilt);
+  const stableAsm = stable.find((row) => row.id === "asm:parent");
+  const firstAsm = first.find((row) => row.id === "asm:parent");
+  expect(stableAsm).not.toBe(firstAsm);
+  expect(stableAsm?.id).toBe(firstAsm?.id);
+  for (const row of stable) {
+    if (row.id === "asm:parent") {
+      continue;
+    }
+    const prior = first.find((candidate) => candidate.id === row.id);
+    expect(prior).toBeDefined();
+    expect(row).toBe(prior as (typeof stable)[number]);
+  }
+});
+
+test("areTimelineRowsIdentical compares order and identity", () => {
+  const rows: FeedRow[] = [
+    {
+      hasThreadChild: false,
+      hasThreadParent: false,
+      post: {
+        createdAt: "2026-10-14T00:00:00Z",
+        id: "parent",
+        userId: "author",
+      },
+    },
+  ];
+  const first = mixedFeedRows(rows, [external], "all", true);
+  expect(areTimelineRowsIdentical(first, first)).toBe(true);
+  expect(areTimelineRowsIdentical(first, [])).toBe(false);
+  const rebuilt = mixedFeedRows(rows, [external], "all", true);
+  expect(areTimelineRowsIdentical(first, rebuilt)).toBe(false);
+  expect(
+    areTimelineRowsIdentical(first, stableTimelineRows(first, rebuilt))
+  ).toBe(true);
 });

@@ -16,8 +16,11 @@ import { MAX_POST_ATTACHMENTS } from "@asm/media";
 // Native additions: at most two uploads run at once app-wide (the server's
 // per-IP upload budget is shared), and every transition is logged.
 import { create } from "zustand";
+import type { StateStorage } from "zustand/middleware";
 
+import { toast } from "@/components/feedback/toast";
 import { logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 import { isAbortError, withRetry } from "../lib/retry";
 import { discardDraftMedia, saveAltText } from "../lib/upload-api";
@@ -32,6 +35,12 @@ import type { FailedStep } from "../lib/upload-client";
 import { canAddMedia, familyFromMime } from "../lib/upload-policy";
 import type { GateVerdict, MediaFamily } from "../lib/upload-policy";
 import type { UploadStage } from "../lib/upload-status";
+import {
+  isStorableStatus,
+  loadStoredDrafts,
+  saveStoredDrafts,
+} from "./attachment-persist";
+import type { StoredAttachment } from "./attachment-persist";
 
 export interface PickedMedia {
   durationMs?: number | null;
@@ -43,26 +52,43 @@ export interface PickedMedia {
   width?: number;
 }
 
+// One status per attachment (audit S0-2): uploading (bytes/finalize in
+// flight), processing (finalized, serves while the server pipeline runs),
+// detached (the watch deadline expired, retry re-watches like web's resuming
+// marker), ready, error (retry resumes from retryFrom).
+export type AttachmentStatus =
+  | "detached"
+  | "error"
+  | "processing"
+  | "ready"
+  | "uploading";
+
 export interface DraftAttachment {
   audioOverlayId?: string;
   altText: string;
   bytesPercent: number;
   durationMs: number | null;
   error: string | null;
+  // Display-only pipeline phase for the last failure ("Failed at scan").
   failedStage: UploadStage | null;
-  failedStep: FailedStep | null;
   family: MediaFamily;
+  // Set from add() options: a gust video must reopen in the gust editor.
+  gust: boolean;
   height?: number;
   isGif: boolean;
-  // Attached before READY: publishing is allowed while this is true.
-  isProcessing: boolean;
   localId: string;
   mediaId: string | null;
   mimeType: string;
   name: string;
   purpose: UploadPurpose;
+  // Step retry() resumes from (set for error + detached).
+  retryFrom: FailedStep | null;
   size: number;
   stage: UploadStage;
+  // Single status union (audit S0-2): the tile, the publish gate and retry
+  // all read this field. `stage` stays as the display-only pipeline phase
+  // and `error` carries the row copy for error + detached.
+  status: AttachmentStatus;
   uri: string;
   waitForProcessing: boolean;
   width?: number;
@@ -108,6 +134,10 @@ function scopeOf(localId: string): string | null {
   return null;
 }
 
+// Web's watchMediaStatus DETACHED copy (attachment-store.ts
+// applyWatchOutcome): the pipeline is still running server-side.
+const STILL_PROCESSING_COPY = "Still processing - check back in a moment";
+
 function find(localId: string): DraftAttachment | null {
   const scope = scopeOf(localId);
   if (!scope) {
@@ -140,14 +170,25 @@ function fail(localId: string, error: unknown): void {
     return;
   }
   const upload = error instanceof UploadError ? error : null;
+  if (upload?.rejected) {
+    // Web's REJECTED path: the server refused the media, so the tile goes
+    // away with the "Attachment Removed" toast instead of a retry row.
+    attachmentActions.remove(localId);
+    toast({
+      description: upload.userMessage,
+      title: "Attachment Removed",
+      variant: "destructive",
+    });
+    return;
+  }
   patch(localId, {
     error: upload?.userMessage ?? "Upload failed",
     failedStage:
-      current.stage === "error" ? current.failedStage : current.stage,
-    failedStep: upload?.step ?? "upload",
-    isProcessing: false,
+      current.status === "error" ? current.failedStage : current.stage,
     mediaId: upload?.mediaId ?? current.mediaId,
+    retryFrom: upload?.step ?? "upload",
     stage: "error",
+    status: "error",
   });
 }
 
@@ -162,9 +203,17 @@ function watchInBackground(localId: string, mediaId: string): void {
         signal: controller.signal,
       });
       if (status === "READY") {
-        patch(localId, { isProcessing: false, stage: "ready" });
+        patch(localId, { status: "ready", stage: "ready" });
       }
-      // DETACHED: keeps processing server-side; the tile stays publishable.
+      // DETACHED from a background watch keeps the web "Still processing"
+      // copy: a retry re-attaches the watcher.
+      if (status === "DETACHED") {
+        patch(localId, {
+          error: STILL_PROCESSING_COPY,
+          retryFrom: "processing",
+          status: "detached",
+        });
+      }
     } catch (error) {
       if (!isAbortError(error)) {
         fail(localId, error);
@@ -187,8 +236,9 @@ async function run(
   patch(localId, {
     error: null,
     failedStage: null,
-    failedStep: null,
+    retryFrom: null,
     stage: step === "full" ? "uploading" : (item.failedStage ?? "queued"),
+    status: "uploading",
   });
   const callbacks = {
     onBytes: (bytesPercent: number) => patch(localId, { bytesPercent }),
@@ -203,9 +253,16 @@ async function run(
       }
       if (step === "watch" && item.mediaId) {
         const status = await watchMediaStatus(item.mediaId, callbacks);
+        if (status === "READY") {
+          patch(localId, { status: "ready", stage: "ready" });
+          return;
+        }
+        // The watch deadline expired: web keeps the "Still processing" copy
+        // and retry re-attaches the watcher.
         patch(localId, {
-          isProcessing: status !== "READY" && !item.waitForProcessing,
-          stage: status === "READY" ? "ready" : "processing",
+          error: STILL_PROCESSING_COPY,
+          retryFrom: "processing",
+          status: "detached",
         });
         return;
       }
@@ -234,15 +291,27 @@ async function run(
       if (outcome.status === "READY") {
         patch(localId, {
           bytesPercent: 100,
-          isProcessing: false,
+          status: "ready",
           mediaId: outcome.mediaId,
           stage: "ready",
         });
         return;
       }
+      if (outcome.status === "DETACHED" && item.waitForProcessing) {
+        // Eddies wait for READY before they can send: keep web's "Still
+        // processing" copy and let retry re-attach the watcher.
+        patch(localId, {
+          bytesPercent: 100,
+          error: STILL_PROCESSING_COPY,
+          mediaId: outcome.mediaId,
+          retryFrom: "processing",
+          status: "detached",
+        });
+        return;
+      }
       patch(localId, {
         bytesPercent: 100,
-        isProcessing: true,
+        status: "processing",
         mediaId: outcome.mediaId,
       });
       if (!item.waitForProcessing) {
@@ -306,18 +375,19 @@ export const attachmentActions = {
         durationMs: file.durationMs ?? null,
         error: null,
         failedStage: null,
-        failedStep: null,
         family,
+        gust: options.gust ?? false,
         height: file.height,
         isGif,
-        isProcessing: false,
         localId: newLocalId(),
         mediaId: null,
         mimeType: file.mimeType,
         name: file.name,
         purpose: options.purpose,
+        retryFrom: null,
         size: file.size,
         stage: "uploading",
+        status: "uploading",
         uri: file.uri,
         waitForProcessing: options.waitForProcessing,
         width: file.width,
@@ -351,6 +421,7 @@ export const attachmentActions = {
     attachmentActions.remove(localId);
     attachmentActions.add(scope, [picked], {
       audioOverlayId: previous.audioOverlayId,
+      gust: previous.gust,
       max: MAX_POST_ATTACHMENTS,
       purpose: previous.purpose,
       waitForProcessing: previous.waitForProcessing,
@@ -421,9 +492,12 @@ export const attachmentActions = {
     if (!item) {
       return;
     }
-    if (item.mediaId && item.failedStep === "processing") {
+    if (item.status !== "error" && item.status !== "detached") {
+      return;
+    }
+    if (item.mediaId && item.retryFrom === "processing") {
       void run(localId, "watch");
-    } else if (item.mediaId && item.failedStep === "finalize") {
+    } else if (item.mediaId && item.retryFrom === "finalize") {
       void run(localId, "finalize");
     } else {
       void run(localId, "full");
@@ -452,6 +526,9 @@ export const attachmentActions = {
   },
 };
 
+// Web's publish gate lives in lib/readiness.ts (pure, unit-tested).
+export { scopeReadiness } from "../lib/readiness";
+
 export function useScopeAttachments(scope: string): DraftAttachment[] {
   return useAttachmentState((state) => state.scopes[scope] ?? EMPTY);
 }
@@ -460,5 +537,154 @@ export function getScopeAttachments(scope: string): DraftAttachment[] {
   return useAttachmentState.getState().scopes[scope] ?? EMPTY;
 }
 
-// Web's publish gate lives in lib/readiness.ts (pure, unit-tested).
-export { scopeReadiness } from "../lib/readiness";
+async function secureDraftStorage(): Promise<StateStorage> {
+  // Dynamic import: expo-secure-store cannot load under bun, and only the
+  // app runtime ever hydrates drafts.
+  const SecureStore = await import("expo-secure-store");
+  return {
+    getItem: async (key) => {
+      try {
+        return await SecureStore.getItemAsync(key);
+      } catch {
+        return null;
+      }
+    },
+    removeItem: async (key) => {
+      try {
+        await SecureStore.deleteItemAsync(key);
+      } catch {
+        // Unavailable storage must not break the composer.
+      }
+    },
+    setItem: async (key, value) => {
+      try {
+        await SecureStore.setItemAsync(key, value);
+      } catch {
+        // Drafts that do not fit stay in memory for this session.
+      }
+    },
+  };
+}
+
+let persistenceStarted = false;
+let lastPersistedJson = "";
+
+// Persists only settled server rows (progress ticks do not change the
+// payload, so the write is skipped) and clears with the scope.
+export function startAttachmentDraftPersistence(storage: StateStorage): void {
+  if (persistenceStarted) {
+    return;
+  }
+  persistenceStarted = true;
+  useAttachmentState.subscribe((state) => {
+    const storable: Record<string, StoredAttachment[]> = {};
+    for (const [scope, items] of Object.entries(state.scopes)) {
+      const kept = items
+        .filter(
+          (item) => item.mediaId !== null && isStorableStatus(item.status)
+        )
+        .map((item) => ({
+          altText: item.altText === "" ? undefined : item.altText,
+          audioOverlayId: item.audioOverlayId,
+          family: item.family,
+          gust: item.gust === true ? true : undefined,
+          mediaId: item.mediaId as string,
+          mimeType: item.mimeType,
+          name: item.name,
+          processing: item.status === "processing" ? true : undefined,
+          purpose: item.purpose,
+          waitForProcessing: item.waitForProcessing === true ? true : undefined,
+        }));
+      if (kept.length > 0) {
+        storable[scope] = kept;
+      }
+    }
+    const json = JSON.stringify(storable);
+    if (json === lastPersistedJson) {
+      return;
+    }
+    lastPersistedJson = json;
+    void saveStoredDrafts(storage, storable);
+  });
+}
+
+let hydratePromise: Promise<{ gustVideo: boolean }> | null = null;
+
+// Restores settled server rows (web's hydrate): processing rows re-attach a
+// status watcher, and a restored gust video reports back so the composer
+// reopens in the gust editor. Safe to call on every composer open.
+export function hydrateAttachmentDrafts(
+  storage?: StateStorage
+): Promise<{ gustVideo: boolean }> {
+  if (!hydratePromise) {
+    hydratePromise = (async () => {
+      const store = storage ?? (await secureDraftStorage());
+      const decoded = await loadStoredDrafts(store);
+      const apiBase = getApiBaseUrl().replace(/\/+$/, "");
+      const scopes: Record<string, DraftAttachment[]> = {};
+      let gustVideo = false;
+      for (const [scope, items] of Object.entries(decoded)) {
+        const restored: DraftAttachment[] = [];
+        for (const item of items) {
+          const processing = item.processing === true;
+          if (item.gust === true) {
+            gustVideo = true;
+          }
+          restored.push({
+            altText: item.altText ?? "",
+            audioOverlayId: item.audioOverlayId,
+            bytesPercent: 100,
+            durationMs: null,
+            error: null,
+            failedStage: null,
+            family: item.family,
+            gust: item.gust ?? false,
+            height: undefined,
+            isGif: item.mimeType.toLowerCase() === "image/gif",
+            localId: newLocalId(),
+            mediaId: item.mediaId,
+            mimeType: item.mimeType,
+            name: item.name,
+            purpose: item.purpose,
+            retryFrom: null,
+            size: 0,
+            stage: processing ? "processing" : "ready",
+            status: processing ? "processing" : "ready",
+            uri: `${apiBase}/api/media/${item.mediaId}`,
+            waitForProcessing: item.waitForProcessing ?? false,
+            width: undefined,
+          });
+        }
+        if (restored.length > 0) {
+          scopes[scope] = restored;
+        }
+      }
+      if (Object.keys(scopes).length > 0) {
+        // Never clobber attachments added while storage was loading.
+        const current = useAttachmentState.getState().scopes;
+        const merged: Record<string, DraftAttachment[]> = { ...current };
+        const added: DraftAttachment[] = [];
+        for (const [scope, items] of Object.entries(scopes)) {
+          if ((merged[scope] ?? []).length === 0) {
+            merged[scope] = items;
+            added.push(...items);
+          }
+        }
+        if (added.length > 0) {
+          useAttachmentState.setState({ scopes: merged });
+          for (const attachment of added) {
+            if (
+              attachment.status === "processing" &&
+              attachment.mediaId !== null
+            ) {
+              watchInBackground(attachment.localId, attachment.mediaId);
+            }
+          }
+        }
+      }
+      startAttachmentDraftPersistence(store);
+      return { gustVideo };
+    })();
+  }
+  return hydratePromise;
+}

@@ -38,13 +38,13 @@ import { UserBadge } from "../../home/components/user-badge";
 import { getPostRailColor } from "../lib/feed-rail";
 import type { FeedPost } from "../lib/feed-types";
 import {
+  cachedFormatRelativeDate,
   extractInlineMeta,
-  formatRelativeDate,
   isBookmarkedByUser,
   getUserVote,
 } from "../lib/feed-types";
-import { parseStoredEmbeds } from "../lib/link-embeds";
 import { buildMoreEntries } from "../lib/more-entries";
+import { usePostLinkPreviews } from "../lib/use-post-link-previews";
 import { useMediaPreviewStore } from "../state/media-preview-store";
 import { useVideoCaptionsStore } from "../state/video-captions-store";
 import { CommunityAttribution } from "./community-attribution";
@@ -251,10 +251,13 @@ export const PostCard = memo(
       .map(mediaReshareLabel)
       .find((label) => label !== null);
     // Stored link embeds (YouTube facade + OG cards) render below the media
-    // in one gated column, like web's mediaAndEmbeds block.
-    const linkEmbeds = useMemo(
-      () => parseStoredEmbeds(post.embeds),
-      [post.embeds]
+    // in one gated column, like web's mediaAndEmbeds block. Bluesky posts
+    // often arrive with no stored embeds, so the hook backfills the single
+    // missing card through the shared preview resolver (web's
+    // usePostLinkPreviews), unresolved title/site first, resolved card after.
+    const { embeds: linkEmbeds } = usePostLinkPreviews(
+      post.embeds,
+      post.external
     );
     const hasMediaOrEmbeds = attachments.length > 0 || linkEmbeds.length > 0;
     const commentCount = post._count?.comments ?? 0;
@@ -413,7 +416,7 @@ export const PostCard = memo(
                       ·
                     </Text>
                     <Text style={[styles.date, { color: theme.dividerText }]}>
-                      {formatRelativeDate(post.createdAt)}
+                      {cachedFormatRelativeDate(post.createdAt)}
                     </Text>
                   </View>
                   {/* Web's header buttons carry -my-1 so the text row sets the row
@@ -566,6 +569,7 @@ export const PostCard = memo(
                   <ExternalPostActions
                     post={post.external}
                     onDiscussion={openDetail}
+                    onShare={() => onShare(post)}
                   />
                 ) : (
                   <View style={styles.actions}>

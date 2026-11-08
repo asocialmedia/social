@@ -9,7 +9,12 @@
 
 import { useCallback, useState } from "react";
 
+import { toast } from "@/components/feedback/toast";
+import { authClient } from "@/features/auth/lib/auth-client";
 import { useComposerStore } from "@/features/composer/state/composer-store";
+import { setNotInterested } from "@/features/gusts/lib/gusts-api";
+import { logWarn } from "@/lib/lifecycle/telemetry";
+import { getApiBaseUrl } from "@/lib/network/api-env";
 
 import { buildMoreEntries } from "../components/more-menu";
 import type { MoreAction, MoreMenuEntry } from "../components/more-menu";
@@ -21,23 +26,44 @@ import {
 import type { FeedPost } from "../lib/feed-types";
 
 export interface PostOverflowHandlers {
-  /** Fired after a delete succeeds, so the surface can drop the row. */
+  // Fired after a delete succeeds, so the surface can drop the row.
   onDeleted: (postId: string) => void;
-  /** Fired after a moderation save, so the surface can patch the post. */
+  // Fired after a moderation save, so the surface can patch the post.
   onModerated: (
     postId: string,
     next: { explicitContent: boolean; moderated: boolean }
   ) => void;
-  /** Fired after tags are saved. */
+  // Fired after tags are saved.
   onTagsSaved: (postId: string, tags: string[]) => void;
   onHide: (post: FeedPost) => void;
-  /** Optional: a surface that never offers alt can omit it. */
+  // Puts a hidden post back. When given, the "Not interested" toast offers Undo.
+  onUndoHide?: (post: FeedPost) => void;
+  // Optional: a surface that never offers alt can omit it.
   onToggleAlt?: (post: FeedPost) => void;
-  /** Optional: same for captions. */
+  // Optional: same for captions.
   onToggleCaptions?: (post: FeedPost) => void;
-  /** The signed-in reader, for the author/staff rule on the new entries. */
+  // The signed-in reader, for the author/staff rule on the new entries.
   viewerId: string | null;
   viewerRole?: string | null;
+}
+
+// Web's hide is durable (useHideRecommendationPostMutation): the ranked pools
+// keep excluding the post across reloads, and Undo makes it eligible again.
+export async function persistNotInterested(
+  postId: string,
+  hidden: boolean
+): Promise<void> {
+  try {
+    await setNotInterested(postId, hidden, {
+      apiBase: getApiBaseUrl(),
+      cookie: await authClient.getCookie(),
+    });
+  } catch (error) {
+    logWarn("feed.not_interested_failed", {
+      hidden,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 export function usePostOverflow(handlers: PostOverflowHandlers): {
@@ -72,6 +98,23 @@ export function usePostOverflow(handlers: PostOverflowHandlers): {
     (action: MoreAction, post: FeedPost) => {
       if (action.type === "hide") {
         handlers.onHide(post);
+        void persistNotInterested(post.id, true);
+        const { onUndoHide } = handlers;
+        // Web's PostMoreButton toast, copy and 6s duration included.
+        toast({
+          button: onUndoHide
+            ? {
+                onClick: () => {
+                  onUndoHide(post);
+                  void persistNotInterested(post.id, false);
+                },
+                title: "Undo",
+              }
+            : undefined,
+          description: "You'll see fewer posts like this.",
+          duration: 6000,
+          title: "Not interested",
+        });
         return;
       }
       if (action.type === "toggle-alt") {

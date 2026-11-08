@@ -87,6 +87,7 @@ import {
   collectRelations,
 } from "../lib/inline-relations";
 import type { ActiveTrigger } from "../lib/inline-relations";
+import { mediaLockReason } from "../lib/media-lock-reasons";
 import {
   downloadGif,
   pickAudioFile,
@@ -94,7 +95,7 @@ import {
 } from "../lib/pick-media";
 import type { KlipyGif } from "../lib/pick-media";
 import { newIdempotencyKey, publishPost } from "../lib/publish-api";
-import { useComposerStore } from "../state/composer-store";
+import { clearStoredHnShare, useComposerStore } from "../state/composer-store";
 import {
   clearGustOptions,
   flushGustAlt,
@@ -103,6 +104,7 @@ import {
 import { AltTextPanel } from "./alt-text-panel";
 import { AttachmentTile } from "./attachment-tile";
 import { CommunityContextPreview } from "./community-context-preview";
+import { ComposerLinkPreviews } from "./composer-link-previews";
 import { GustEditor } from "./gust-editor";
 import InlineRichInput from "./inline-rich-input";
 import { InlineSuggestions } from "./inline-suggestions";
@@ -122,31 +124,47 @@ function wordCount(text: string): number {
 }
 
 // Toolbar pill (`pill-3d-hover`): icon-only on phones, like web below md.
+// A lockReason keeps the pill tappable so the tap can explain itself with
+// the web tooltip's copy (native has no hover): the pill stays dimmed and
+// reports disabled to assistive tech, with the reason as its hint.
 function ToolbarButton({
   active = false,
   disabled = false,
   icon: Icon,
   label,
+  lockReason = null,
   onPress,
 }: {
   active?: boolean;
   disabled?: boolean;
   icon: ComponentType<{ color?: string; size?: number }>;
   label: string;
+  lockReason?: string | null;
   onPress: () => void;
 }) {
   const { isDark } = useAppTheme();
   const text = themeText(isDark);
   const pressedTone = pressedPill(isDark);
+  const locked = lockReason !== null;
   return (
     <Pressable
+      accessibilityHint={locked ? lockReason : undefined}
       accessibilityLabel={label}
       accessibilityRole="button"
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled: disabled || locked }}
       disabled={disabled}
       hitSlop={4}
-      onPress={onPress}
-      style={disabled && styles.disabled}
+      onPress={() => {
+        if (locked) {
+          toast({
+            description: lockReason,
+            title: "Not allowed with this media",
+          });
+          return;
+        }
+        onPress();
+      }}
+      style={(disabled || locked) && styles.disabled}
     >
       {({ pressed }) => {
         let iconColor: string = active ? "#f66b15" : text.muted;
@@ -361,7 +379,17 @@ export function PostEditor({
   } | null>(null);
   const moreAnchorRef = useRef<ViewInstance>(null);
   const [altTarget, setAltTarget] = useState<string | null>(null);
-  const [publishing, setPublishing] = useState(false);
+  // Dismissed link previews ride the publish payload so the server excludes
+  // them from the stored embeds, like web's dismissedEmbedUrls.
+  const [dismissedEmbedUrls, setDismissedEmbedUrls] = useState<string[]>([]);
+  // The publish gate lives in the store (ComposerStatus): beginPublish is
+  // synchronous, so a second tap before the re-render commits still no-ops
+  // instead of firing a second POST with a stale `false`.
+  const publishStatus = useComposerStore((state) => state.status);
+  const beginPublish = useComposerStore((state) => state.beginPublish);
+  const failPublish = useComposerStore((state) => state.failPublish);
+  const resolvePublish = useComposerStore((state) => state.resolvePublish);
+  const publishing = publishStatus.kind === "publishing";
   // One key per composed post, reused across retries of that post.
   const idempotencyKeyRef = useRef<string | null>(null);
 
@@ -405,8 +433,20 @@ export function PostEditor({
     (item) => item.family === "AUDIO" || item.isGif
   );
   const capacityFull = attachments.length >= MAX_POST_ATTACHMENTS;
-  const exclusiveLocked = hasAudioOrGif;
   const hasVideo = attachments.some((item) => item.family === "VIDEO");
+  // Per-button lock reasons (web's disabledTypes + title tooltips): locked
+  // controls stay tappable so the tap explains itself with the same copy.
+  const mediaLockState = {
+    attachmentCount: attachments.length,
+    capacityFull,
+    hasAudio: attachments.some((item) => item.family === "AUDIO"),
+    hasGif: attachments.some((item) => item.isGif),
+    hasVideo,
+    isGust,
+  };
+  const photosLock = mediaLockReason("photos", mediaLockState);
+  const gifLock = mediaLockReason("gif", mediaLockState);
+  const audioLock = mediaLockReason("audio", mediaLockState);
   const modeLocked =
     gustOptions.busy ||
     isResponse ||
@@ -536,12 +576,16 @@ export function PostEditor({
   };
 
   const submit = async () => {
-    if (!canPublish || publishing) {
+    if (!canPublish) {
       return;
     }
-    setPublishing(true);
     if (idempotencyKeyRef.current === null) {
       idempotencyKeyRef.current = newIdempotencyKey();
+    }
+    // No-op unless the composer is editing: a double-tap that lands before
+    // the first `publishing` render commits still sees `publishing` here.
+    if (!beginPublish(idempotencyKeyRef.current)) {
+      return;
     }
     const inlineRelations = collectRelations(draft.text, {
       mentions: draft.mentions,
@@ -569,6 +613,7 @@ export function PostEditor({
             ? { externalParentUri: replyTo.externalParentUri }
             : {}),
           content: trimmed,
+          dismissedEmbedUrls,
           isGust: isResponse ? false : isGust,
           mediaIds,
           mentions: relations.mentions,
@@ -585,8 +630,12 @@ export function PostEditor({
       }
       attachmentActions.clear(POST_SCOPE, { discard: false });
       clearDraft();
+      // A published share is consumed everywhere: web's hnShareStore.clearState
+      // runs on the same success path so a later composer opens clean.
+      clearStoredHnShare();
       setAltTarget(null);
       setGifOpen(false);
+      setDismissedEmbedUrls([]);
       // Reveal fleets in Home; Gusts open their own feed after closing the composer.
       if (result.kind === "created" && !isResponse && !isGust) {
         revealPublishedPost(result.post, viewerId);
@@ -605,6 +654,11 @@ export function PostEditor({
         });
       }
     } catch (error) {
+      failPublish(
+        error instanceof Error && error.message
+          ? error.message
+          : "Couldn't create your post, try again?"
+      );
       toast({
         description:
           error instanceof Error && error.message
@@ -614,7 +668,7 @@ export function PostEditor({
         variant: "destructive",
       });
     }
-    setPublishing(false);
+    resolvePublish();
   };
 
   const insertToken = (token: string, onPick: () => void) => {
@@ -836,6 +890,17 @@ export function PostEditor({
         <UserAvatar radius={16} size={48} url={viewerAvatar} />
         <View style={styles.column}>
           {captionBlock}
+          {draft.hnStory ? null : (
+            <ComposerLinkPreviews
+              content={draft.text}
+              dismissedUrls={dismissedEmbedUrls}
+              onDismiss={(url) =>
+                setDismissedEmbedUrls((current) =>
+                  current.includes(url) ? current : [...current, url]
+                )
+              }
+            />
+          )}
           {!isGust && draft.hnStory ? (
             <View style={{ marginTop: 12 }}>
               <HNStoryCard
@@ -849,7 +914,12 @@ export function PostEditor({
                     url: draft.hnStory.url ?? undefined,
                   },
                 }}
-                onRemove={() => setDraft(removeHnStory(draft))}
+                onRemove={() => {
+                  // Removing the story drops the pending share too, so a later
+                  // composer open cannot resurrect it (web's clearState).
+                  clearStoredHnShare();
+                  setDraft(removeHnStory(draft));
+                }}
               />
             </View>
           ) : null}
@@ -963,9 +1033,8 @@ export function PostEditor({
           <View style={styles.toolbar}>
             <View style={styles.toolbarLeft}>
               <ToolbarButton
-                disabled={
-                  capacityFull || exclusiveLocked || (isGust && hasVideo)
-                }
+                disabled={isGust && hasVideo}
+                lockReason={photosLock}
                 icon={isGust ? Video : ImageIcon}
                 label={isGust ? "Upload video" : "Photos & Videos"}
                 onPress={() => {
@@ -1011,9 +1080,18 @@ export function PostEditor({
                         ]}
                       >
                         <Pressable
+                          accessibilityHint={gifLock ?? undefined}
                           accessibilityRole="button"
-                          disabled={attachments.length > 0}
+                          accessibilityState={{ disabled: gifLock !== null }}
                           onPress={() => {
+                            if (gifLock) {
+                              setMoreAnchor(null);
+                              toast({
+                                description: gifLock,
+                                title: "Not allowed with this media",
+                              });
+                              return;
+                            }
                             setMoreAnchor(null);
                             setGifOpen((open) => !open);
                           }}
@@ -1022,7 +1100,7 @@ export function PostEditor({
                             pressed && {
                               backgroundColor: isDark ? "#303030" : "#e8e8e8",
                             },
-                            attachments.length > 0 && styles.disabled,
+                            gifLock !== null && styles.disabled,
                           ]}
                         >
                           <Clapperboard color={text.muted} size={18} />
@@ -1036,9 +1114,18 @@ export function PostEditor({
                           </Text>
                         </Pressable>
                         <Pressable
+                          accessibilityHint={audioLock ?? undefined}
                           accessibilityRole="button"
-                          disabled={attachments.length > 0}
+                          accessibilityState={{ disabled: audioLock !== null }}
                           onPress={() => {
+                            if (audioLock) {
+                              setMoreAnchor(null);
+                              toast({
+                                description: audioLock,
+                                title: "Not allowed with this media",
+                              });
+                              return;
+                            }
                             setMoreAnchor(null);
                             void openAudio();
                           }}
@@ -1047,7 +1134,7 @@ export function PostEditor({
                             pressed && {
                               backgroundColor: isDark ? "#303030" : "#e8e8e8",
                             },
-                            attachments.length > 0 && styles.disabled,
+                            audioLock !== null && styles.disabled,
                           ]}
                         >
                           <FileAudio color={text.muted} size={18} />

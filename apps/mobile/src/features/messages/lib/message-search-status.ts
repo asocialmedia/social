@@ -8,6 +8,9 @@
 // partial the wording says so, and only a fully indexed conversation gets a
 // plain "No results".
 
+import { normalizeMessageSearchQuery } from "@asm/messages/normalization";
+import { MESSAGE_SEARCH_MAXIMUM_QUERY_CODE_POINTS } from "@asm/messages/search-contracts";
+
 export interface SearchStatusInput {
   // A backfill walk is paging through older history right now.
   indexingOlder: boolean;
@@ -20,6 +23,15 @@ export interface SearchChatStatusInput extends SearchStatusInput {
   activePosition: number;
   matchCount: number;
 }
+
+// A query longer than the contract allows never runs; the bar and the empty
+// body share this predicate and message so neither can drift.
+export function isMessageSearchQueryTooLong(query: string): boolean {
+  const normalized = normalizeMessageSearchQuery(query).normalizedQuery;
+  return [...normalized].length > MESSAGE_SEARCH_MAXIMUM_QUERY_CODE_POINTS;
+}
+
+export const MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE = `Search queries must be ${MESSAGE_SEARCH_MAXIMUM_QUERY_CODE_POINTS} characters or fewer`;
 
 export interface SearchListStatusInput extends SearchStatusInput {
   // Rows the current page actually holds. A page whose window has not landed
@@ -105,11 +117,14 @@ export interface SearchListEmptyInput {
   // correct advice.
   listPageStale: boolean;
   queryReady: boolean;
+  queryTooLong?: boolean;
   // Rows actually on screen, which can be fewer than the matches: the list
   // pages one window at a time, so an empty page with a nonzero total is "not
   // here", never "does not exist".
   resultCount: number;
   totalMatches: number;
+  savedScope?: boolean;
+  coverageUnavailable?: boolean;
 }
 
 // The list body's empty state. Kept here with the other wording so the rule is
@@ -128,10 +143,19 @@ export function searchListEmptyState(
     listPageLoading,
     listPageStale,
     queryReady,
+    queryTooLong = false,
     resultCount,
     totalMatches,
+    savedScope = false,
+    coverageUnavailable = false,
   } = input;
-  if (!queryReady || resultCount > 0) {
+  if (queryTooLong) {
+    return MESSAGE_SEARCH_QUERY_TOO_LONG_MESSAGE;
+  }
+  if (resultCount > 0) {
+    return null;
+  }
+  if (!queryReady) {
     return null;
   }
   if (listPageError) {
@@ -155,6 +179,12 @@ export function searchListEmptyState(
   }
   if (indexing || indexingOlder) {
     return null;
+  }
+  if (savedScope) {
+    return "No matching saved messages.";
+  }
+  if (coverageUnavailable) {
+    return "No matches in searchable history. Some older messages couldn't be searched.";
   }
   return "No messages match this search.";
 }

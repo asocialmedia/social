@@ -14,16 +14,22 @@ import {
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { useDiscoverySuggestions } from "@/hooks/use-discovery-suggestions";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import type { DiscoverySuggestions } from "@/lib/recommendations/suggestion-types";
 import { suggestionAccountKey } from "@/lib/recommendations/suggestion-types";
 import { cn } from "@/lib/utils";
 
 import { SuggestedFollowButton } from "./suggested-follow-button";
 
-export function WhoToFollowSuggestions() {
+export function WhoToFollowSuggestions({
+  mediaQuery,
+}: {
+  mediaQuery?: string;
+}) {
+  const enabled = useMediaQuery(mediaQuery || "all", !mediaQuery);
   const { user } = useSession();
   const client = useQueryClient();
-  const suggestions = useDiscoverySuggestions(Boolean(user));
+  const suggestions = useDiscoverySuggestions(enabled && Boolean(user));
   const [dismissals, setDismissals] = useState<{
     profileId: string;
     ids: Set<string>;
@@ -31,7 +37,7 @@ export function WhoToFollowSuggestions() {
   const profileId = suggestions.data?.profileId ?? "";
   const dismissed =
     dismissals.profileId === profileId ? dismissals.ids : new Set<string>();
-  const visible = (suggestions.data?.accounts ?? [])
+  const visible = (enabled ? (suggestions.data?.accounts ?? []) : [])
     .filter((account) => !dismissed.has(suggestionAccountKey(account)))
     .slice(0, 4);
   return (
@@ -58,12 +64,7 @@ export function WhoToFollowSuggestions() {
           </button>
         ) : null}
       </div>
-      {user ? null : (
-        <p className="text-muted-foreground px-3 py-2 text-sm">
-          Sign in to see suggestions for people to follow.
-        </p>
-      )}
-      {user && suggestions.isPending
+      {user && (!enabled || suggestions.isPending)
         ? [0, 1, 2].map((index) => (
             <div key={index} className="flex gap-3 px-2.5 py-3">
               <div className="bg-muted size-9 animate-pulse rounded-xl" />
@@ -71,7 +72,7 @@ export function WhoToFollowSuggestions() {
             </div>
           ))
         : null}
-      {user && suggestions.isError && !suggestions.data ? (
+      {user && enabled && suggestions.isError && !suggestions.data ? (
         <p className="text-muted-foreground px-3 py-3 text-xs">
           Suggestions are temporarily unavailable. Use refresh to retry.
         </p>

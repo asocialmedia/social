@@ -64,6 +64,27 @@ test("event reads buffer new rows until acceptance without replacing loaded page
   store.dispose();
 });
 
+test("pausing retains loaded pages so returning paints without a refetch", async () => {
+  let reads = 0;
+  const store = createBlueskyFeed("https://asm.test", "latest", () => {
+    reads += 1;
+    return Promise.resolve(
+      Response.json({ ...page, items: [external("kept")] })
+    );
+  });
+  await store.refresh();
+  expect(store.snapshot().pages).toHaveLength(1);
+  store.pause();
+  store.activate();
+  expect(store.snapshot().pages).toHaveLength(1);
+  expect(store.snapshot().pages[0]?.items.map((item) => item.id)).toEqual([
+    external("kept").id,
+  ]);
+  expect(store.snapshot().status).toBe("success");
+  expect(reads).toBe(1);
+  store.dispose();
+});
+
 test("pausing cancels a pending head read before it can repopulate a tab", async () => {
   const pending = Promise.withResolvers<Response>();
   let reads = 0;
@@ -175,5 +196,37 @@ test("Following uses its authenticated endpoint for initial, continuation, and e
   await store.probe();
   expect(urls).toHaveLength(3);
   expect(urls.every((url) => url.includes("/bluesky/following?"))).toBe(true);
+  store.dispose();
+});
+
+test("retry re-reads the failed page and keeps the loaded pages", async () => {
+  const urls: string[] = [];
+  const store = createBlueskyFeed("https://asm.example", "latest", (url) => {
+    urls.push(url);
+    if (urls.length === 1) {
+      return Promise.resolve(
+        Response.json({ ...page, items: [external("first")] })
+      );
+    }
+    if (urls.length === 2) {
+      return Promise.resolve(Response.json({ error: "bad" }, { status: 400 }));
+    }
+    return Promise.resolve(
+      Response.json({
+        cursor: null,
+        items: [external("second")],
+        partial: false,
+      })
+    );
+  });
+  await store.refresh();
+  await store.fetchNext();
+  expect(store.snapshot().status).toBe("error");
+  expect(store.snapshot().pages).toHaveLength(1);
+  await store.retry();
+  expect(store.snapshot().status).toBe("success");
+  expect(store.snapshot().error).toBeNull();
+  expect(store.snapshot().pages).toHaveLength(2);
+  expect(urls.at(-1)).toContain("cursor=next");
   store.dispose();
 });

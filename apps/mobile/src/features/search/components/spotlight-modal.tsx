@@ -1,18 +1,21 @@
-// Floating spotlight search modal: 1:1 native port of web's Spotlight
-// (components/search/spotlight.tsx). Floats an apple-panel card under the
-// top bar with a dimmed backdrop, instant debounced search for communities,
-// people, and posts, search history with item removal and clear-all, empty states
-// with nosearch.png, skeletons, and guest notice footer.
+// Floating spotlight search modal: native port of web's Spotlight at phone
+// width (apps/web/src/components/search/spotlight.tsx). The card is the
+// `.panel-3d` floating surface (panel3d in components/surface/recipes.ts),
+// re-themed to the `.bluesky-3d-surface` gradient while searching Bluesky.
+// It carries the title, the Both/ASM/Bluesky switcher, the Filters and Clear
+// history track, the search field and a results list. An empty query shows
+// "Your interests", "Recent", "Suggested accounts" and "Suggested posts"; a
+// query of two or more characters shows Accounts, Posts and Communities.
 // oxlint-disable react/set-state-in-effect
-import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import type { Href } from "expo-router";
-import { Clock3, Eye, Flame, Play, Search, X } from "lucide-react-native";
+import { ChevronDown, Search, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TextInputInstance } from "react-native";
 import {
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -25,24 +28,22 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import noSearchImage from "@/assets/images/nosearch.png";
-import { UserAvatar } from "@/components/avatar/user-avatar";
-import { APPLE_PANEL_TOKENS, themeText } from "@/components/surface/recipes";
+import { Gradient3D } from "@/components/surface/gradient-3d";
+import {
+  iconButton,
+  panel3d,
+  premiumInput,
+} from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
-import { CommunityAvatar } from "@/features/communities/components/community-avatar";
-import { formatRelativeDate } from "@/features/feed/lib/feed-types";
-import { mediaGridImageUrl } from "@/features/feed/lib/media-url";
-import {
-  formatNumber,
-  getAuraFlameStyle,
-} from "@/features/home/components/profile-utils";
-import { DiscoverySuggestions } from "@/features/network/components/discovery-suggestions";
-import { DiscoverySafetyControl } from "@/features/network/components/network-tab";
+import { BlueskyIcon } from "@/features/feed/components/bluesky-icon";
 import { nativeNetworkPath } from "@/features/network/lib/network-paths";
-import { learnNetworkSearch } from "@/features/network/state/use-discovery-suggestions";
-import { SettingsButton } from "@/features/settings/components/settings-ui";
+import {
+  learnNetworkSearch,
+  useDiscoverySuggestions,
+} from "@/features/network/state/use-discovery-suggestions";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
+import { PROD_API_URL } from "@/lib/network/api-base";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
@@ -55,82 +56,52 @@ import {
   recordSearchUser,
   removeSearchHistoryItem,
 } from "../lib/search-api";
-import type {
-  SearchCommunityResult,
-  SearchPostResult,
-  SearchUserResult,
-} from "../lib/search-api";
+import { historyItemKey, parseHistoryItem } from "../lib/search-history";
+import type { SearchKind, SearchSource } from "../lib/search-scope";
 import {
-  formatSearchTime,
-  historyItemKey,
-  parseHistoryItem,
-} from "../lib/search-history";
-import type { SearchHistoryItem } from "../lib/search-history";
+  emptySearchCopy,
+  matchingServerEntry,
+  mergeRecentHistory,
+  searchPlaceholder,
+  searchSubtitle,
+  searchTitle,
+  spotlightGroups,
+  spotlightInterests,
+  spotlightResultItems,
+  spotlightTarget,
+  suggestedItems,
+} from "../lib/spotlight-items";
+import type {
+  ServerHistoryEntry,
+  SpotlightResultItem,
+} from "../lib/spotlight-items";
 import { useSearchStore } from "../state/search-store";
 import { useNetworkSearch } from "../state/use-network-search";
-import type { SearchKind, SearchSource } from "../state/use-network-search";
 import { useRecentNetworkSearches } from "../state/use-recent-network-searches";
+import { ActionTrack, FilterMenu, SourceSwitcher } from "./spotlight-controls";
+import {
+  blueskySurface,
+  chipFlat,
+  spotlightPalette,
+} from "./spotlight-recipes";
+import {
+  EmptySearch,
+  GroupHeader,
+  SearchRow,
+  SearchSkeleton,
+} from "./spotlight-rows";
+import { SuggestedAccountsRail } from "./suggested-accounts-rail";
 
-export interface SpotlightResultItem {
-  href?: string;
-  source?: "asm" | "bluesky";
-  aura?: number;
-  authorUsername?: string;
-  avatarUrl?: string | null;
-  createdAt?: string;
-  displayName: string;
-  explicitContent?: boolean;
-  id: string;
-  isSelf?: boolean;
-  meta: string;
-  previewMedia?: {
-    id: string;
-    thumbnailKey: string | null;
-    type: string;
-  } | null;
-  rawCommunity?: SearchCommunityResult;
-  rawPost?: SearchPostResult;
-  rawUser?: SearchUserResult;
-  removeTarget?: string;
-  resultCount?: number;
-  searchedAt?: number;
-  subtitle?: string;
-  type: "community" | "user" | "post" | "history";
-  viewCount?: number;
-}
+export type { SpotlightResultItem } from "../lib/spotlight-items";
 
-function SpotlightSkeleton() {
-  const { isDark } = useAppTheme();
-  const bg = isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.08)";
-  const lineBg = isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.05)";
-  return (
-    <View style={styles.skeletonRow}>
-      <View style={[styles.skeletonAvatar, { backgroundColor: bg }]} />
-      <View style={styles.skeletonCopy}>
-        <View
-          style={[styles.skeletonLine, { backgroundColor: bg, width: "35%" }]}
-        />
-        <View
-          style={[
-            styles.skeletonLine,
-            { backgroundColor: lineBg, width: "65%" },
-          ]}
-        />
-      </View>
-    </View>
-  );
-}
+// The Bluesky field's inset well and focus ring, from web's input classes.
+const BLUE_INPUT_SHADOWS =
+  "inset 0 2px 4px rgba(0, 0, 0, 0.15), inset 0 0 0 1px rgba(255, 255, 255, 0.15), 0 1px 1px rgba(255, 255, 255, 0.2)";
+const BLUE_INPUT_FOCUS_SHADOWS =
+  "inset 0 2px 4px rgba(0, 0, 0, 0.15), 0 0 0 1px #ffffff, 0 0 0 4px rgba(255, 255, 255, 0.35)";
 
 export function SpotlightModal() {
   const { isDark } = useAppTheme();
-  const text = themeText(isDark);
-  const panel = isDark ? APPLE_PANEL_TOKENS.dark : APPLE_PANEL_TOKENS.light;
-  const rowPressedStyle = isDark
-    ? styles.resultRowPressedDark
-    : styles.resultRowPressedLight;
-  const clearAllPressedStyle = isDark
-    ? styles.clearAllBtnPressedDark
-    : styles.clearAllBtnPressedLight;
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
   const router = useRouter();
@@ -140,21 +111,24 @@ export function SpotlightModal() {
   const close = useSearchStore((state) => state.close);
 
   const { user } = useSessionContext();
+  const viewer = user?.id ?? "guest";
   const [query, setQuery] = useState(initialQuery);
   const [source, setSource] = useState<SearchSource>("all");
   const [kind, setKind] = useState<SearchKind>("all");
+  const [interestsOpen, setInterestsOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
+  const [controlsBottom, setControlsBottom] = useState(0);
   const search = useNetworkSearch(query, source, kind, isOpen);
-  const results = search.asm;
-  const loading = search.asmLoading || search.remoteLoading;
+  const { network } = search;
   const recent = useRecentNetworkSearches(
     recentNetworkSearchScope(
-      user?.id ?? "guest",
-      search.network.settings.preferences.activeProfileId
+      viewer,
+      network.settings.preferences.activeProfileId
     )
   );
-  const [history, setHistory] = useState<
-    { item: SearchHistoryItem; key: string }[]
-  >([]);
+  const recommendations = useDiscoverySuggestions(isOpen && Boolean(user));
+  const [history, setHistory] = useState<ServerHistoryEntry[]>([]);
   const [cookie, setCookie] = useState<string | undefined>();
 
   // Mirrors last seen open/initialQuery so query is reseeded during render
@@ -169,13 +143,26 @@ export function SpotlightModal() {
     seedInputs.open !== isOpen ||
     seedInputs.initialQuery !== initialQuery
   ) {
+    // Web mounts a fresh Spotlight per open, so every open starts on Both
+    // networks, Everything, interests collapsed. The modal here stays
+    // mounted, so the reset is explicit.
+    const opening = isOpen && seedInputs?.open !== true;
     setSeedInputs({ initialQuery, open: isOpen });
     if (isOpen) {
       setQuery(initialQuery ?? "");
+      setFiltersOpen(false);
+    }
+    if (opening) {
+      setSource("all");
+      setKind("all");
+      setInterestsOpen(false);
     }
   }
 
   const inputRef = useRef<TextInputInstance>(null);
+  const collectedSignature = useRef("");
+  const historyRequest = useRef(0);
+  const learnedQuery = useRef("");
 
   // Read stored auth cookie for authenticated requests.
   useEffect(() => {
@@ -202,8 +189,15 @@ export function SpotlightModal() {
       setHistory([]);
       return;
     }
+    // Only the newest request may write: the cookie arrives after the first
+    // open render, so two loads can race and an older reply must not win.
+    historyRequest.current += 1;
+    const request = historyRequest.current;
     try {
       const raw = await fetchSearchHistoryRaw(options);
+      if (request !== historyRequest.current) {
+        return;
+      }
       setHistory(
         raw.flatMap((entry) => {
           const item = parseHistoryItem(entry);
@@ -211,7 +205,8 @@ export function SpotlightModal() {
         })
       );
     } catch {
-      setHistory([]);
+      // Web keeps the cached history when a refetch fails, so the Recent
+      // list never blanks out on a flaky connection.
     }
   }, [options, user]);
 
@@ -221,412 +216,574 @@ export function SpotlightModal() {
     }
   }, [isOpen, loadHistory]);
 
+  const trimmed = query.trim();
+  const blue = source === "bluesky";
+  const includesBluesky = source !== "asm" && kind !== "community";
+  const results = spotlightResultItems(
+    blue ? undefined : search.asm,
+    includesBluesky ? search.bluesky : undefined,
+    kind
+  );
+  const fetching =
+    (!blue && search.asmLoading) || (includesBluesky && search.remoteLoading);
+  const unavailable = includesBluesky ? search.bluesky.unavailable : [];
+  const errors = [
+    ...(!blue && search.asmError
+      ? [{ label: "asocialmedia", message: search.asmError }]
+      : []),
+    ...(includesBluesky && search.remoteError && unavailable.length === 0
+      ? [{ label: "Bluesky", message: search.remoteError }]
+      : []),
+  ];
+
+  // Results a query surfaced become guest suggestions, as web's collect().
+  useEffect(() => {
+    if (trimmed.length < 2 || fetching || results.length === 0) {
+      return;
+    }
+    const signature = `${trimmed}\n${results.map((item) => item.id).join("\n")}`;
+    if (collectedSignature.current === signature) {
+      return;
+    }
+    collectedSignature.current = signature;
+    recent.collect(
+      results.flatMap((item) => {
+        const target = spotlightTarget(item);
+        return target ? [target] : [];
+      }),
+      trimmed
+    );
+  });
+
+  // Signed-in searches teach the recommender once results settle, once per
+  // query so a preference revision that re-runs the search cannot loop.
+  const hasResults = results.length > 0;
+  useEffect(() => {
+    if (!user || trimmed.length < 2 || fetching || !hasResults) {
+      return;
+    }
+    const learnKey = `${viewer}:${trimmed.toLowerCase()}`;
+    if (learnedQuery.current === learnKey) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      learnedQuery.current = learnKey;
+      void learnNetworkSearch(viewer, trimmed);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [user, viewer, trimmed, fetching, hasResults]);
+
+  const recentItems = recent.items;
+  const recentHistory = useMemo(
+    () => mergeRecentHistory(recentItems, history, source, kind),
+    [recentItems, history, source, kind]
+  );
+  const suggested = suggestedItems({
+    candidates: recent.candidates,
+    data: recommendations.data,
+    kind,
+    local: recentItems,
+    signedIn: Boolean(user),
+    source,
+  });
+  const groups = spotlightGroups(trimmed, results, recentHistory, suggested);
+  const items = groups.flatMap((group) => group.items);
+  const interests = spotlightInterests(network.settings);
+
   const handleClose = useCallback(() => {
     Keyboard.dismiss();
+    setFiltersOpen(false);
     close();
   }, [close]);
 
-  const handleSelectItem = useCallback(
-    (item: SpotlightResultItem) => {
-      const itemSource = item.source ?? "asm";
-      if (item.type !== "history") {
-        void learnNetworkSearch(
-          user?.id ?? "guest",
-          query,
-          item.type === "user"
-            ? {
-                id: item.href?.includes("actor=")
-                  ? (new URL(
-                      item.href,
-                      "https://asocialmedia.cc"
-                    ).searchParams.get("actor") ?? item.id)
-                  : (item.rawUser?.id ?? item.id),
-                source: itemSource,
-              }
-            : undefined
-        );
-      }
-      let targetHref = item.href;
-      if (!targetHref && item.rawUser) {
-        targetHref = `/users/${encodeURIComponent(item.rawUser.username)}`;
-      }
-      if (!targetHref && item.rawCommunity) {
-        targetHref = `/a/${encodeURIComponent(item.rawCommunity.slug)}`;
-      }
-      if (!targetHref && item.rawPost) {
-        targetHref = item.rawPost.isGust
-          ? `/gusts?id=${encodeURIComponent(item.rawPost.id)}`
-          : `/posts/${encodeURIComponent(item.rawPost.id)}`;
-      }
-      if (targetHref) {
-        recent.remember(
-          query || item.displayName,
-          itemSource,
-          {
-            explicit: item.explicitContent,
-            href: targetHref,
-            label: item.displayName,
-          },
-          kind
-        );
-      }
-      if (item.href) {
-        const path = nativeNetworkPath(item.href);
-        if (path) {
-          handleClose();
-          router.push(path as Href);
-        }
-        return;
-      }
-      if (item.type === "history") {
-        setQuery(item.displayName);
-        return;
-      }
-      if (item.type === "community" && item.rawCommunity) {
-        handleClose();
-        router.push({
-          params: { slug: item.rawCommunity.slug },
-          pathname: "/a/[slug]",
-        });
-        return;
-      }
-      if (item.type === "user" && item.rawUser) {
-        handleClose();
-        if (user) {
-          void (async () => {
-            await recordSearchUser(
-              {
-                aura: item.rawUser?.aura,
-                avatarUrl: item.rawUser?.avatarUrl,
-                displayName: item.rawUser?.displayName,
-                id: item.rawUser?.id ?? "",
-                username: item.rawUser?.username ?? "",
-              },
-              options
-            );
-            await loadHistory();
-          })();
-        }
-        router.push({
-          params: { username: item.rawUser.username },
-          pathname: "/users/[username]",
-        });
-        return;
-      }
-      if (item.type === "post" && item.rawPost) {
-        handleClose();
-        if (user) {
-          void (async () => {
-            await recordSearchPost(
-              {
-                aura: item.rawPost?.aura,
-                authorAvatarUrl: item.rawPost?.authorAvatarUrl,
-                authorUsername: item.rawPost?.authorUsername,
-                content: item.rawPost?.content ?? "",
-                createdAt: item.rawPost?.createdAt ?? new Date().toISOString(),
-                explicitContent: item.rawPost?.explicitContent,
-                id: item.rawPost?.id ?? "",
-                previewMedia: item.rawPost?.previewMedia,
-                viewCount: item.rawPost?.viewCount,
-              },
-              options
-            );
-            await loadHistory();
-          })();
-        }
-        // Full id: truncated prefixes 404 when they match more than one post.
-        if (item.rawPost.isGust) {
-          router.push({ params: { id: item.rawPost.id }, pathname: "/gusts" });
-        } else {
-          router.push({
-            params: { postId: item.rawPost.id },
-            pathname: "/posts/[postId]",
-          });
-        }
-      }
-    },
-    [handleClose, loadHistory, options, router, user, query, recent, kind]
-  );
+  // Web always follows the result's href. A path the app has no screen for
+  // opens on the web instead of leaving the tap with no response.
+  const navigate = (href: string) => {
+    const path = nativeNetworkPath(href);
+    handleClose();
+    if (path) {
+      router.push(path as Href);
+    } else if (href.startsWith("/") && !href.startsWith("//")) {
+      void Linking.openURL(`${PROD_API_URL}${href}`);
+    }
+  };
 
-  const handleSubmitQuery = useCallback(() => {
-    const trimmed = query.trim();
-    if (!trimmed) {
+  const select = (item: SpotlightResultItem) => {
+    setFiltersOpen(false);
+    if (item.type === "history") {
+      setSource(item.searchSource ?? "all");
+      setKind("all");
+      setQuery(item.displayName);
+      inputRef.current?.focus();
+      return;
+    }
+    const target = spotlightTarget(item);
+    if (target) {
+      recent.remember(
+        trimmed || target.subtitle || target.displayName,
+        target.source,
+        {
+          avatarUrl: target.avatarUrl,
+          explicit: target.explicitContent,
+          href: target.href,
+          id: target.id,
+          label: target.displayName,
+          subtitle: target.subtitle,
+          type: target.type,
+        },
+        kind
+      );
+    }
+    if (user && item.source) {
+      const prefix = `${item.source}-user-`;
+      const identity =
+        item.type === "user" && item.id.startsWith(prefix)
+          ? item.id.slice(prefix.length)
+          : undefined;
+      void learnNetworkSearch(
+        viewer,
+        trimmed || item.displayName.slice(0, 80),
+        identity ? { id: identity, source: item.source } : undefined
+      );
+    }
+    if (user && item.source === "asm") {
+      const { rawPost, rawUser } = item;
+      if (rawUser) {
+        void (async () => {
+          await recordSearchUser(
+            {
+              aura: rawUser.aura,
+              avatarUrl: rawUser.avatarUrl,
+              displayName: rawUser.displayName,
+              id: rawUser.id,
+              username: rawUser.username,
+            },
+            options
+          );
+          await loadHistory();
+        })();
+      } else if (rawPost) {
+        void (async () => {
+          await recordSearchPost(
+            {
+              aura: rawPost.aura,
+              authorAvatarUrl: rawPost.authorAvatarUrl,
+              authorUsername: rawPost.authorUsername,
+              content: rawPost.content,
+              createdAt: rawPost.createdAt,
+              explicitContent: rawPost.explicitContent,
+              id: rawPost.id,
+              previewMedia: rawPost.previewMedia,
+              viewCount: rawPost.viewCount,
+            },
+            options
+          );
+          await loadHistory();
+        })();
+      }
+    }
+    navigate(item.href);
+  };
+
+  // Web's Enter: open the first result, otherwise remember the query.
+  const submit = () => {
+    const [first] = items;
+    if (trimmed.length >= 2 && first) {
+      select(first);
+      return;
+    }
+    if (trimmed.length < 2) {
       return;
     }
     Keyboard.dismiss();
     recent.remember(trimmed, source);
-    void learnNetworkSearch(user?.id ?? "guest", trimmed);
-    if (user) {
+    if (user && !blue) {
       void (async () => {
-        const count =
-          results.communities.length +
-          results.posts.length +
-          results.users.length;
-        await recordSearchQuery(trimmed, count, options);
+        await recordSearchQuery(trimmed, results.length, options);
         await loadHistory();
       })();
     }
-  }, [loadHistory, options, query, results, user, recent, source]);
+  };
 
-  const handleRemoveHistoryItem = useCallback(
-    (key: string) => {
-      setHistory((current) => current.filter((entry) => entry.key !== key));
-      if (user) {
-        void removeSearchHistoryItem(key, options);
+  const remove = (item: SpotlightResultItem) => {
+    if (item.localHistoryAt !== undefined) {
+      void recent.remove(item.localHistoryAt);
+    }
+    if (user && item.source !== "bluesky") {
+      const target =
+        item.serverRemoveTarget ?? matchingServerEntry(item, history)?.key;
+      if (target) {
+        setHistory((current) =>
+          current.filter((entry) => entry.key !== target)
+        );
+        void removeSearchHistoryItem(target, options);
       }
-    },
-    [options, user]
-  );
+    }
+  };
 
-  const handleClearAllHistory = useCallback(() => {
-    setHistory([]);
+  const clearHistory = () => {
+    setFiltersOpen(false);
+    void recent.clear();
     if (user) {
+      setHistory([]);
       void clearSearchHistory(options);
     }
-  }, [options, user]);
+  };
 
-  const handleLogin = useCallback(() => {
-    handleClose();
-    router.push("/(auth)/login");
-  }, [handleClose, router]);
-
-  // Builds unified search result items matching web's Spotlight.buildItems.
-  const buildItems = useCallback((): SpotlightResultItem[] => {
-    const items: SpotlightResultItem[] = [];
-    for (const author of search.bluesky.profiles) {
-      items.push({
-        avatarUrl: author.avatarUrl,
-        displayName: author.displayName,
-        href: `/network/bluesky/profile?${new URLSearchParams({ actor: author.id })}`,
-        id: `bluesky-user-${author.id}`,
-        meta: "Bluesky",
-        source: "bluesky",
-        subtitle: `@${author.handle}`,
-        type: "user",
-      });
+  const changeSource = (next: SearchSource) => {
+    setSource(next);
+    if (next === "bluesky" && kind === "community") {
+      setKind("all");
     }
-    for (const post of search.bluesky.posts) {
-      items.push({
-        avatarUrl: post.author.avatarUrl,
-        createdAt: post.createdAt,
-        displayName: post.text,
-        href: `/network/bluesky?${new URLSearchParams({ uri: post.id })}`,
-        id: `bluesky-post-${post.id}`,
-        meta: "Bluesky",
-        source: "bluesky",
-        subtitle: `@${post.author.handle} · Bluesky`,
-        type: "post",
-      });
-    }
+  };
 
-    for (const community of results.communities) {
-      items.push({
-        avatarUrl: community.avatarUrl,
-        displayName: community.name,
-        id: `community-${community.id}`,
-        meta: `${formatNumber(community.memberCount)} members`,
-        rawCommunity: community,
-        subtitle: `a/${community.slug}`,
-        type: "community",
-      });
-    }
-
-    for (const suggestion of results.users) {
-      const isSelf = Boolean(
-        user &&
-        (suggestion.id === user.id ||
-          (user.username &&
-            suggestion.username.toLowerCase() === user.username.toLowerCase()))
-      );
-      items.push({
-        avatarUrl: suggestion.avatarUrl,
-        displayName: suggestion.displayName || suggestion.username,
-        id: `user-${suggestion.id}`,
-        isSelf,
-        meta: `${formatNumber(suggestion.aura ?? 0)} aura`,
-        rawUser: suggestion,
-        subtitle: `@${suggestion.username}`,
-        type: "user",
-      });
-    }
-
-    for (const post of results.posts) {
-      items.push({
-        aura: post.aura,
-        authorUsername: post.authorUsername,
-        avatarUrl: post.authorAvatarUrl,
-        createdAt: post.createdAt,
-        displayName: post.content,
-        explicitContent: post.explicitContent,
-        id: `post-${post.id}`,
-        meta: `${formatNumber(post.aura)} aura · ${formatNumber(post.viewCount)} views`,
-        previewMedia: post.previewMedia,
-        rawPost: post,
-        subtitle: undefined,
-        type: "post",
-        viewCount: post.viewCount,
-      });
-    }
-
-    return items;
-  }, [results, user, search.bluesky]);
-
-  // Builds history suggestions matching web's Spotlight.buildSuggestions.
-  const buildSuggestions = useCallback(
-    (queryPrefix: string): SpotlightResultItem[] => {
-      const items: SpotlightResultItem[] = [];
-      const q = queryPrefix.trim().toLowerCase();
-
-      for (const { item, key } of history) {
-        const removeTarget = key;
-        if (item.type === "user") {
-          const username = item.user.username || "";
-          const match =
-            !q ||
-            username.toLowerCase().includes(q) ||
-            (item.user.displayName &&
-              item.user.displayName.toLowerCase().includes(q));
-          if (match) {
-            const isSelf = Boolean(
-              user &&
-              (item.user.id === user.id ||
-                (user.username &&
-                  username.toLowerCase() === user.username.toLowerCase()))
-            );
-            const searchTimeStr = item.searchedAt
-              ? formatSearchTime(item.searchedAt)
-              : "";
-            const rawUser: SearchUserResult = {
-              aura: item.user.aura ?? 0,
-              avatarUrl: item.user.avatarUrl ?? null,
-              badge: null,
-              badges: [],
-              bio: null,
-              displayName: item.user.displayName || username,
-              id: item.user.id,
-              username: item.user.username,
-            };
-            items.push({
-              avatarUrl: item.user.avatarUrl,
-              displayName: item.user.displayName || username || "Anonymous",
-              id: `history-user-${item.user.id}-${key}`,
-              isSelf,
-              meta: `${formatNumber(item.user.aura ?? 0)} aura`,
-              rawUser,
-              removeTarget,
-              searchedAt: item.searchedAt,
-              subtitle: searchTimeStr
-                ? `@${username} · ${searchTimeStr}`
-                : `@${username}`,
-              type: "user",
-            });
-          }
-        } else if (item.type === "post") {
-          const match =
-            !q ||
-            item.post.content.toLowerCase().includes(q) ||
-            (item.post.authorUsername &&
-              item.post.authorUsername.toLowerCase().includes(q));
-          if (match) {
-            const rawPost: SearchPostResult = {
-              aura: item.post.aura ?? 0,
-              authorAvatarUrl: item.post.authorAvatarUrl ?? null,
-              authorDisplayName: "",
-              authorUsername: item.post.authorUsername ?? "someone",
-              content: item.post.content,
-              createdAt: item.post.createdAt,
-              explicitContent: item.post.explicitContent ?? false,
-              id: item.post.id,
-              isGust: false,
-              previewMedia: item.post.previewMedia ?? null,
-              viewCount: item.post.viewCount ?? 0,
-            };
-            items.push({
-              aura: item.post.aura ?? 0,
-              authorUsername: item.post.authorUsername ?? undefined,
-              avatarUrl: item.post.authorAvatarUrl,
-              createdAt: item.post.createdAt,
-              displayName: item.post.content,
-              explicitContent: item.post.explicitContent,
-              id: `history-post-${item.post.id}-${key}`,
-              meta: `${formatNumber(item.post.aura ?? 0)} aura · ${formatNumber(item.post.viewCount ?? 0)} views`,
-              previewMedia: item.post.previewMedia,
-              rawPost,
-              removeTarget,
-              searchedAt: item.searchedAt,
-              subtitle: undefined,
-              type: "post",
-              viewCount: item.post.viewCount ?? 0,
-            });
-          }
-        } else if (item.type === "query") {
-          const match = !q || item.query.toLowerCase().includes(q);
-          if (match) {
-            const metaParts = [
-              typeof item.resultCount === "number"
-                ? `${formatNumber(item.resultCount)} results`
-                : null,
-              item.searchedAt
-                ? formatSearchTime(item.searchedAt)
-                : "Recent search",
-            ].filter(Boolean);
-
-            items.push({
-              displayName: item.query,
-              id: `history-query-${item.query}-${key}`,
-              meta: metaParts.join(" · "),
-              removeTarget,
-              resultCount: item.resultCount,
-              searchedAt: item.searchedAt,
-              type: "history",
-            });
-          }
-        }
-      }
-
-      return items;
-    },
-    [history, user]
-  );
+  const retry = () => {
+    search.retry();
+  };
 
   if (!isOpen) {
     return null;
   }
 
-  const trimmedQuery = query.trim();
-  const hasQuery = trimmedQuery.length > 0;
-  let items = source === "bluesky" ? [] : buildSuggestions(query);
-  if (hasQuery) {
-    items = buildItems();
-  }
-  const hasItems = items.length > 0;
-
-  const dividerBorderColor = isDark
-    ? "rgba(255, 255, 255, 0.08)"
-    : "rgba(0, 0, 0, 0.08)";
-
-  const renderResultIcon = (item: SpotlightResultItem) => {
-    if (item.type === "community" && item.rawCommunity) {
-      return <CommunityAvatar community={item.rawCommunity} size={36} />;
-    }
-    if (item.type === "user" || item.type === "post") {
-      return <UserAvatar radius={10} size={36} url={item.avatarUrl} />;
-    }
-    return (
-      <View
-        style={[
-          styles.historyIconBox,
-          {
-            backgroundColor: isDark
-              ? "rgba(255, 255, 255, 0.08)"
-              : "rgba(0, 0, 0, 0.05)",
-          },
-        ]}
-      >
-        <Clock3 color={text.muted} size={16} />
-      </View>
-    );
+  const palette = spotlightPalette(isDark, blue);
+  const panel = panel3d(isDark);
+  const field = premiumInput(isDark, inputFocused);
+  const closeButton = iconButton(isDark);
+  const chip = chipFlat(isDark, blue);
+  const canClearHistory =
+    !trimmed &&
+    (recentItems.length > 0 ||
+      history.length > 0 ||
+      recent.candidates.length > 0);
+  const empty = emptySearchCopy({
+    errorCount: errors.length,
+    fetching,
+    itemCount: items.length,
+    kind,
+    trimmed,
+  });
+  const aside = user ? "Based on your activity" : "Based on your searches";
+  const panelLayout = {
+    maxHeight: window.height * 0.88,
   };
+
+  let inputShadows = field.shadows;
+  if (blue) {
+    inputShadows = inputFocused ? BLUE_INPUT_FOCUS_SHADOWS : BLUE_INPUT_SHADOWS;
+  }
+
+  const content = (
+    <>
+      <View style={styles.header}>
+        <View style={styles.titleBlock}>
+          <View style={styles.titleLine}>
+            {blue ? <BlueskyIcon color="#ffffff" size={20} /> : null}
+            <Text
+              accessibilityRole="header"
+              style={[styles.title, { color: palette.foreground }]}
+            >
+              {searchTitle(source)}
+            </Text>
+          </View>
+          <Text
+            numberOfLines={1}
+            style={[styles.subtitle, { color: palette.soft }]}
+          >
+            {searchSubtitle(source)}
+          </Text>
+        </View>
+        <Pressable
+          accessibilityLabel="Close"
+          accessibilityRole="button"
+          hitSlop={4}
+          onPress={handleClose}
+          style={[
+            styles.closeButton,
+            blue
+              ? styles.closeButtonBlue
+              : {
+                  backgroundColor: closeButton.background,
+                  boxShadow: closeButton.shadows,
+                },
+          ]}
+        >
+          <X color={blue ? "#ffffff" : closeButton.color} size={16} />
+        </Pressable>
+
+        <View
+          onLayout={(event) => {
+            const { height, y } = event.nativeEvent.layout;
+            setControlsBottom(y + height);
+          }}
+          style={styles.controls}
+        >
+          <SourceSwitcher
+            isDark={isDark}
+            onChange={changeSource}
+            palette={palette}
+            source={source}
+          />
+          <ActionTrack
+            canClearHistory={canClearHistory}
+            isDark={isDark}
+            kind={kind}
+            onClearHistory={clearHistory}
+            onToggleFilters={() => setFiltersOpen((current) => !current)}
+            palette={palette}
+          />
+        </View>
+
+        <View style={styles.inputWrap}>
+          <View pointerEvents="none" style={styles.inputIcon}>
+            <Search
+              color={blue ? "rgba(255, 255, 255, 0.9)" : palette.muted}
+              size={20}
+            />
+          </View>
+          <TextInput
+            accessibilityLabel="Search"
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoFocus
+            maxLength={80}
+            onBlur={() => setInputFocused(false)}
+            onChangeText={setQuery}
+            onFocus={() => {
+              setInputFocused(true);
+              setFiltersOpen(false);
+            }}
+            onSubmitEditing={submit}
+            placeholder={searchPlaceholder(source)}
+            placeholderTextColor={
+              blue ? "rgba(255, 255, 255, 0.8)" : field.placeholder
+            }
+            ref={inputRef}
+            returnKeyType="search"
+            style={[
+              styles.input,
+              blue
+                ? [
+                    styles.inputBlue,
+                    inputFocused ? styles.inputBlueFocused : null,
+                  ]
+                : { backgroundColor: field.background, color: field.text },
+              { boxShadow: inputShadows },
+            ]}
+            value={query}
+          />
+          {query ? (
+            <Pressable
+              accessibilityLabel="Clear search"
+              accessibilityRole="button"
+              hitSlop={6}
+              onPress={() => {
+                setQuery("");
+                inputRef.current?.focus();
+              }}
+              style={({ pressed }) => [
+                styles.clearButton,
+                pressed ? { backgroundColor: palette.rowPressed } : null,
+              ]}
+            >
+              <X
+                color={blue ? "rgba(255, 255, 255, 0.85)" : palette.muted}
+                size={16}
+              />
+            </Pressable>
+          ) : null}
+        </View>
+
+        {trimmed.length >= 2 ? (
+          <View style={styles.statusLine}>
+            <Text
+              accessibilityLiveRegion="polite"
+              style={[styles.statusText, { color: palette.soft }]}
+            >
+              {fetching ? "Searching…" : `${items.length} results`}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+      <ScrollView
+        contentContainerStyle={styles.listContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
+        style={[styles.list, { borderTopColor: palette.divider }]}
+      >
+        {trimmed.length >= 2 &&
+        (errors.length > 0 || unavailable.length > 0) ? (
+          <View accessibilityLiveRegion="polite" style={styles.errors}>
+            {errors.map(({ label, message }) => (
+              <Text
+                key={label}
+                selectable
+                style={[styles.errorText, { color: palette.muted }]}
+              >
+                {label}: {message}
+              </Text>
+            ))}
+            {unavailable.length > 0 ? (
+              <Text
+                selectable
+                style={[styles.errorText, { color: palette.muted }]}
+              >
+                Some Bluesky {unavailable.join(" and ")} are temporarily
+                unavailable.
+              </Text>
+            ) : null}
+            <Pressable accessibilityRole="button" hitSlop={6} onPress={retry}>
+              <Text style={[styles.retryText, { color: palette.foreground }]}>
+                Retry
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {/* Your interests: collapsed by default so suggestions stay above the fold. */}
+        {!trimmed && interests.length > 0 ? (
+          <View
+            style={
+              interestsOpen ? styles.interestsOpen : styles.interestsClosed
+            }
+          >
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: interestsOpen }}
+              onPress={() => setInterestsOpen((expanded) => !expanded)}
+              style={({ pressed }) => [
+                styles.interestsToggle,
+                pressed ? { backgroundColor: palette.rowPressed } : null,
+              ]}
+            >
+              <Text
+                style={[styles.interestsLabel, { color: palette.foreground }]}
+              >
+                Your interests
+              </Text>
+              <Text
+                style={[
+                  styles.interestsCount,
+                  {
+                    color: blue ? "rgba(255, 255, 255, 0.7)" : palette.muted,
+                  },
+                ]}
+              >
+                {interests.length}
+              </Text>
+              <View style={interestsOpen ? styles.chevronOpen : null}>
+                <ChevronDown color={palette.foreground} size={14} />
+              </View>
+            </Pressable>
+            {interestsOpen ? (
+              <View style={styles.chips}>
+                {interests.map((interest) => (
+                  <Pressable
+                    accessibilityRole="button"
+                    key={interest}
+                    onPress={() => {
+                      setQuery(interest);
+                      inputRef.current?.focus();
+                    }}
+                    style={({ pressed }) => [
+                      styles.chip,
+                      {
+                        backgroundColor: chip.background,
+                        borderColor: chip.border,
+                        boxShadow: chip.shadows,
+                      },
+                      pressed ? styles.chipPressed : null,
+                    ]}
+                  >
+                    <Text
+                      style={[styles.chipText, { color: palette.foreground }]}
+                    >
+                      {interest}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {groups
+          .filter((group) => group.items.length > 0)
+          .map((group) => (
+            <View key={group.title} style={styles.group}>
+              {group.title === "Suggested accounts" ? (
+                <SuggestedAccountsRail
+                  aside={aside}
+                  isDark={isDark}
+                  items={group.items}
+                  onAuthRedirect={handleClose}
+                  onSelect={select}
+                  palette={palette}
+                />
+              ) : (
+                <>
+                  <GroupHeader
+                    aside={
+                      group.title === "Suggested posts" ? aside : undefined
+                    }
+                    palette={palette}
+                    title={group.title}
+                  />
+                  <View style={styles.groupRows}>
+                    {group.items.map((item) => (
+                      <SearchRow
+                        isDark={isDark}
+                        item={item}
+                        key={item.id}
+                        onRemove={
+                          group.title === "Recent"
+                            ? () => remove(item)
+                            : undefined
+                        }
+                        onSelect={() => select(item)}
+                        palette={palette}
+                      />
+                    ))}
+                  </View>
+                </>
+              )}
+            </View>
+          ))}
+
+        {trimmed.length >= 2 && fetching && items.length === 0 ? (
+          <SearchSkeleton palette={palette} />
+        ) : null}
+
+        {empty ? (
+          <EmptySearch
+            description={empty.description}
+            palette={palette}
+            title={empty.title}
+          />
+        ) : null}
+      </ScrollView>
+
+      {filtersOpen ? (
+        <>
+          <Pressable
+            accessibilityLabel="Close filters"
+            onPress={() => setFiltersOpen(false)}
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={[styles.menuAnchor, { top: controlsBottom + 8 }]}>
+            <FilterMenu
+              isDark={isDark}
+              kind={kind}
+              onSelect={(next) => setKind(next)}
+              palette={palette}
+            />
+          </View>
+        </>
+      ) : null}
+    </>
+  );
+
+  const surface = blueskySurface(isDark);
 
   return (
     <Modal
@@ -652,470 +809,34 @@ export function SpotlightModal() {
           style={[
             styles.floatingWrap,
             {
-              paddingTop: insets.top + (Platform.OS === "ios" ? 14 : 24),
+              paddingTop: insets.top + Math.min(window.height * 0.06, 56),
             },
           ]}
         >
-          <View
-            style={[
-              styles.panel,
-              {
-                backgroundColor: panel.background,
-                borderColor: panel.border,
-                boxShadow: panel.shadows,
-                maxHeight: window.height * 0.76,
-              },
-            ]}
-          >
-            {/* Search Input Bar */}
+          {blue ? (
+            <Gradient3D
+              colors={surface.colors}
+              radius={16}
+              shadows={surface.shadows}
+              style={[styles.panel, styles.panelBlue, panelLayout]}
+            >
+              {content}
+            </Gradient3D>
+          ) : (
             <View
               style={[
-                styles.inputRow,
-                { borderBottomColor: dividerBorderColor },
+                styles.panel,
+                {
+                  backgroundColor: panel.background,
+                  borderColor: panel.border,
+                  boxShadow: panel.shadows,
+                },
+                panelLayout,
               ]}
             >
-              <Search color={text.muted} size={20} />
-              <TextInput
-                accessibilityLabel="Search people, posts, and communities"
-                autoCapitalize="none"
-                autoCorrect={false}
-                autoFocus
-                onChangeText={setQuery}
-                onSubmitEditing={handleSubmitQuery}
-                placeholder="Search people, posts, and communities"
-                placeholderTextColor={
-                  isDark ? "rgba(232, 232, 232, 0.4)" : "#8e8e93"
-                }
-                ref={inputRef}
-                returnKeyType="search"
-                style={[styles.input, { color: text.foreground }]}
-                value={query}
-              />
-              {query.length > 0 ? (
-                <Pressable
-                  accessibilityLabel="Clear search text"
-                  hitSlop={8}
-                  onPress={() => setQuery("")}
-                  style={styles.clearBtn}
-                >
-                  <X color={text.muted} size={16} />
-                </Pressable>
-              ) : null}
+              {content}
             </View>
-
-            {/* Scrollable Results & History Container */}
-            <ScrollView
-              contentContainerStyle={styles.listContent}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
-            >
-              <View className="gap-2 px-3 py-2">
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  <View className="flex-row gap-2">
-                    {(
-                      [
-                        { label: "Both networks", value: "all" },
-                        { label: "asocialmedia", value: "asm" },
-                        { label: "Bluesky", value: "bluesky" },
-                      ] as const
-                    ).map((entry) => (
-                      <SettingsButton
-                        key={entry.value}
-                        label={entry.label}
-                        size="sm"
-                        tone={source === entry.value ? "primary" : "gray"}
-                        onPress={() => setSource(entry.value)}
-                      />
-                    ))}
-                  </View>
-                </ScrollView>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  <View className="flex-row gap-2">
-                    {(
-                      [
-                        { label: "All", value: "all" },
-                        { label: "People", value: "user" },
-                        { label: "Posts", value: "post" },
-                        { label: "Communities", value: "community" },
-                      ] as const
-                    ).map((entry) => (
-                      <SettingsButton
-                        key={entry.value}
-                        label={entry.label}
-                        size="sm"
-                        tone={kind === entry.value ? "primary" : "gray"}
-                        onPress={() => setKind(entry.value)}
-                      />
-                    ))}
-                  </View>
-                </ScrollView>
-              </View>
-              <DiscoverySafetyControl />
-              {search.asmError || search.remoteError ? (
-                <View className="gap-2 p-4">
-                  <Text selectable style={{ color: text.muted }}>
-                    {[search.asmError, search.remoteError]
-                      .filter(Boolean)
-                      .join(" ")}
-                  </Text>
-                  <SettingsButton
-                    label="Retry search"
-                    tone="gray"
-                    size="sm"
-                    onPress={() => search.retry()}
-                  />
-                </View>
-              ) : null}
-              {hasQuery ? null : (
-                <>
-                  <DiscoverySuggestions
-                    enabled={isOpen}
-                    showInterests
-                    onQuery={setQuery}
-                    onClose={handleClose}
-                  />
-                  <View className="gap-2 p-4">
-                    {recent.items
-                      .filter(
-                        (item) => source === "all" || item.source === source
-                      )
-                      .map((item) => (
-                        <View
-                          key={`${item.at}:${item.source}`}
-                          className="flex-row items-center gap-2"
-                        >
-                          <View className="flex-1">
-                            <SettingsButton
-                              size="sm"
-                              tone="gray"
-                              label={`${item.label ?? item.query} · ${item.source}`}
-                              onPress={() => {
-                                setSource(item.source);
-                                setKind(item.kind);
-                                if (item.href) {
-                                  const path = nativeNetworkPath(item.href);
-                                  if (path) {
-                                    handleClose();
-                                    router.push(path as Href);
-                                  }
-                                } else {
-                                  setQuery(item.query);
-                                }
-                              }}
-                            />
-                          </View>
-                          <SettingsButton
-                            size="sm"
-                            tone="gray"
-                            label="Remove recent"
-                            onPress={() => recent.remove(item.at)}
-                          />
-                        </View>
-                      ))}
-                    {recent.items.length ? (
-                      <SettingsButton
-                        tone="gray"
-                        size="sm"
-                        label="Clear local recents"
-                        onPress={() => recent.clear()}
-                      />
-                    ) : null}
-                  </View>
-                </>
-              )}
-              {/* Skeletons on loading */}
-              {loading && hasQuery ? (
-                <View style={styles.resultsGroup}>
-                  <SpotlightSkeleton />
-                  <SpotlightSkeleton />
-                  <SpotlightSkeleton />
-                </View>
-              ) : null}
-
-              {/* No results empty state */}
-              {!loading && hasQuery && !hasItems ? (
-                <View style={styles.emptyWrap}>
-                  <Image
-                    contentFit="contain"
-                    source={noSearchImage}
-                    style={styles.emptyImage}
-                  />
-                  <Text style={[styles.emptyTitle, { color: text.foreground }]}>
-                    No results for &quot;{query}&quot;
-                  </Text>
-                  <Text style={[styles.emptySubtitle, { color: text.muted }]}>
-                    Try a different name or topic
-                  </Text>
-                </View>
-              ) : null}
-
-              {/* Search Results / Suggestions */}
-              {hasItems ? (
-                <View style={styles.resultsGroup}>
-                  {!hasQuery && history.length > 0 ? (
-                    <View style={styles.historyHeader}>
-                      <Text
-                        style={[styles.historyTitle, { color: text.muted }]}
-                      >
-                        Recent searches
-                      </Text>
-                      <Pressable
-                        accessibilityRole="button"
-                        hitSlop={6}
-                        onPress={handleClearAllHistory}
-                        style={({ pressed }) => [
-                          styles.clearAllBtn,
-                          pressed ? clearAllPressedStyle : null,
-                        ]}
-                      >
-                        <Text
-                          style={[styles.clearAllText, { color: text.muted }]}
-                        >
-                          Clear all
-                        </Text>
-                      </Pressable>
-                    </View>
-                  ) : null}
-
-                  {items.map((item) => {
-                    const isPost = item.type === "post";
-                    const preview =
-                      isPost && item.previewMedia
-                        ? mediaGridImageUrl(getApiBaseUrl(), {
-                            id: item.previewMedia.id,
-                            mimeType: null,
-                            thumbnailKey: item.previewMedia.thumbnailKey,
-                            type: item.previewMedia.type,
-                          })
-                        : null;
-
-                    return (
-                      <Pressable
-                        accessibilityRole="button"
-                        key={item.id}
-                        onPress={() => handleSelectItem(item)}
-                        style={({ pressed }) => [
-                          styles.resultRow,
-                          isPost ? styles.postRow : null,
-                          pressed ? rowPressedStyle : null,
-                        ]}
-                      >
-                        {renderResultIcon(item)}
-
-                        <View style={styles.rowCopy}>
-                          <View style={styles.titleRow}>
-                            <Text
-                              numberOfLines={isPost ? 3 : 1}
-                              style={[
-                                isPost ? styles.postContent : styles.rowTitle,
-                                { color: text.foreground },
-                              ]}
-                            >
-                              {item.displayName}
-                            </Text>
-                            {item.isSelf ? (
-                              <View style={styles.selfBadge}>
-                                <Text style={styles.selfBadgeText}>You</Text>
-                              </View>
-                            ) : null}
-                          </View>
-
-                          {isPost ? (
-                            <View style={styles.postMetaRow}>
-                              {item.authorUsername ? (
-                                <Text
-                                  numberOfLines={1}
-                                  style={[
-                                    styles.postMetaText,
-                                    { color: text.muted },
-                                  ]}
-                                >
-                                  @{item.authorUsername}
-                                </Text>
-                              ) : null}
-                              {typeof item.aura === "number" ? (
-                                <View style={styles.statChip}>
-                                  {(() => {
-                                    const flame = getAuraFlameStyle(
-                                      item.aura ?? 0
-                                    );
-                                    return (
-                                      <Flame
-                                        color={flame.color}
-                                        fill={
-                                          flame.filled ? flame.color : "none"
-                                        }
-                                        size={12}
-                                      />
-                                    );
-                                  })()}
-                                  <Text
-                                    style={[
-                                      styles.postMetaText,
-                                      { color: text.muted },
-                                    ]}
-                                  >
-                                    {formatNumber(item.aura)}
-                                  </Text>
-                                </View>
-                              ) : null}
-                              {typeof item.viewCount === "number" ? (
-                                <View style={styles.statChip}>
-                                  <Eye color={text.muted} size={12} />
-                                  <Text
-                                    style={[
-                                      styles.postMetaText,
-                                      { color: text.muted },
-                                    ]}
-                                  >
-                                    {formatNumber(item.viewCount)}
-                                  </Text>
-                                </View>
-                              ) : null}
-                              {item.createdAt ? (
-                                <Text
-                                  style={[
-                                    styles.postMetaText,
-                                    { color: text.muted },
-                                  ]}
-                                >
-                                  {formatRelativeDate(item.createdAt)}
-                                </Text>
-                              ) : null}
-                              {item.searchedAt ? (
-                                <Text
-                                  style={[
-                                    styles.postMetaText,
-                                    { color: text.muted },
-                                  ]}
-                                >
-                                  · {formatSearchTime(item.searchedAt)}
-                                </Text>
-                              ) : null}
-                            </View>
-                          ) : null}
-
-                          {!isPost && item.subtitle ? (
-                            <Text
-                              numberOfLines={1}
-                              style={[
-                                styles.rowSubtitle,
-                                { color: text.muted },
-                              ]}
-                            >
-                              {item.subtitle}
-                            </Text>
-                          ) : null}
-                        </View>
-
-                        {isPost && preview ? (
-                          <View
-                            style={[
-                              styles.previewWrap,
-                              {
-                                backgroundColor: isDark
-                                  ? "rgba(255, 255, 255, 0.08)"
-                                  : "rgba(0, 0, 0, 0.06)",
-                              },
-                            ]}
-                          >
-                            <Image
-                              contentFit="cover"
-                              source={{ uri: preview }}
-                              style={[
-                                styles.previewImage,
-                                item.explicitContent
-                                  ? styles.previewBlurred
-                                  : null,
-                              ]}
-                            />
-                            {item.previewMedia?.type === "VIDEO" ? (
-                              <View style={styles.playBadgeWrap}>
-                                <View style={styles.playBadge}>
-                                  <Play
-                                    color="#1c1f26"
-                                    fill="#1c1f26"
-                                    size={8}
-                                  />
-                                </View>
-                              </View>
-                            ) : null}
-                          </View>
-                        ) : null}
-
-                        {isPost ? null : (
-                          <Text
-                            numberOfLines={1}
-                            style={[styles.rowMeta, { color: text.muted }]}
-                          >
-                            {item.meta}
-                          </Text>
-                        )}
-
-                        {item.removeTarget ? (
-                          <Pressable
-                            accessibilityLabel="Remove from history"
-                            hitSlop={6}
-                            onPress={(e) => {
-                              e.stopPropagation();
-                              if (item.removeTarget) {
-                                handleRemoveHistoryItem(item.removeTarget);
-                              }
-                            }}
-                            style={styles.removeBtn}
-                          >
-                            <X color={text.muted} size={14} />
-                          </Pressable>
-                        ) : null}
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ) : null}
-
-              {/* Initial empty state (no query and no history) */}
-              {!hasQuery && !hasItems ? (
-                <View style={styles.emptyWrap}>
-                  <Image
-                    contentFit="contain"
-                    source={noSearchImage}
-                    style={styles.emptyImageLarge}
-                  />
-                  <Text style={[styles.emptyTitle, { color: text.foreground }]}>
-                    Search asocialmedia
-                  </Text>
-                  <Text style={[styles.emptySubtitle, { color: text.muted }]}>
-                    Start typing to find people, posts, and communities
-                  </Text>
-                </View>
-              ) : null}
-            </ScrollView>
-
-            {/* Guest notice footer */}
-            {user ? null : (
-              <View
-                style={[
-                  styles.guestFooter,
-                  { borderTopColor: dividerBorderColor },
-                ]}
-              >
-                <Text style={[styles.guestText, { color: text.muted }]}>
-                  Search is limited for guests. Log in for the full experience.
-                </Text>
-                <Pressable hitSlop={6} onPress={handleLogin}>
-                  <Text style={styles.loginLink}>Log in</Text>
-                </Pressable>
-              </View>
-            )}
-          </View>
+          )}
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -1124,58 +845,73 @@ export function SpotlightModal() {
 
 const styles = StyleSheet.create({
   backdrop: {
-    backgroundColor: "rgba(0, 0, 0, 0.48)",
+    backgroundColor: "rgba(0, 0, 0, 0.8)",
   },
-  clearAllBtn: {
-    borderColor: "transparent",
-    borderRadius: 6,
+  chevronOpen: {
+    transform: [{ rotate: "180deg" }],
+  },
+  chip: {
+    alignItems: "center",
+    borderRadius: 8,
     borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    height: 32,
+    justifyContent: "center",
+    paddingHorizontal: 10,
   },
-  clearAllBtnPressedDark: {
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-    borderColor: "rgba(255, 255, 255, 0.12)",
+  chipPressed: {
+    transform: [{ translateY: 1 }],
   },
-  clearAllBtnPressedLight: {
-    backgroundColor: "rgba(0, 0, 0, 0.05)",
-    borderColor: "rgba(0, 0, 0, 0.08)",
-  },
-  clearAllText: {
+  chipText: {
     fontFamily: "SofiaProMed",
     fontSize: 12,
   },
-  clearBtn: {
+  chips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 8,
+    paddingHorizontal: 2,
+  },
+  clearButton: {
     alignItems: "center",
+    borderRadius: 14,
+    height: 28,
     justifyContent: "center",
-    padding: 4,
+    position: "absolute",
+    right: 12,
+    top: 10,
+    width: 28,
   },
-  emptyImage: {
-    height: 96,
-    marginBottom: 8,
-    width: 96,
+  closeButton: {
+    alignItems: "center",
+    borderRadius: 18,
+    height: 36,
+    justifyContent: "center",
+    position: "absolute",
+    right: 12,
+    top: 16,
+    width: 36,
   },
-  emptyImageLarge: {
-    height: 112,
-    marginBottom: 8,
-    width: 112,
+  closeButtonBlue: {
+    backgroundColor: "#0763d6",
+    borderColor: "rgba(255, 255, 255, 0.5)",
+    borderWidth: 1,
   },
-  emptySubtitle: {
+  controls: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+    marginTop: 12,
+  },
+  errorText: {
     fontFamily: "SofiaProReg",
     fontSize: 12,
-    textAlign: "center",
+    lineHeight: 16,
   },
-  emptyTitle: {
-    fontFamily: "SofiaProMed",
-    fontSize: 14,
-    marginBottom: 4,
-    textAlign: "center",
-  },
-  emptyWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 40,
+  errors: {
+    gap: 4,
+    marginBottom: 12,
+    paddingHorizontal: 8,
   },
   fill: {
     flex: 1,
@@ -1183,233 +919,133 @@ const styles = StyleSheet.create({
   floatingWrap: {
     alignItems: "center",
     flex: 1,
+    paddingBottom: 16,
     paddingHorizontal: 16,
   },
-  guestFooter: {
-    alignItems: "center",
-    borderTopWidth: 1,
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+  group: {
+    marginBottom: 16,
   },
-  guestText: {
-    flex: 1,
-    fontFamily: "SofiaProReg",
-    fontSize: 12,
-    lineHeight: 16,
+  groupRows: {
+    gap: 4,
   },
-  historyHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingBottom: 2,
-    paddingHorizontal: 10,
-    paddingTop: 4,
-  },
-  historyIconBox: {
-    alignItems: "center",
-    borderRadius: 8,
+  header: {
     flexShrink: 0,
-    height: 36,
-    justifyContent: "center",
-    width: 36,
-  },
-  historyTitle: {
-    fontFamily: "SofiaProBold",
-    fontSize: 11,
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
+    paddingBottom: 12,
+    paddingHorizontal: 16,
+    paddingTop: 16,
   },
   input: {
-    flex: 1,
+    borderRadius: 12,
     fontFamily: "SofiaProReg",
     fontSize: 16,
-    height: "100%",
-    paddingVertical: 0,
-  },
-  inputRow: {
-    alignItems: "center",
-    borderBottomWidth: 1,
-    flexDirection: "row",
-    gap: 12,
     height: 48,
-    paddingHorizontal: 16,
+    paddingLeft: 48,
+    paddingRight: 44,
+    paddingVertical: 0,
+    width: "100%",
+  },
+  inputBlue: {
+    backgroundColor: "#0763d6",
+    borderColor: "rgba(255, 255, 255, 0.5)",
+    borderWidth: 1,
+    color: "#ffffff",
+  },
+  inputBlueFocused: {
+    borderColor: "#ffffff",
+  },
+  inputIcon: {
+    left: 16,
+    position: "absolute",
+    top: 14,
+    zIndex: 1,
+  },
+  inputWrap: {
+    marginTop: 12,
+    position: "relative",
+  },
+  interestsClosed: {
+    marginBottom: 4,
+  },
+  interestsCount: {
+    fontFamily: "SofiaProMed",
+    fontSize: 13,
+  },
+  interestsLabel: {
+    fontFamily: "SofiaProBold",
+    fontSize: 13,
+  },
+  interestsOpen: {
+    marginBottom: 12,
+  },
+  interestsToggle: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    borderRadius: 8,
+    flexDirection: "row",
+    gap: 6,
+    height: 28,
+    paddingHorizontal: 6,
+  },
+  list: {
+    borderTopWidth: 1,
+    flexShrink: 1,
   },
   listContent: {
-    padding: 6,
+    minHeight: 256,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
   },
-  loginLink: {
-    color: "#ff9500",
-    fontFamily: "SofiaProBold",
-    fontSize: 12,
+  menuAnchor: {
+    position: "absolute",
+    right: 16,
   },
   panel: {
     borderRadius: 16,
     borderWidth: 1,
+    flexShrink: 1,
     maxWidth: 576,
     overflow: "hidden",
     width: "100%",
   },
-  playBadge: {
-    alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
-    borderRadius: 10,
-    boxShadow: "0 1px 2px rgba(0, 0, 0, 0.15)",
-    height: 20,
-    justifyContent: "center",
-    width: 20,
+  panelBlue: {
+    alignItems: "stretch",
+    borderColor: "rgba(255, 255, 255, 0.6)",
+    justifyContent: "flex-start",
   },
-  playBadgeWrap: {
-    alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.25)",
-    bottom: 0,
-    justifyContent: "center",
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
-  },
-  postContent: {
+  retryText: {
     fontFamily: "SofiaProMed",
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 12,
   },
-  postMetaRow: {
+  statusLine: {
     alignItems: "center",
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 4,
+    justifyContent: "flex-end",
+    marginTop: 8,
+    minHeight: 20,
   },
-  postMetaText: {
+  statusText: {
     fontFamily: "SofiaProReg",
     fontSize: 12,
   },
-  postRow: {
-    alignItems: "flex-start",
-    maxHeight: 88,
-    overflow: "hidden",
-    paddingVertical: 8,
-  },
-  previewBlurred: {
-    opacity: 0.7,
-  },
-  previewImage: {
-    height: "100%",
-    width: "100%",
-  },
-  previewWrap: {
-    alignItems: "center",
-    borderRadius: 8,
-    flexShrink: 0,
-    height: 48,
-    justifyContent: "center",
-    marginLeft: 8,
-    overflow: "hidden",
-    position: "relative",
-    width: 48,
-  },
-  removeBtn: {
-    alignItems: "center",
-    borderRadius: 13,
-    flexShrink: 0,
-    height: 26,
-    justifyContent: "center",
-    marginLeft: 6,
-    width: 26,
-  },
-  resultRow: {
-    alignItems: "center",
-    borderColor: "transparent",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  resultRowPressedDark: {
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-    borderColor: "rgba(255, 255, 255, 0.12)",
-    boxShadow:
-      "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.5), 0 1px 1px rgba(255, 255, 255, 0.4)",
-  },
-  resultRowPressedLight: {
-    backgroundColor: "#e4e7ec",
-    borderColor: "rgba(0, 0, 0, 0.08)",
-    boxShadow:
-      "inset 0 0 0 1px rgba(255, 255, 255, 0.7), inset 0 1.5px 2px rgba(255, 255, 255, 0.9), 0 1px 1px rgba(0, 0, 0, 0.05)",
-  },
-  resultsGroup: {
-    gap: 2,
-  },
-  rowCopy: {
-    flex: 1,
-    minWidth: 0,
-    overflow: "hidden",
-  },
-  rowMeta: {
-    flexShrink: 0,
+  subtitle: {
     fontFamily: "SofiaProReg",
     fontSize: 12,
-    marginLeft: 8,
-  },
-  rowSubtitle: {
-    fontFamily: "SofiaProReg",
-    fontSize: 12,
-    lineHeight: 16,
     marginTop: 2,
   },
-  rowTitle: {
-    fontFamily: "SofiaProMed",
-    fontSize: 14,
+  title: {
+    fontFamily: "SofiaProBold",
+    fontSize: 15,
+    letterSpacing: -0.2,
     lineHeight: 18,
   },
-  selfBadge: {
-    backgroundColor: "rgba(255, 149, 0, 0.12)",
-    borderColor: "rgba(255, 149, 0, 0.25)",
-    borderRadius: 4,
-    borderWidth: 1,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+  titleBlock: {
+    justifyContent: "center",
+    minHeight: 36,
+    paddingRight: 44,
   },
-  selfBadgeText: {
-    color: "#ff9500",
-    fontFamily: "SofiaProBold",
-    fontSize: 10,
-    lineHeight: 12,
-  },
-  skeletonAvatar: {
-    borderRadius: 8,
-    height: 36,
-    width: 36,
-  },
-  skeletonCopy: {
-    flex: 1,
-    gap: 6,
-  },
-  skeletonLine: {
-    borderRadius: 4,
-    height: 10,
-  },
-  skeletonRow: {
+  titleLine: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  statChip: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 4,
-  },
-  titleRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 6,
-    overflow: "hidden",
+    gap: 8,
   },
 });

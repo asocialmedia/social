@@ -33,13 +33,15 @@ function createLoggingHandler() {
     debug: (obj: Record<string, unknown>, message?: string) => {
       logs.push({ level: "debug", message: message ?? "", obj });
     },
-    error: (obj: Record<string, unknown>, message?: string) => {
+    error(obj: Record<string, unknown>, message?: string) {
+      expect(this).toBe(logger);
       logs.push({ level: "error", message: message ?? "", obj });
     },
     info: (obj: Record<string, unknown>, message?: string) => {
       logs.push({ level: "info", message: message ?? "", obj });
     },
-    warn: (obj: Record<string, unknown>, message?: string) => {
+    warn(obj: Record<string, unknown>, message?: string) {
+      expect(this).toBe(logger);
       logs.push({ level: "warn", message: message ?? "", obj });
     },
   };
@@ -62,6 +64,29 @@ describe("auth service http handler", () => {
     mockAuthHandler.mockClear();
     mockTrpcFetchHandler.mockClear();
   });
+
+  test.each([401, 403, 500])(
+    "preserves HTTP %s when the logger requires its receiver",
+    async (status) => {
+      mockAuthHandler.mockImplementationOnce(() =>
+        Promise.resolve(new Response("Rejected", { status }))
+      );
+      const { handler, logs } = createLoggingHandler();
+      const response = await handler(
+        new Request("http://localhost/api/auth/sign-in/username", {
+          method: "POST",
+        })
+      );
+      expect(response.status).toBe(status);
+      expect(
+        logs.some(
+          (entry) =>
+            entry.level === (status >= 500 ? "error" : "warn") &&
+            entry.obj?.status === status
+        )
+      ).toBe(true);
+    }
+  );
 
   test("returns 404 for unknown paths", async () => {
     const handleRequest = createHandler();

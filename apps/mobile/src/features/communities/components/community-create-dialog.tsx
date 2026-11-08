@@ -1,7 +1,3 @@
-import {
-  COMMUNITY_ACCENTS as accentOptions,
-  COMMUNITY_TOPICS as topicOptions,
-} from "@asm/db/communities";
 import { Image } from "expo-image";
 import { ArrowLeft, ArrowRight, Camera, Check, X } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -33,23 +29,14 @@ import {
 import { logWarn } from "@/lib/lifecycle/telemetry";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { withAuthHeaders } from "@/lib/network/auth-headers";
-import {
-  NAV_ACTIVE_SHADOWS,
-  NAV_ACTIVE_SHADOWS_DARK,
-  SURFACE_SHADOWS,
-  SURFACE_SHADOWS_DARK,
-  useAppTheme,
-} from "@/theme";
+import { SURFACE_SHADOWS, SURFACE_SHADOWS_DARK, useAppTheme } from "@/theme";
 
-import { resolveCommunityAccentColor } from "../lib/community-accents";
 import { createCommunity } from "../lib/community-create-api";
 import {
   COMMUNITY_LIMITS,
   COMMUNITY_TYPE_META,
-  canAddTopic,
   validateCommunityDraft,
 } from "../lib/community-create-contract";
-import type { CommunityTopic } from "../lib/community-create-contract";
 import {
   communityMediaAuth,
   linkCommunityMedia,
@@ -68,7 +55,9 @@ import {
   readCommunityWizard,
   saveCommunityWizard,
 } from "../lib/community-wizard-native";
+import { CommunityAccentPicker } from "./community-accent-picker";
 import { CommunityCreatePreview } from "./community-create-preview";
+import { CommunityTopicPicker } from "./community-topic-picker";
 
 export function CommunityCreateDialog({
   userId,
@@ -153,13 +142,6 @@ export function CommunityCreateDialog({
     if (!busy) {
       saveCommunityWizard(userId, draft);
       onClose();
-    }
-  };
-  const toggleTopic = (topic: CommunityTopic) => {
-    if (draft.topics.includes(topic)) {
-      patch({ topics: draft.topics.filter((value) => value !== topic) });
-    } else if (canAddTopic(draft.topics, topic)) {
-      patch({ topics: [...draft.topics, topic] });
     }
   };
 
@@ -277,7 +259,6 @@ export function CommunityCreateDialog({
   if (uploadingSlot) {
     forwardLabel = "Uploading…";
   }
-  const selectedShadows = isDark ? NAV_ACTIVE_SHADOWS_DARK : NAV_ACTIVE_SHADOWS;
   const surface = {
     backgroundColor: theme.cardBg,
     borderColor: theme.cardBorder,
@@ -371,55 +352,14 @@ export function CommunityCreateDialog({
                       title="What is your community about?"
                       hint="Pick up to 5 so people can find it."
                     />
-                    <View style={styles.chips}>
-                      {topicOptions.map((topic) => {
-                        const chosen = draft.topics.includes(
-                          topic.key as CommunityTopic
-                        );
-                        const disabled = !canAddTopic(
-                          draft.topics,
-                          topic.key as CommunityTopic
-                        );
-                        return (
-                          <Pressable
-                            accessibilityRole="checkbox"
-                            accessibilityState={{ checked: chosen, disabled }}
-                            disabled={disabled}
-                            key={topic.key}
-                            onPress={() =>
-                              toggleTopic(topic.key as CommunityTopic)
-                            }
-                            style={[
-                              styles.chip,
-                              chosen
-                                ? {
-                                    backgroundColor: "#f973161a",
-                                    borderColor: "#f9731640",
-                                    boxShadow: isDark
-                                      ? NAV_ACTIVE_SHADOWS_DARK
-                                      : NAV_ACTIVE_SHADOWS,
-                                  }
-                                : { borderColor: "transparent" },
-                              disabled && { opacity: 0.4 },
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.chipText,
-                                {
-                                  color: chosen ? "#f97316" : theme.dividerText,
-                                },
-                              ]}
-                            >
-                              {topic.label}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                    <Text style={[styles.hint, { color: theme.dividerText }]}>
-                      {draft.topics.length}/5 selected
-                    </Text>
+                    <CommunityTopicPicker
+                      onChange={(topics) =>
+                        patch({
+                          topics: topics as CommunityWizardDraft["topics"],
+                        })
+                      }
+                      selected={draft.topics}
+                    />
                   </>
                 ) : null}
                 {draft.step === 1 ? (
@@ -555,59 +495,15 @@ export function CommunityCreateDialog({
                       title="Pick an accent"
                       hint="Marks posts from this community across every feed."
                     />
-                    <View style={styles.chips}>
-                      {accentOptions.map((accent) => {
-                        const chosen = draft.accentColor === accent.key;
-                        return (
-                          <Pressable
-                            accessibilityRole="radio"
-                            accessibilityState={{ checked: chosen }}
-                            key={accent.key}
-                            onPress={() =>
-                              patch({
-                                accentColor:
-                                  accent.key as CommunityWizardDraft["accentColor"],
-                              })
-                            }
-                            style={[
-                              styles.chip,
-                              styles.accentChip,
-                              {
-                                backgroundColor: chosen
-                                  ? "#f973161a"
-                                  : "transparent",
-                                borderColor: chosen
-                                  ? "#f9731640"
-                                  : "transparent",
-                                boxShadow: chosen ? selectedShadows : undefined,
-                              },
-                            ]}
-                          >
-                            <View
-                              style={[
-                                styles.swatch,
-                                {
-                                  backgroundColor: resolveCommunityAccentColor(
-                                    accent.key,
-                                    isDark
-                                  ),
-                                },
-                              ]}
-                            />
-                            <Text
-                              style={[
-                                styles.chipText,
-                                {
-                                  color: chosen ? "#f97316" : theme.dividerText,
-                                },
-                              ]}
-                            >
-                              {accent.label}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
+                    <CommunityAccentPicker
+                      onChange={(accentColor) =>
+                        patch({
+                          accentColor:
+                            accentColor as CommunityWizardDraft["accentColor"],
+                        })
+                      }
+                      value={draft.accentColor}
+                    />
                   </>
                 ) : null}
                 {draft.step === 4 ? (
@@ -781,7 +677,6 @@ function StepHeading({ title, hint }: { title: string; hint: string }) {
   );
 }
 const styles = StyleSheet.create({
-  accentChip: { alignItems: "center", flexDirection: "row", gap: 8 },
   avatarInput: {
     alignItems: "center",
     borderRadius: 24,
@@ -811,14 +706,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 18,
   },
-  chip: {
-    borderRadius: 8,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  chipText: { fontFamily: "SofiaProReg", fontSize: 14 },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   footer: {
     alignItems: "center",
     borderTopWidth: 1,
@@ -889,6 +776,5 @@ const styles = StyleSheet.create({
   },
   rail: { alignItems: "center", flexDirection: "row", gap: 4 },
   scroll: { flexShrink: 1 },
-  swatch: { borderRadius: 5, height: 14, width: 14 },
   title: { flex: 1, fontFamily: "SofiaProBold", fontSize: 16 },
 });

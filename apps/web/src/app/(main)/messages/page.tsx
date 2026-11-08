@@ -12,6 +12,7 @@ import { getSessionFromApi } from "@/lib/auth/session";
 import ClientMessages from "./client-messages";
 
 export const metadata: Metadata = {
+  robots: { follow: false, index: false },
   title: "Messages",
 };
 

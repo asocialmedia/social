@@ -9,6 +9,7 @@ import { useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import zephImage from "@/assets/images/zeph.png";
+import { toast } from "@/components/feedback/toast";
 import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import {
@@ -20,6 +21,11 @@ import { suggestAltText } from "@/features/media-upload/lib/upload-api";
 import type { DraftAttachment } from "@/features/media-upload/state/attachment-store";
 import { logWarn } from "@/lib/lifecycle/telemetry";
 import { useAppTheme } from "@/theme";
+
+import {
+  altSuggestToastCopy,
+  classifyAltSuggest,
+} from "../lib/alt-text-suggest";
 
 const AUTO_SHADOWS =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.4), 0 0 0 1px rgba(234, 88, 12, 0.6), 0 1px 1px rgba(255, 255, 255, 0.2), 0 2px 4px rgba(0, 0, 0, 0.15)";
@@ -42,17 +48,27 @@ export function AltTextPanel({
   const [analyzing, setAnalyzing] = useState(false);
   const input = premiumInput(isDark, focused);
 
+  // Full toast matrix from web's handleAutoAltText: every analysis outcome
+  // tells the writer what happened instead of failing silently.
   const runAuto = async () => {
-    if (!attachment.mediaId || analyzing) {
+    if (!attachment.mediaId) {
+      toast(altSuggestToastCopy(classifyAltSuggest({})));
+      return;
+    }
+    if (analyzing) {
       return;
     }
     setAnalyzing(true);
     try {
       const result = await suggestAltText(attachment.mediaId);
-      if (result.suggestedAlt) {
-        setDraft(result.suggestedAlt.slice(0, 1000));
+      const outcome = classifyAltSuggest({ result });
+      if (outcome.kind === "success") {
+        setDraft(outcome.suggestion);
       }
+      toast(altSuggestToastCopy(outcome));
     } catch (error) {
+      const outcome = classifyAltSuggest({ error });
+      toast(altSuggestToastCopy(outcome));
       logWarn("composer.alt_suggest_failed", {
         reason: error instanceof Error ? error.message : "unknown",
       });

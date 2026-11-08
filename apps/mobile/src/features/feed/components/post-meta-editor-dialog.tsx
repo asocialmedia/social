@@ -14,6 +14,7 @@ import {
 } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
+import { useSessionContext } from "@/features/auth/state/session";
 import { InlineSuggestions } from "@/features/composer/components/inline-suggestions";
 import type { MentionPick } from "@/features/composer/lib/inline-relations";
 import { HttpError } from "@/features/media-upload/lib/retry";
@@ -25,6 +26,11 @@ import {
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
+import {
+  filterSelfMentionIds,
+  MAX_POST_MENTIONS,
+  MAX_POST_TAGS,
+} from "../lib/post-meta-limits";
 import { updatePostMentions, updatePostTags } from "../lib/post-mutations";
 import { feedCache } from "../state/feed-store";
 
@@ -41,6 +47,11 @@ export function EditPostTagsDialog(props: Props) {
   return props.open ? <MetadataEditor key={props.postId} {...props} /> : null;
 }
 
+// Web's tag/mention picker caps (gust-meta-pickers.tsx): at most 5 each.
+// Limits live in lib/post-meta-limits so they can be unit tested.
+const MAX_TAGS = MAX_POST_TAGS;
+const MAX_MENTIONS = MAX_POST_MENTIONS;
+
 const EMPTY_MENTIONS: readonly MentionPick[] = [];
 
 function MetadataEditor({
@@ -52,19 +63,59 @@ function MetadataEditor({
 }: Props) {
   const { theme } = useAppTheme();
   const { runWithInstallToken } = useInstall();
+  const { user: currentUser } = useSessionContext();
   const [tab, setTab] = useState<"tags" | "mentions">("tags");
   const [tags, setTags] = useState<string[]>([...initialTags]);
   const [mentions, setMentions] = useState<MentionPick[]>([...initialMentions]);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
-  const excludedUserIds = useMemo(
-    () => mentions.map((user) => user.id),
-    [mentions]
-  );
+  const currentUserId = currentUser?.id;
+  const excludedUserIds = useMemo(() => {
+    const ids = mentions.map((user) => user.id);
+    // Web's mention picker never offers the current user: self-mentions are
+    // dropped server-side (aura-farming guard), so selecting yourself would
+    // silently lose the mention at publish.
+    if (currentUserId && !ids.includes(currentUserId)) {
+      ids.push(currentUserId);
+    }
+    return ids;
+  }, [currentUserId, mentions]);
   const addTag = (value: string) => {
     const name = value.trim().replace(/^#+/, "");
-    if (name && !tags.some((tag) => tag.toLowerCase() === name.toLowerCase())) {
+    if (!name) {
+      setQuery("");
+      return;
+    }
+    // Web's GustTagPicker cap: at most 5 tags, announced with a toast.
+    if (tags.length >= MAX_TAGS) {
+      toast({
+        description: "You can add up to 5 tags per post",
+        title: "Up to 5 Tags",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!tags.some((tag) => tag.toLowerCase() === name.toLowerCase())) {
       setTags((current) => [...current, name]);
+    }
+    setQuery("");
+  };
+  const addMention = (user: MentionPick) => {
+    // Self-mentions are dropped server-side, so ignore them like web.
+    if (currentUserId && user.id === currentUserId) {
+      return;
+    }
+    // Web's GustMentionPicker cap: at most 5 mentions, announced with a toast.
+    if (mentions.length >= MAX_MENTIONS) {
+      toast({
+        description: "You can mention up to 5 people per post",
+        title: "Up to 5 Mentions",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!mentions.some((entry) => entry.id === user.id)) {
+      setMentions((current) => [...current, user]);
     }
     setQuery("");
   };
@@ -81,7 +132,12 @@ function MetadataEditor({
             ? updatePostTags(postId, tags, options)
             : updatePostMentions(
                 postId,
-                mentions.map((user) => user.id),
+                // Web's useUpdateMentionsMutation strips the current user from
+                // mention updates: self-mentions are dropped server-side.
+                filterSelfMentionIds(
+                  mentions.map((user) => user.id),
+                  currentUserId
+                ),
                 options
               ));
           return { ok: true } as const;
@@ -110,8 +166,11 @@ function MetadataEditor({
       return;
     }
     if (tab === "mentions") {
+      const savedMentions = mentions.filter(
+        (user) => user.id !== currentUserId
+      );
       feedCache.updatePostEverywhere(postId, {
-        mentions: mentions.map((user) => ({
+        mentions: savedMentions.map((user) => ({
           user: { ...user, avatarUrl: user.avatarUrl ?? null },
         })),
       });
@@ -238,10 +297,7 @@ function MetadataEditor({
         excludedTags={tags}
         excludedUserIds={excludedUserIds}
         onPickTag={addTag}
-        onPickUser={(user) => {
-          setMentions((current) => [...current, user]);
-          setQuery("");
-        }}
+        onPickUser={addMention}
       />
       <View style={styles.footer}>
         <SettingsButton

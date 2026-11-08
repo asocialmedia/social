@@ -184,8 +184,13 @@ export function useTranscriptGestures({
     const selection = createPanGesture()
       .maxPointers(1)
       .activateAfterLongPress(350)
+      // Lets the transcript scroll under a pending or active selection instead
+      // of holding the native scroller hostage: the old blocksExternalGesture
+      // froze every scroll, because a moving finger never settled the
+      // long-press pan, so the native gesture waited forever. Drag-select
+      // still works: the range tracks the finger through the shared offset.
       // oxlint-disable-next-line react/refs -- retains the native recognizer for touch arbitration, without reading a ref during render
-      .blocksExternalGesture(nativeScroll)
+      .simultaneousWithExternalGesture(nativeScroll)
       // oxlint-disable-next-line react/refs -- registers a worklet for native events; its captured refs are only read after a touch
       .onStart((event) => {
         "worklet";

@@ -32,8 +32,67 @@ export function chunkMessageIds(
   return chunks;
 }
 
-// `count` is the number of messages the confirm will act on; it is ignored for
-// "for-everyone", which is always a single message.
+// How long after sending a message its sender may still rewrite or retract it
+// for everyone. Mirrors the web `MESSAGE_EDIT_WINDOW_MS`
+// (`apps/web/src/lib/messages/edit-window.ts`); the server measures from the
+// stored `createdAt`, the client only hides actions that would be rejected.
+export const MESSAGE_EDIT_WINDOW_MS = 12 * 60 * 60 * 1000;
+
+// Whether a message is still inside its edit window. Accepts the serialized
+// ISO strings rows arrive as, and fails closed on garbage input.
+export function isWithinEditWindow(
+  createdAt: Date | string,
+  now: Date = new Date()
+): boolean {
+  const created =
+    typeof createdAt === "string" ? new Date(createdAt) : createdAt;
+  if (Number.isNaN(created.getTime())) {
+    return false;
+  }
+  return now.getTime() - created.getTime() <= MESSAGE_EDIT_WINDOW_MS;
+}
+
+export interface DeleteGateMessage {
+  createdAt: Date | string;
+  deletedAt?: Date | string | null;
+  senderId: string;
+}
+
+// "Delete for everyone" is the sender retracting their own live message,
+// exactly the web thread's gate (`canDeleteForEveryone` in
+// `apps/web/src/components/messages/message-thread.tsx`).
+export function canDeleteForEveryone(
+  message: DeleteGateMessage,
+  userId: string | null
+): boolean {
+  if (!userId) {
+    return false;
+  }
+  return message.senderId === userId && !message.deletedAt;
+}
+
+// "Edit" is the sender rewriting their own live message inside the window,
+// the web thread's `canEdit` gate.
+export function canEditMessage(
+  message: DeleteGateMessage,
+  userId: string | null,
+  now: Date = new Date()
+): boolean {
+  if (!userId || message.deletedAt || message.senderId !== userId) {
+    return false;
+  }
+  return isWithinEditWindow(message.createdAt, now);
+}
+
+// The delete dialog shows one message for "for-everyone" and the selected
+// count for "for-me" (web thread builds the same `pendingDelete` union).
+export type PendingMessageDelete =
+  | { messageIds: readonly string[]; scope: "for-me" }
+  | { message: { id: string }; scope: "for-everyone" };
+
+export function pendingDeleteCount(pending: PendingMessageDelete): number {
+  return pending.scope === "for-everyone" ? 1 : pending.messageIds.length;
+}
 export function messageDeleteCopy(input: {
   count: number;
   scope: MessageDeleteScope;

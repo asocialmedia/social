@@ -60,6 +60,33 @@ describe("push path routing", () => {
     expect(pathToNativeRoute("/notifications")).toBe("/notifications");
   });
 
+  test("opens short profile URLs on the native profile", () => {
+    // Web 953ef2d3 short profile URLs: /<username> and the followers lists.
+    expect(pathToNativeRoute("/alice")).toBe("/users/alice");
+    expect(pathToNativeRoute("/alice/followers")).toBe(
+      "/users/alice/followers"
+    );
+    expect(pathToNativeRoute("/users/alice/following")).toBe(
+      "/users/alice/following"
+    );
+    // App paths are never profiles, even when short.
+    expect(pathToNativeRoute("/settings")).toBe("/settings");
+    expect(pathToNativeRoute("/login")).toBe("/login");
+  });
+
+  test("passes new top-level settings-adjacent routes through", () => {
+    expect(pathToNativeRoute("/support")).toBe("/support");
+    expect(pathToNativeRoute("/login-error?error=oauthError")).toBe(
+      "/login-error?error=oauthError"
+    );
+  });
+
+  test("keeps community join requests on the community", () => {
+    expect(pathToNativeRoute("/a/anime?requests=1")).toBe(
+      "/a/anime?requests=1"
+    );
+  });
+
   test("routes conversation paths without guessing the kind from their id", () => {
     // The path carries only an id; DM and den ids share the same format.
     expect(pathToNativeRoute("/messages?c=den-1")).toBe("/messages/den-1");

@@ -6,6 +6,7 @@ import { StatusScreen } from "@/components/layouts/feedback/status-screen";
 
 export const metadata = {
   description: "This feature is under development.",
+  robots: { follow: false, index: false },
   title: "Coming Soon",
 };
 

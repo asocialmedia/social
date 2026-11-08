@@ -920,7 +920,7 @@ const MediaViewer = ({
           !post?.moderated &&
           !(post?.explicitContent && !explicitRevealed) ? (
             <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
-              <Spinner3D variant="media" />
+              <Spinner3D />
             </div>
           ) : null}
 

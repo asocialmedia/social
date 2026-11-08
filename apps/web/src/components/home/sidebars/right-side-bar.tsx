@@ -16,10 +16,15 @@ export default function RightSideBar() {
         <SearchField />
       </div>
       <div className="hide-native-scrollbar flex flex-1 flex-col gap-4 overflow-y-auto">
-        <TrendingTopics />
-        <WhoToFollowSuggestions key={user?.id ?? "guest"} />
+        <TrendingTopics mediaQuery="(min-width: 80rem)" />
         {user ? (
-          <PostHistoryCard />
+          <>
+            <WhoToFollowSuggestions
+              key={user.id}
+              mediaQuery="(min-width: 80rem)"
+            />
+            <PostHistoryCard mediaQuery="(min-width: 80rem)" />
+          </>
         ) : (
           <AuthPromptCard
             description="Create an account to unlock the full asocialmedia experience."

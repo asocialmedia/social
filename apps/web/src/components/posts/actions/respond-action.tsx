@@ -11,7 +11,7 @@ export function RespondAction({
 }) {
   return (
     <button
-      aria-label="Respond to this post"
+      aria-label={`Respond to this post, ${count} ${count === 1 ? "response" : "responses"}`}
       className="pill-3d-hover group text-muted-foreground inline-flex h-7 items-center justify-center gap-1 rounded-full border-0 px-1.5 text-xs font-medium active:translate-y-px sm:h-7.5 sm:px-2 sm:text-[13px]"
       onClick={onClick}
       type="button"

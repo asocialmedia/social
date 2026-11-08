@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import { Clapperboard, Heart, Newspaper, Terminal } from "lucide-react-native";
+import { Clapperboard, Heart } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureDetector } from "react-native-gesture-handler";
@@ -40,22 +40,27 @@ import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
 import {
+  BOOKMARK_TAB_COPY,
+  bookmarkTabCount,
+  fetchBookmarkCounts,
   fetchBookmarkedHn,
   fetchBookmarkedPage,
   fetchLikedPage,
 } from "../lib/bookmarks-api";
+import type { BookmarkCounts, BookmarkTab } from "../lib/bookmarks-api";
 
-type BookmarkTab = "posts" | "gusts" | "hackernews" | "likes";
 type BookmarkItem = FeedPost | HnStory;
 interface BookmarkPage {
   items: BookmarkItem[];
   nextCursor: string | null;
 }
+// Web's tab strip: Fleets, Gusts, HackerNews, Likes, text labels with a
+// count badge beside every tab but Likes.
 const TABS = [
-  { icon: Newspaper, label: "Posts", value: "posts" },
-  { icon: Clapperboard, label: "Gusts", value: "gusts" },
-  { icon: Terminal, label: "HackerNews", value: "hackernews" },
-  { icon: Heart, label: "Likes", value: "likes" },
+  { label: "Fleets", value: "posts" },
+  { label: "Gusts", value: "gusts" },
+  { label: "HackerNews", value: "hackernews" },
+  { label: "Likes", value: "likes" },
 ] as const;
 const TAB_ORDER = ["posts", "gusts", "hackernews", "likes"] as const;
 const cache = new ResourceCache<BookmarkPage>({
@@ -119,6 +124,34 @@ export function BookmarksScreen() {
   const loadingMore = key !== null && loadingMoreKeys.has(key);
   const loader = useCallback(() => loadPage(tab), [tab]);
   const resource = useCachedResource(cache, key, loader);
+  const [counts, setCounts] = useState<BookmarkCounts | null>(null);
+  const userId = user?.id;
+  // Live tab badges (web useBookmarkCount): re-read on entry, on every tab
+  // switch, and whenever a row leaves a list, so an unbookmark is reflected.
+  const [countsRevision, setCountsRevision] = useState(0);
+  useEffect(() => {
+    if (!userId) {
+      return;
+    }
+    let active = true;
+    void (async () => {
+      try {
+        const next = await fetchBookmarkCounts({
+          apiBase: getApiBaseUrl(),
+          cookie: await authClient.getCookie(),
+        });
+        if (active) {
+          setCounts(next);
+        }
+      } catch {
+        // Badges are decoration; the lists still load without them.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- tab and countsRevision are deliberate re-read triggers for the badges
+  }, [userId, tab, countsRevision]);
   useEffect(() => {
     if (!isPending && !user) {
       router.replace("/(auth)/login");
@@ -156,6 +189,9 @@ export function BookmarksScreen() {
           });
         }
       }
+      if (!changes) {
+        setCountsRevision((value) => value + 1);
+      }
     },
     [user]
   );
@@ -181,6 +217,9 @@ export function BookmarksScreen() {
       cookie: await authClient.getCookie(),
     });
     const page = cache.read(key).data;
+    if (ok) {
+      setCountsRevision((value) => value + 1);
+    }
     if (ok && page) {
       cache.setData(key, {
         ...page,
@@ -233,8 +272,8 @@ export function BookmarksScreen() {
   } else if (resource.error) {
     empty = (
       <View style={styles.empty}>
-        <Text style={[styles.emptyTitle, { color: theme.inputText }]}>
-          {resource.error}
+        <Text style={[styles.errorText, { color: theme.errorBannerText }]}>
+          {BOOKMARK_TAB_COPY[tab].error}
         </Text>
         <SettingsButton
           label="Try again"
@@ -246,21 +285,26 @@ export function BookmarksScreen() {
       </View>
     );
   } else {
-    const liked = tab === "likes";
+    const copy = BOOKMARK_TAB_COPY[tab];
+    let art: React.ReactNode = (
+      <Image
+        source={noBookmarksImage}
+        contentFit="contain"
+        style={{ height: 160, width: 240 }}
+      />
+    );
+    if (!copy.illustrated) {
+      const Glyph = tab === "likes" ? Heart : Clapperboard;
+      art = <Glyph color={theme.dividerText} opacity={0.6} size={24} />;
+    }
     empty = (
-      <View style={styles.empty}>
-        <Image
-          source={noBookmarksImage}
-          contentFit="contain"
-          style={{ height: 160, width: 240 }}
-        />
+      <View style={[styles.empty, !copy.illustrated && styles.emptyTight]}>
+        {art}
         <Text style={[styles.emptyTitle, { color: theme.inputText }]}>
-          {liked ? "No liked posts yet" : "No bookmarks yet"}
+          {copy.title}
         </Text>
         <Text style={[styles.emptyCopy, { color: theme.dividerText }]}>
-          {liked
-            ? "Posts you amplify will show up here."
-            : "Bookmark posts, gusts and stories to keep them here."}
+          {copy.description}
         </Text>
       </View>
     );
@@ -326,24 +370,40 @@ export function BookmarksScreen() {
         onChange={setTab}
         alignment="center"
         renderLabel={(definition, selected) => {
-          const Icon =
-            TABS.find((value) => value.value === definition.value)?.icon ??
-            Newspaper;
+          const count = bookmarkTabCount(definition.value, counts);
           return (
             <View style={styles.tabLabel}>
-              <Icon
-                size={16}
-                color={selected ? theme.inputText : theme.dividerText}
-              />
-              {selected ? (
-                <Text style={[styles.tabText, { color: theme.inputText }]}>
-                  {definition.label}
-                </Text>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.tabText,
+                  { color: selected ? theme.inputText : theme.dividerText },
+                ]}
+              >
+                {definition.label}
+              </Text>
+              {count > 0 ? (
+                <View
+                  accessibilityLabel={`${count} bookmarked`}
+                  style={[
+                    styles.badge,
+                    {
+                      backgroundColor: theme.dividerLine,
+                      borderColor: theme.cardBorder,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[styles.badgeText, { color: theme.dividerText }]}
+                  >
+                    {count}
+                  </Text>
+                </View>
               ) : null}
             </View>
           );
         }}
-      />
+      />{" "}
       <GestureDetector gesture={swipe}>
         <View style={styles.root}>
           <FlatList
@@ -401,9 +461,26 @@ export function BookmarksScreen() {
   );
 }
 const styles = StyleSheet.create({
-  empty: { alignItems: "center", gap: 12, padding: 32, paddingVertical: 48 },
-  emptyCopy: { fontFamily: "SofiaProReg", fontSize: 13, textAlign: "center" },
-  emptyTitle: { fontFamily: "SofiaProMed", fontSize: 15 },
+  // Web's h-5 w-5 rounded-full border text-[10px] font-semibold tabular-nums.
+  badge: {
+    alignItems: "center",
+    borderRadius: 9999,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 20,
+    justifyContent: "center",
+    minWidth: 20,
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    fontFamily: "SofiaProBold",
+    fontSize: 10,
+    fontVariant: ["tabular-nums"],
+  },
+  empty: { alignItems: "center", gap: 12, padding: 16, paddingVertical: 64 },
+  emptyCopy: { fontFamily: "SofiaProReg", fontSize: 14, textAlign: "center" },
+  emptyTight: { gap: 6 },
+  emptyTitle: { fontFamily: "SofiaProMed", fontSize: 16, textAlign: "center" },
+  errorText: { fontFamily: "SofiaProReg", fontSize: 15, textAlign: "center" },
   root: { flex: 1 },
   tabLabel: { alignItems: "center", flexDirection: "row", gap: 6 },
   tabText: { fontFamily: "SofiaProMed", fontSize: 14 },

@@ -14,6 +14,7 @@ import { getSessionFromApi } from "@/lib/auth/session";
 import Notifications from "./notifications";
 
 export const metadata: Metadata = {
+  robots: { follow: false, index: false },
   title: "Rustles",
 };
 
@@ -48,8 +49,8 @@ async function NotificationsContent() {
 
       <aside className="hide-native-scrollbar bg-background border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-2.5 pt-2.5 pb-6 xl:flex">
         <div className="flex flex-col gap-4">
-          <PostHistoryCard />
-          <TrendingTopics />
+          <PostHistoryCard mediaQuery="(min-width: 80rem)" />
+          <TrendingTopics mediaQuery="(min-width: 80rem)" />
           <footer className="text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 px-3 pt-1 text-xs">
             <span>© {new Date().getFullYear()} asocialmedia</span>
             {[

@@ -79,6 +79,32 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   }
 };
 
-module.exports = withNativewind(config, {
+const nativewindConfig = withNativewind(config, {
   input: "./src/global.css",
 });
+
+// expo-asset reads `AssetRegistry` from "react-native". NativeWind redirects
+// every "react-native" import to react-native-css's component shim, and that
+// shim's re-export comes back without AssetRegistry, so useFonts rejected with
+// "Cannot read property 'getAssetByID' of undefined" and every SofiaPro face
+// fell back to the system font. Asset plumbing renders no components, so it
+// keeps the real module.
+const assetPackages = [
+  `${path.sep}node_modules${path.sep}expo-asset${path.sep}`,
+  `${path.sep}node_modules${path.sep}expo-font${path.sep}`,
+];
+const nativewindResolveRequest = nativewindConfig.resolver.resolveRequest;
+nativewindConfig.resolver.resolveRequest = (context, moduleName, platform) => {
+  const origin = context.originModulePath ?? "";
+  if (
+    moduleName === "react-native" &&
+    assetPackages.some((segment) => origin.includes(segment))
+  ) {
+    return context.resolveRequest(context, moduleName, platform);
+  }
+  return nativewindResolveRequest
+    ? nativewindResolveRequest(context, moduleName, platform)
+    : context.resolveRequest(context, moduleName, platform);
+};
+
+module.exports = nativewindConfig;

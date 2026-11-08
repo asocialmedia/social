@@ -48,6 +48,7 @@ import {
   headerSlide,
   MobileHeader,
 } from "@/features/home/components/mobile-header";
+import { fetchCommunityChatInbox } from "@/features/messages/lib/client";
 import { SettingsButton } from "@/features/settings/components/settings-ui";
 import { bottomDockPadding } from "@/lib/layout/bottom-dock-layout";
 import { LIST_VIRTUALIZATION_PROPS } from "@/lib/layout/list-virtualization";
@@ -78,6 +79,7 @@ import type {
 } from "../lib/communities-api";
 import {
   communityDiscoveryRows,
+  withUnreadChatSlugs,
   COMMUNITY_SEARCH_ROW_INDEX,
   COMMUNITY_PAGE_GUTTER,
 } from "../lib/community-discovery";
@@ -164,6 +166,40 @@ export function CommunitiesScreen() {
   const [gateOpen, setGateOpen] = useState(false);
   const viewerId = user?.id;
   const quota = quotaResult?.userId === viewerId ? quotaResult?.value : null;
+  // Unread community-chat activity for the joined rail, from the same inbox
+  // web's rails read. Best effort: the rail renders without it on failure.
+  const [unreadSlugs, setUnreadSlugs] = useState<ReadonlySet<string>>(
+    new Set()
+  );
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      if (!viewerId) {
+        return;
+      }
+      try {
+        const inbox = await fetchCommunityChatInbox({
+          apiBase: getApiBaseUrl(),
+          cookie: await authClient.getCookie(),
+        });
+        if (active) {
+          setUnreadSlugs(
+            new Set(
+              inbox.communities
+                .filter((entry) => entry.hasUnread)
+                .map((entry) => entry.community.slug)
+            )
+          );
+        }
+      } catch {
+        // The joined rail renders without unread marks when this fails.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [viewerId]);
 
   useEffect(() => {
     let active = true;
@@ -306,7 +342,10 @@ export function CommunitiesScreen() {
   if (deferredSearch) {
     browseHeading = `Results for “${deferredSearch}”`;
   }
-  const rows = communityDiscoveryRows({ communities, page, showRails });
+  const rows = withUnreadChatSlugs(
+    communityDiscoveryRows({ communities, page, showRails }),
+    unreadSlugs
+  );
   const firstRail = rows.find((row) => row.kind === "rail");
   const washHeight =
     categoryHeight +
@@ -615,6 +654,7 @@ export function CommunitiesScreen() {
             icon={item.icon}
             onOpen={openCommunity}
             title={item.title}
+            unreadSlugs={item.kind === "rail" ? item.unreadSlugs : undefined}
           />
         </View>
       );

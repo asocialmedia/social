@@ -44,13 +44,17 @@ export type FailedStep = "finalize" | "initiate" | "processing" | "upload";
 
 export class UploadError extends Error {
   readonly mediaId: string | null;
+  // True when the server refused the media (REJECTED): the attachment must be
+  // removed with web's "Attachment Removed" copy, not retried.
+  readonly rejected: boolean;
   readonly step: FailedStep;
   readonly userMessage: string;
   constructor(
     step: FailedStep,
     userMessage: string,
     mediaId: string | null,
-    cause?: unknown
+    cause?: unknown,
+    rejected = false
   ) {
     super(userMessage);
     this.name = "UploadError";
@@ -58,6 +62,7 @@ export class UploadError extends Error {
     this.userMessage = userMessage;
     this.mediaId = mediaId;
     this.cause = cause;
+    this.rejected = rejected;
   }
 }
 
@@ -240,7 +245,9 @@ export async function watchMediaStatus(
           throw new UploadError(
             "processing",
             rejectionCopy(status.rejectedReason ?? status.failureCode),
-            mediaId
+            mediaId,
+            undefined,
+            status.status === "REJECTED"
           );
         }
         options.onStage?.("ready");

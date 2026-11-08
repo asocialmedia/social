@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { Heart } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
+import type { StyleProp, TextStyle } from "react-native";
 import { z } from "zod";
 
 import { toast } from "@/components/feedback/toast";
@@ -24,10 +25,12 @@ export function ExternalLikeAction({
   post,
   size = 16,
   color,
+  labelStyle,
 }: {
   post: ExternalPost;
   size?: number;
   color?: string;
+  labelStyle?: StyleProp<TextStyle>;
 }) {
   const { user } = useSessionContext();
   const router = useRouter();
@@ -131,7 +134,12 @@ export function ExternalLikeAction({
           fill={liked ? "#f43f5e" : "none"}
           size={size}
         />
-        <Text style={{ color: color ?? theme.dividerText, fontSize: 12 }}>
+        <Text
+          style={[
+            { color: color ?? theme.dividerText, fontSize: 12 },
+            labelStyle,
+          ]}
+        >
           {count === null ? "—" : formatNumber(count)}
         </Text>
       </View>

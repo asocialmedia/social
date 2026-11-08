@@ -92,7 +92,7 @@ function parsePostsPage(payload: unknown): PostsPage {
   };
 }
 
-/** One cursor page of a feed variant. */
+// One cursor page of a feed variant.
 export async function fetchFeedPage(
   variant: FeedVariant,
   cursor: string | null,
@@ -112,7 +112,7 @@ export async function fetchFeedPage(
   return parsePostsPage(await readJson(response));
 }
 
-/** Head page only, for the new-content probe (never touches list state). */
+// Head page only, for the new-content probe (never touches list state).
 export async function fetchFeedHead(
   variant: FeedVariant,
   options: ApiCallOptions
@@ -121,23 +121,21 @@ export async function fetchFeedHead(
   return page.posts;
 }
 
-/**
- * The id of the newest post in a feed variant, or null when the viewer can see
- * nothing yet - one row, not a page.
- *
- * This is the cheap first tier of the new-content probe. The probe used to pull
- * a whole head page (twenty viewer-resolved posts, their vote and bookmark
- * joins, and a Redis view-count read for all twenty) every 45 seconds, only to
- * compare the first id against what was already on screen. The same question
- * answers itself from one row, and the full page is only worth fetching once
- * that row says something arrived.
- *
- * Only the variants that BOTH honour `take` AND sort newest-first can be asked
- * for a single row; the rest fall back to the page, which is the behaviour this
- * replaces. `feedHeadIdIsChangeSignal` is the test, and the probe must honour
- * it: in a ranked feed the newest row is not the row a new post arrives in, so
- * "same top id" does not mean "nothing new".
- */
+// The id of the newest post in a feed variant, or null when the viewer can see
+// nothing yet - one row, not a page.
+//
+// This is the cheap first tier of the new-content probe. The probe used to pull
+// a whole head page (twenty viewer-resolved posts, their vote and bookmark
+// joins, and a Redis view-count read for all twenty) every 45 seconds, only to
+// compare the first id against what was already on screen. The same question
+// answers itself from one row, and the full page is only worth fetching once
+// that row says something arrived.
+//
+// Only the variants that BOTH honour `take` AND sort newest-first can be asked
+// for a single row; the rest fall back to the page, which is the behaviour this
+// replaces. `feedHeadIdIsChangeSignal` is the test, and the probe must honour
+// it: in a ranked feed the newest row is not the row a new post arrives in, so
+// "same top id" does not mean "nothing new".
 export async function fetchFeedHeadId(
   variant: FeedVariant,
   options: ApiCallOptions
@@ -172,12 +170,12 @@ const RANKED_VARIANTS: ReadonlySet<FeedVariant> = new Set<FeedVariant>([
   "trending",
 ]);
 
-/** True when the top row of this feed reliably changes the moment a post arrives. */
+// True when the top row of this feed reliably changes the moment a post arrives.
 export function feedHeadIdIsChangeSignal(variant: FeedVariant): boolean {
   return HEAD_ID_VARIANTS.has(variant);
 }
 
-/** True when the head page is ordered by score, so it must be diffed as a set. */
+// True when the head page is ordered by score, so it must be diffed as a set.
 export function isRankedFeed(variant: FeedVariant): boolean {
   return RANKED_VARIANTS.has(variant);
 }
@@ -219,7 +217,7 @@ export async function fetchVoteInfo(
   return parseVoteInfo(await readJson(response));
 }
 
-/** Casts (or via value 0, clears) a vote. Toggle-off uses DELETE like web. */
+// Casts (or via value 0, clears) a vote. Toggle-off uses DELETE like web.
 export async function submitVote(
   postId: string,
   value: 1 | -1 | 0,
@@ -264,7 +262,7 @@ export async function fetchBookmarkInfo(
     : null;
 }
 
-/** Saves (true) or removes (false) a bookmark. Idempotent server-side. */
+// Saves (true) or removes (false) a bookmark. Idempotent server-side.
 export async function submitBookmark(
   postId: string,
   save: boolean,
@@ -459,7 +457,7 @@ export async function fetchResponsesPage(
   };
 }
 
-/** Batched view increments (800ms debounce lives in the caller, like web). */
+// Batched view increments (800ms debounce lives in the caller, like web).
 export async function submitViewBatch(
   postIds: string[],
   options: ApiCallOptions
@@ -546,7 +544,25 @@ export async function submitShare(
   }
 }
 
-/** The audio row's waveform; null when the derivative is missing or bad. */
+// Web's trackClick: counts the outbound open of a social share target.
+export async function submitShareClick(
+  postId: string,
+  platform: string,
+  options: ApiCallOptions
+): Promise<void> {
+  const response = await callFeedApi(
+    `/api/posts/${encodeURIComponent(postId)}/share/click`,
+    { ...options, body: JSON.stringify({ platform }), method: "POST" }
+  );
+  if (!response.ok) {
+    throw new FeedApiError(
+      `Share click failed (${response.status})`,
+      response.status
+    );
+  }
+}
+
+// The audio row's waveform; null when the derivative is missing or bad.
 export async function fetchWavePeaks(
   mediaId: string,
   options: ApiCallOptions
@@ -558,7 +574,7 @@ export async function fetchWavePeaks(
   return parseWavePeaks(await readJson(response));
 }
 
-/** A video's WebVTT captions; null when there is no track. */
+// A video's WebVTT captions; null when there is no track.
 export async function fetchCaptionsVtt(
   mediaId: string,
   options: ApiCallOptions

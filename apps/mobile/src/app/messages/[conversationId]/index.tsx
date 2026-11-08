@@ -4,14 +4,21 @@
 // deep link straight into a thread (a push tap, a shared link) still resolves
 // the key before the transcript tries to decrypt, while the list and the thread
 // share one bootstrap rather than each paying for their own.
+//
+// `?mid=<messageId>` comes from a global search hit: the thread opens an
+// anchored window around that message and highlights it, like web's `mid`.
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback } from "react";
 
 import { MessageThreadScreen } from "@/features/messages/components/message-thread-screen";
 
 export default function ConversationRoute() {
-  const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
+  const { conversationId, mid } = useLocalSearchParams<{
+    conversationId: string;
+    mid?: string | string[];
+  }>();
   const router = useRouter();
+  const requestedMessageId = Array.isArray(mid) ? mid[0] : mid;
   const back = useCallback(() => {
     // A thread opened from a push notification has no list behind it to go back to,
     // so a hardware/gesture back must not pop past the app root.
@@ -26,5 +33,11 @@ export default function ConversationRoute() {
     return null;
   }
 
-  return <MessageThreadScreen conversationId={conversationId} onBack={back} />;
+  return (
+    <MessageThreadScreen
+      conversationId={conversationId}
+      onBack={back}
+      requestedMessageId={requestedMessageId || undefined}
+    />
+  );
 }

@@ -8,7 +8,20 @@
       "outputs": [".next/**", "!.next/cache/**"]
     },
     "check-types": {
-      "cache": true
+      "cache": true,
+      "dependsOn": ["typecheck-inputs"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/tsconfig.json",
+        "$TURBO_ROOT$/packages/db/generated/**"
+      ]
+    },
+    "typecheck-inputs": {
+      "dependsOn": ["^typecheck-inputs"]
+    },
+    "//#check-types:scripts": {
+      "inputs": ["$TURBO_DEFAULT$", "packages/db/generated/**"],
+      "outputs": []
     },
     "dev": {
       "cache": false,

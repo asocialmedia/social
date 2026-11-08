@@ -1,8 +1,15 @@
 // Post sharing mirrors web's Social, Link, QR and Messages tabs.
 import * as Clipboard from "expo-clipboard";
+import { Directory, File, Paths } from "expo-file-system";
+import { Image } from "expo-image";
 import * as Linking from "expo-linking";
+import {
+  Asset,
+  getPermissionsAsync,
+  requestPermissionsAsync,
+} from "expo-media-library";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -19,8 +26,10 @@ import { toast } from "@/components/feedback/toast";
 import { DialogPanel } from "@/components/surface/dialog-panel";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
+import { MessageSharePicker } from "@/features/messages/components/message-share-picker";
 import { fetchConversationList } from "@/features/messages/lib/client";
 import type { ConversationListItem } from "@/features/messages/lib/client";
+import { MessagesIdentityProvider } from "@/features/messages/state/message-identity";
 import { useSharedPostDraft } from "@/features/messages/state/shared-post-draft";
 import { externalShareUrl } from "@/features/network/lib/network-paths";
 import {
@@ -32,9 +41,15 @@ import { PROD_API_URL } from "@/lib/network/api-base";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
-import { fetchShareStats, submitShare } from "../lib/feed-api";
+import {
+  fetchShareStats,
+  submitShare,
+  submitShareClick,
+} from "../lib/feed-api";
 import type { ShareStats } from "../lib/feed-api";
 import type { FeedPost } from "../lib/feed-types";
+import { isAudioMedia, mediaGridImageUrl } from "../lib/media-url";
+import { decodeBase64ToBytes } from "../lib/qr-download";
 import { socialShareTargets } from "../lib/share-targets";
 
 export function getSharePostUrl(post: FeedPost): string {
@@ -55,6 +70,9 @@ interface ShareSheetProps {
   onClose: () => void;
   post: FeedPost | null;
   shareUrl?: (post: FeedPost) => string;
+  // Caller-passed thumbnail for the social tab header, like web's thumbnail
+  // prop. Falls back to the post's first visual attachment.
+  thumbnail?: string | null;
   title?: string;
 }
 
@@ -69,14 +87,19 @@ function ShareDialog({
   onClose,
   post,
   shareUrl = getSharePostUrl,
+  thumbnail,
   title = "Share Post",
 }: ShareSheetProps & { post: FeedPost }) {
   const { theme } = useAppTheme();
   const { user } = useSessionContext();
   const router = useRouter();
-  const [tab, setTab] = useState<"social" | "link" | "qr" | "messages">("link");
+  // Web's defaultTab is "social": the platform grid opens first.
+  const [tab, setTab] = useState<"social" | "link" | "qr" | "messages">(
+    "social"
+  );
   const [stats, setStats] = useState<ShareStats[]>([]);
   const [copied, setCopied] = useState(false);
+  const [qrSaved, setQrSaved] = useState(false);
   const [conversations, setConversations] = useState<ConversationListItem[]>(
     []
   );
@@ -84,8 +107,19 @@ function ShareDialog({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const apiBase = getApiBaseUrl();
   const url = shareUrl(post);
   const caption = post.content?.slice(0, 160) || "Post on asocialmedia";
+  // Web's thumbnail header: the post's first visual attachment. An explicit
+  // thumbnail prop wins, like web's caller-passed thumbnail.
+  const thumbMedia = (post.attachments ?? []).find(
+    (media) => !isAudioMedia(media)
+  );
+  const headerThumbnail =
+    thumbnail ?? (thumbMedia ? mediaGridImageUrl(apiBase, thumbMedia) : null);
+  const qrSvgRef = useRef<{
+    toDataURL: (callback: (base64: string) => void) => void;
+  } | null>(null);
   useEffect(() => {
     let active = true;
     if (post.external) {
@@ -142,6 +176,21 @@ function ShareDialog({
       });
     }
   };
+  const recordClick = async (platform: string) => {
+    if (post.external) {
+      return;
+    }
+    try {
+      await submitShareClick(post.id, platform, {
+        apiBase: getApiBaseUrl(),
+        cookie: await authClient.getCookie(),
+      });
+    } catch (error) {
+      logWarn("feed.share_click_failed", {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
   const copy = async () => {
     await Clipboard.setStringAsync(url);
     setCopied(true);
@@ -157,10 +206,85 @@ function ShareDialog({
       toast({ description: "Try copying the link.", title: "Couldn't share" });
     }
   };
-  const shareToPlatform = async (target: { platform: string; url: string }) => {
+  const downloadQrCode = async () => {
+    const node = qrSvgRef.current;
+    if (!node) {
+      toast({
+        description: "The QR code is not ready yet, try again?",
+        title: "Download Failed",
+        variant: "destructive",
+      });
+      return;
+    }
+    const current = await getPermissionsAsync(true);
+    const permission =
+      !current.granted && current.canAskAgain
+        ? await requestPermissionsAsync(true)
+        : current;
+    if (!permission.granted) {
+      toast({
+        description: "Allow photo access to save the QR code.",
+        title: "Permission needed",
+      });
+      return;
+    }
+    let base64 = "";
     try {
-      await Linking.openURL(target.url);
+      // oxlint-disable-next-line promise/avoid-new -- react-native-svg only exposes toDataURL through a callback
+      base64 = await new Promise<string>((resolve) => {
+        node.toDataURL(resolve);
+      });
+    } catch (error) {
+      logWarn("feed.qr_download_failed", {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      toast({
+        description: "Couldn't save the QR code, try again?",
+        title: "Download Failed",
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      const directory = new Directory(Paths.cache, "qr-codes");
+      directory.create({ idempotent: true, intermediates: true });
+      const file = new File(directory, `qr-code-${post.id}.png`);
+      const writer = file.writableStream().getWriter();
+      await writer.write(decodeBase64ToBytes(base64));
+      await writer.close();
+      await Asset.create(file.uri);
+    } catch (error) {
+      logWarn("feed.qr_download_failed", {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      toast({
+        description: "Couldn't save the QR code, try again?",
+        title: "Download Failed",
+        variant: "destructive",
+      });
+      return;
+    }
+    setQrSaved(true);
+    await recordShare("qr");
+    toast({
+      description: "QR code saved to your device",
+      title: "QR Code Downloaded",
+    });
+  };
+  const shareToPlatform = async (target: {
+    copyFirst?: boolean;
+    platform: string;
+    url: string;
+  }) => {
+    try {
       await recordShare(target.platform);
+      // Web's Instagram option copies the link, then opens instagram.com.
+      if (target.copyFirst) {
+        await Clipboard.setStringAsync(url);
+        setCopied(true);
+      }
+      await Linking.openURL(target.url);
+      await recordClick(target.platform);
     } catch {
       toast({
         description: "Try copying the link.",
@@ -226,23 +350,53 @@ function ShareDialog({
         </View>
       ) : null}
       {tab === "social" ? (
-        <View style={styles.targets}>
-          {socialShareTargets(url, caption).map((target) => (
+        <View style={styles.targetsWrap}>
+          {headerThumbnail ? (
+            <View style={styles.thumbWrap}>
+              <Image
+                accessibilityLabel="Post thumbnail"
+                contentFit="cover"
+                source={{ uri: headerThumbnail }}
+                style={styles.thumbnail}
+              />
+            </View>
+          ) : null}
+          <View style={styles.targets}>
+            {socialShareTargets(url, caption, {
+              description: caption,
+              mediaUrl: headerThumbnail,
+            }).map((target) => {
+              const stat = stats.find(
+                (row) => row.platform === target.platform
+              );
+              return (
+                <View key={target.platform} style={styles.targetCell}>
+                  <SettingsButton
+                    label={target.label}
+                    tone="gray"
+                    onPress={() => {
+                      void shareToPlatform(target);
+                    }}
+                  />
+                  {stat && (stat.shares > 0 || stat.clicks > 0) ? (
+                    <Text
+                      style={[styles.statLine, { color: theme.dividerText }]}
+                    >
+                      {stat.shares > 0 ? `${stat.shares} shares` : null}
+                      {stat.shares > 0 && stat.clicks > 0 ? " · " : null}
+                      {stat.clicks > 0 ? `${stat.clicks} clicks` : null}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            })}
             <SettingsButton
-              key={target.platform}
-              label={target.label}
-              tone="gray"
+              label="More apps…"
               onPress={() => {
-                void shareToPlatform(target);
+                void share();
               }}
             />
-          ))}
-          <SettingsButton
-            label="More apps…"
-            onPress={() => {
-              void share();
-            }}
-          />
+          </View>
         </View>
       ) : null}
       {tab === "qr" ? (
@@ -253,23 +407,49 @@ function ShareDialog({
               size={210}
               backgroundColor="white"
               color="black"
+              getRef={(node) => {
+                qrSvgRef.current = node;
+              }}
             />
           </View>
           <Text style={[styles.hint, { color: theme.dividerText }]}>
             Scan to open this post
           </Text>
-          <SettingsButton
-            label="Copy link"
-            tone="gray"
-            onPress={() => {
-              void copy();
-            }}
-          />
+          <View style={styles.actions}>
+            <SettingsButton
+              label={qrSaved ? "Saved!" : "Download QR code"}
+              onPress={() => {
+                void downloadQrCode();
+              }}
+            />
+            <SettingsButton
+              label="Copy link"
+              tone="gray"
+              onPress={() => {
+                void copy();
+              }}
+            />
+          </View>
+          {(() => {
+            const qrStat = stats.find((row) => row.platform === "qr");
+            return qrStat && qrStat.shares > 0 ? (
+              <Text style={[styles.hint, { color: theme.dividerText }]}>
+                {qrStat.shares} QR code download{qrStat.shares === 1 ? "" : "s"}
+              </Text>
+            ) : null;
+          })()}
         </View>
       ) : null}
       {tab === "messages" ? (
         <View style={styles.body}>
-          {user ? (
+          {user && !post.external ? (
+            // Web's messages tab is the share picker itself: search, recents,
+            // caption and a direct encrypted send.
+            <MessagesIdentityProvider>
+              <MessageSharePicker postId={post.id} onSent={() => onClose()} />
+            </MessagesIdentityProvider>
+          ) : null}
+          {user && post.external ? (
             <>
               <SettingsInput
                 label="Find a conversation"
@@ -322,7 +502,7 @@ function ShareDialog({
                     </Pressable>
                   ))}
               </ScrollView>
-              {loading ? <Spinner3D variant="general" size={24} /> : null}
+              {loading ? <Spinner3D size={24} /> : null}
               {loadError ? (
                 <Text style={{ color: theme.dividerText }}>{loadError}</Text>
               ) : null}
@@ -346,7 +526,8 @@ function ShareDialog({
                 before sending.
               </Text>
             </>
-          ) : (
+          ) : null}
+          {user ? null : (
             <>
               <Text style={{ color: theme.dividerText }}>
                 Sign in to share this post in Messages.
@@ -398,7 +579,21 @@ const styles = StyleSheet.create({
   hint: { fontFamily: "SofiaProReg", fontSize: 12, textAlign: "center" },
   qr: { alignItems: "center", gap: 14 },
   qrCode: { backgroundColor: "white", borderRadius: 16, padding: 16 },
+  statLine: {
+    fontFamily: "SofiaProReg",
+    fontSize: 11,
+    marginTop: 4,
+    textAlign: "center",
+  },
   tab: { alignItems: "center", borderRadius: 10, flex: 1, paddingVertical: 10 },
   tabs: { flexDirection: "row", gap: 4, marginBottom: 18 },
+  targetCell: { alignItems: "center" },
   targets: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  targetsWrap: { gap: 16 },
+  thumbWrap: {
+    borderRadius: 12,
+    height: 128,
+    overflow: "hidden",
+  },
+  thumbnail: { height: "100%", width: "100%" },
 });

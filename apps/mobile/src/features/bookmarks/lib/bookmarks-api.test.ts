@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  BOOKMARK_TAB_COPY,
+  bookmarkTabCount,
+  fetchBookmarkCounts,
   fetchBookmarkedHn,
   fetchBookmarkedPage,
   fetchBookmarkedPosts,
   fetchLikedPage,
   fetchLikedPosts,
+  parseBookmarkCounts,
 } from "./bookmarks-api";
 
 describe("native bookmarks API", () => {
@@ -73,6 +77,44 @@ describe("native bookmarks API", () => {
     await expect(
       fetchBookmarkedHn({ apiBase: "https://api.test", baseFetch })
     ).rejects.toThrow("503");
+  });
+
+  test("reads per-tab bookmark counts and drops junk values", async () => {
+    const calls: string[] = [];
+    const baseFetch = ((input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return Promise.resolve(
+        Response.json({ gustCount: 3, hnCount: "x", postCount: -2 })
+      );
+    }) as unknown as typeof fetch;
+    const counts = await fetchBookmarkCounts({
+      apiBase: "https://api.test",
+      baseFetch,
+    });
+    expect(calls).toEqual(["https://api.test/api/bookmarks/count"]);
+    expect(counts).toEqual({ gustCount: 3, hnCount: 0, postCount: 0 });
+  });
+
+  test("tab badges follow web: likes never carry a count", () => {
+    const counts = parseBookmarkCounts({
+      gustCount: 2,
+      hnCount: 4,
+      postCount: 7,
+    });
+    expect(bookmarkTabCount("posts", counts)).toBe(7);
+    expect(bookmarkTabCount("gusts", counts)).toBe(2);
+    expect(bookmarkTabCount("hackernews", counts)).toBe(4);
+    expect(bookmarkTabCount("likes", counts)).toBe(0);
+    expect(bookmarkTabCount("posts", null)).toBe(0);
+  });
+
+  test("every tab has web's empty and error copy", () => {
+    expect(BOOKMARK_TAB_COPY.posts.title).toBe(
+      "You don't have any bookmarks yet."
+    );
+    expect(BOOKMARK_TAB_COPY.likes.error).toBe(
+      "An error occurred while loading liked posts."
+    );
   });
 
   test("requests regular and gust bookmark feeds", async () => {

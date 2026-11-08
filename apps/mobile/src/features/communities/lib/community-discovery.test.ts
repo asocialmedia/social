@@ -4,6 +4,7 @@ import type { CommunityData, CommunityPage } from "./communities-api";
 import {
   COMMUNITY_SEARCH_ROW_INDEX,
   communityDiscoveryRows,
+  withUnreadChatSlugs,
 } from "./community-discovery";
 
 const community: CommunityData = {
@@ -63,4 +64,22 @@ test("filtering and empty results retain search without rendering discovery rail
     "state",
   ]);
   expect(rows[COMMUNITY_SEARCH_ROW_INDEX]?.kind).toBe("search");
+});
+test("only the joined rail carries unread chat marks", () => {
+  const rows = withUnreadChatSlugs(
+    communityDiscoveryRows({
+      communities: page.communities,
+      page,
+      showRails: true,
+    }),
+    new Set(["community"])
+  );
+  const joined = rows.find((row) => row.key === "joined");
+  const growing = rows.find((row) => row.key === "growing");
+  expect(joined).toMatchObject({
+    kind: "rail",
+    unreadSlugs: new Set(["community"]),
+  });
+  expect(growing).toMatchObject({ kind: "rail" });
+  expect("unreadSlugs" in (growing ?? {})).toBe(false);
 });

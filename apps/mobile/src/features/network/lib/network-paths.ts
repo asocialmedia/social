@@ -52,15 +52,64 @@ export function nativeNetworkPath(value: string): string | null {
       : `/posts/${post.groups?.postId}${url.search}`;
   }
   if (
-    /^\/(?:users\/[^/]+(?:\/(?:followers|following))?|a\/[^/]+|messages(?:\/[^/]+(?:\/[^/]+)?)?|external-(?:post|profile|media|library|following)|settings|gusts|discover|bookmarks|history|notifications|communities|hashtag\/[^/]+|login)$/.test(
+    /^\/(?:users\/[^/]+(?:\/(?:followers|following))?|a\/[^/]+|messages(?:\/[^/]+(?:\/[^/]+)?)?|external-(?:post|profile|media|library|following)|camera|settings|gusts|hackernews|discover|bookmarks|history|notifications|communities|support|login-error|hashtag\/[^/]+|login)$/.test(
       url.pathname
     ) ||
     url.pathname === "/"
   ) {
     return `${url.pathname}${url.search}`;
   }
+  // Web's short profile URLs (953ef2d3 profilePath): `/<username>` and its
+  // followers/following lists open the native profile under /users/. A name
+  // that collides with a web route is never a profile there either.
+  const profile =
+    /^\/(?<username>[A-Za-z0-9_]+)(?<list>\/(?:followers|following))?\/?$/.exec(
+      url.pathname
+    );
+  const username = profile?.groups?.username;
+  if (username && !WEB_APP_PATHS.has(username.toLowerCase())) {
+    return `/users/${username}${profile.groups?.list ?? ""}`;
+  }
   return null;
 }
+
+// Web's appPaths (apps/web/src/lib/users/profile-path.ts): top-level routes
+// that are never a short profile URL.
+const WEB_APP_PATHS = new Set([
+  ".well-known",
+  "_next",
+  "a",
+  "about",
+  "api",
+  "bookmarks",
+  "camera",
+  "client",
+  "communities",
+  "discover",
+  "feed.xml",
+  "gusts",
+  "hackernews",
+  "hashtag",
+  "llms.txt",
+  "login",
+  "login-error",
+  "messages",
+  "network",
+  "notifications",
+  "posts",
+  "privacy",
+  "reset-password",
+  "settings",
+  "signup",
+  "sitemaps",
+  "soon",
+  "support",
+  "toc",
+  "two-factor",
+  "users",
+  "verify-email",
+  "watch",
+]);
 
 export function externalShareUrl(
   uri: string,

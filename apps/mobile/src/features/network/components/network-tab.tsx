@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   ArrowLeft,
   Brain,
+  ChevronRight,
   Globe,
   Network,
   Shield,
@@ -11,7 +12,15 @@ import {
 } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import type { RefObject } from "react";
-import { ActivityIndicator, Alert, ScrollView, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import type { ScrollViewInstance } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -31,43 +40,20 @@ import {
   networkDisplayNames,
   networkLocaleChoices,
 } from "../lib/display-names";
+import {
+  NETWORK_SUBPAGES,
+  networkSubpageForSection,
+  networkSubpageSummary,
+} from "../lib/network-subpages";
 import { useNetworkSettings } from "../state/use-network-settings";
 import { TopicPicker } from "./topic-picker";
 
-const SECTIONS = [
-  {
-    description: "Independent interests and learning",
-    icon: Brain,
-    id: "profiles",
-    title: "Profiles",
-  },
-  {
-    description: "Interests, activity and topic connections",
-    icon: Sparkles,
-    id: "content",
-    title: "Content & media",
-  },
-  {
-    description: "Sensitive media and topics to avoid",
-    icon: Shield,
-    id: "moderation",
-    title: "Moderation & content filters",
-  },
-  {
-    description: "Content languages and regional preferences",
-    icon: Globe,
-    id: "languages",
-    title: "Languages",
-  },
-] as const;
-const SECTION_TARGETS: Record<string, string> = {
-  "settings-network-activity": "content",
-  "settings-network-avoid": "moderation",
-  "settings-network-explicit": "moderation",
-  "settings-network-interests": "content",
-  "settings-network-profiles": "profiles",
-  "settings-network-region": "languages",
-};
+const SECTION_ICONS = {
+  content: Sparkles,
+  languages: Globe,
+  moderation: Shield,
+  profiles: Brain,
+} as const;
 
 export function NetworkTab({
   scrollRef,
@@ -80,8 +66,15 @@ export function NetworkTab({
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams<{ section?: string }>();
-  const section = SECTION_TARGETS[params.section ?? ""] ?? params.section;
-  const panel = SECTIONS.find((entry) => entry.id === section);
+  // A search or settings link names a section; a direct hub tap names the
+  // subpage itself. Unknown sections fall back to the hub.
+  const rawSection = params.section ?? "";
+  const section =
+    networkSubpageForSection(rawSection) ??
+    (NETWORK_SUBPAGES.some((entry) => entry.id === rawSection)
+      ? rawSection
+      : "");
+  const panel = NETWORK_SUBPAGES.find((entry) => entry.id === section);
   const [name, setName] = useState("");
   const [languageSearch, setLanguageSearch] = useState("");
   const { preferences, persona } = network.settings;
@@ -99,6 +92,7 @@ export function NetworkTab({
     [names]
   );
   const { save } = network;
+  const panelIcon = panel ? SECTION_ICONS[panel.id] : Network;
   const disabled = network.isSaving || !network.ready;
   const updateInterests = (topic: string) => {
     if (!profile) {
@@ -141,7 +135,7 @@ export function NetworkTab({
         description={
           panel?.description ?? "Shape discovery across your networks"
         }
-        icon={panel?.icon ?? Network}
+        icon={panelIcon}
       />
       {user ? null : <AuthPromptCard title="Sign in to shape your Network" />}
       {network.error ? (
@@ -165,22 +159,59 @@ export function NetworkTab({
         <>
           {panel ? null : (
             <SettingsCard>
-              {SECTIONS.map((entry) => (
-                <SettingsButton
-                  key={entry.id}
-                  label={`${entry.title} →`}
-                  leadingIcon={entry.icon}
-                  tone="gray"
-                  onPress={() => {
-                    router.setParams({ section: entry.id });
-                    scrollRef.current?.scrollTo({ y: 0 });
-                  }}
-                />
-              ))}
-              <Text style={{ color: theme.dividerText }}>
-                {profile.name} · {profile.interests.length} interests ·{" "}
-                {preferences.showExplicitContent ? "18+ enabled" : "18+ hidden"}
-              </Text>
+              {NETWORK_SUBPAGES.map((entry) => {
+                const EntryIcon = SECTION_ICONS[entry.id];
+                return (
+                  <Pressable
+                    accessibilityLabel={`${entry.title}: ${networkSubpageSummary(entry.id, preferences, profile.name)}`}
+                    accessibilityRole="button"
+                    hitSlop={4}
+                    key={entry.id}
+                    onPress={() => {
+                      router.setParams({ section: entry.id });
+                      scrollRef.current?.scrollTo({ y: 0 });
+                    }}
+                    style={styles.hubRow}
+                  >
+                    <View
+                      style={[
+                        styles.hubIcon,
+                        { backgroundColor: theme.cardBg },
+                      ]}
+                    >
+                      <EntryIcon color="#ff9500" size={20} />
+                    </View>
+                    <View style={styles.hubCopy}>
+                      <Text
+                        style={[styles.hubTitle, { color: theme.inputText }]}
+                      >
+                        {entry.title}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.hubDescription,
+                          { color: theme.dividerText },
+                        ]}
+                      >
+                        {entry.description}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.hubSummary,
+                          { color: theme.dividerText },
+                        ]}
+                      >
+                        {networkSubpageSummary(
+                          entry.id,
+                          preferences,
+                          profile.name
+                        )}
+                      </Text>
+                    </View>
+                    <ChevronRight color={theme.dividerText} size={20} />
+                  </Pressable>
+                );
+              })}
             </SettingsCard>
           )}
           {panel?.id === "profiles" ? (
@@ -319,17 +350,19 @@ export function NetworkTab({
                   />
                 </SettingsCard>
               </SectionAnchor>
-              <SettingsCard>
-                <SettingsCardHeading
-                  icon={Network}
-                  title="Topic connections"
-                  description="Related subjects discovered from this profile"
-                />
-                <Text selectable style={{ color: theme.inputText }}>
-                  {persona.relatedInterests.join(" · ") ||
-                    "Connections appear as you choose interests and browse."}
-                </Text>
-              </SettingsCard>
+              <SectionAnchor id="settings-network-connections" tab="network">
+                <SettingsCard>
+                  <SettingsCardHeading
+                    icon={Network}
+                    title="Topic connections"
+                    description="Related subjects discovered from this profile"
+                  />
+                  <Text selectable style={{ color: theme.inputText }}>
+                    {persona.relatedInterests.join(" · ") ||
+                      "Connections appear as you choose interests and browse."}
+                  </Text>
+                </SettingsCard>
+              </SectionAnchor>
             </>
           ) : null}
           {panel?.id === "moderation" ? (
@@ -545,3 +578,41 @@ export function DiscoverySafetyControl() {
     />
   );
 }
+
+const styles = StyleSheet.create({
+  hubCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  hubDescription: {
+    fontFamily: "SofiaProReg",
+    fontSize: 12,
+    fontWeight: "normal",
+    marginTop: 2,
+  },
+  hubIcon: {
+    alignItems: "center",
+    borderRadius: 12,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  hubRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 4,
+    paddingVertical: 10,
+  },
+  hubSummary: {
+    fontFamily: "SofiaProMed",
+    fontSize: 12,
+    fontWeight: "normal",
+    marginTop: 6,
+  },
+  hubTitle: {
+    fontFamily: "SofiaProMed",
+    fontSize: 14,
+    fontWeight: "normal",
+  },
+});

@@ -10,10 +10,14 @@ import { Asset } from "expo-asset";
 import { useDOMImperativeHandle } from "expo/dom";
 import type { DOMProps, DOMImperativeFactory } from "expo/dom";
 import type { Ref } from "react";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import sofiaFont from "../../../../assets/fonts/SofiaProSoftReg.ttf";
 import type { MentionPick } from "../lib/inline-relations";
+import {
+  fetchMentionAvatar,
+  resolveMentionAvatars,
+} from "../lib/mention-avatar";
 import {
   editorPositionForTextOffset,
   textOffsetForEditorPosition,
@@ -283,6 +287,68 @@ export default function InlineRichInput({
     editor?.setEditable(editable);
   }, [editable, editor]);
 
+  // Rehydrated mentions (stored bios/drafts) carry only the username, so the
+  // pill resolves the avatar lazily by username like web's MentionPill. The
+  // resolved rows are display-only: the host's picks still own the publish
+  // relations.
+  const [resolvedAvatars, setResolvedAvatars] = useState<
+    Record<string, string>
+  >({});
+  useEffect(() => {
+    const doc = textToDoc(value, true);
+    const missing: string[] = [];
+    for (const paragraph of doc.content ?? []) {
+      for (const node of paragraph.content ?? []) {
+        const username = node.attrs?.username;
+        if (
+          node.type !== "mention" ||
+          typeof username !== "string" ||
+          username === "" ||
+          resolvedAvatars[username]
+        ) {
+          continue;
+        }
+        const picked = mentions.find(
+          (mention) => mention.username === username
+        );
+        if (!picked?.avatarUrl) {
+          missing.push(username);
+        }
+      }
+    }
+    if (missing.length === 0) {
+      return;
+    }
+    let live = true;
+    void (async () => {
+      try {
+        const found = await resolveMentionAvatars(missing, (username) =>
+          fetchMentionAvatar(avatarBase, username)
+        );
+        if (live && Object.keys(found).length > 0) {
+          setResolvedAvatars((current) => ({ ...current, ...found }));
+        }
+      } catch {
+        // A failed batch stays unresolved; the next value change retries.
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [avatarBase, mentions, resolvedAvatars, value]);
+
+  const enrichedMentions = useMemo(
+    () => [
+      ...mentions,
+      ...Object.entries(resolvedAvatars).map(([username, avatarUrl]) => ({
+        avatarUrl,
+        id: username,
+        username,
+      })),
+    ],
+    [mentions, resolvedAvatars]
+  );
+
   useEffect(() => {
     if (!editor || editor.isDestroyed) {
       return;
@@ -292,9 +358,12 @@ export default function InlineRichInput({
       return;
     }
     if (editor.getText({ blockSeparator: "\n" }) !== value) {
-      editor.commands.setContent(badgeDocument(value, mentions, avatarBase), {
-        emitUpdate: false,
-      });
+      editor.commands.setContent(
+        badgeDocument(value, enrichedMentions, avatarBase),
+        {
+          emitUpdate: false,
+        }
+      );
     }
     if (selection) {
       const doc = editor.getJSON();
@@ -304,7 +373,7 @@ export default function InlineRichInput({
       });
       editor.commands.focus();
     }
-  }, [avatarBase, editor, mentions, selection, value]);
+  }, [avatarBase, editor, enrichedMentions, selection, value]);
 
   useEffect(() => {
     if (autoFocus && editor) {

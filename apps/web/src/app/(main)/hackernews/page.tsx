@@ -11,6 +11,7 @@ import ClientHackerNews from "./client-hackernews";
 export const metadata = {
   description:
     "Read HackerNews inside asocialmedia and reshare any story as a fleet to your followers. Sort by score, time or comments, filter News, Jobs, Show HN and Ask HN, and bookmark what you find.",
+  robots: { follow: false, index: false },
   title: "HackerNews",
 };
 

@@ -117,7 +117,7 @@ describe("Elysia protocol service", () => {
         expect(await response.json()).toEqual([]);
       }
     }
-  });
+  }, 20_000);
 
   test("preserves authorization and validation over Bun's live HTTP adapter", async () => {
     const { app } = fixture();

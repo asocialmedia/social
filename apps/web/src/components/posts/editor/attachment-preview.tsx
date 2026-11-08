@@ -11,9 +11,9 @@ import {
   VolumeX,
   X,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
-import MessageImageEditDialog from "@/components/messages/message-image-edit-dialog";
 import { formatFileName } from "@/lib/format-file-name";
 import type { UploadStage } from "@/lib/media/media-upload-client";
 import { getUploadProgressInfo } from "@/lib/media/upload-progress";
@@ -21,6 +21,11 @@ import { cn } from "@/lib/utils";
 
 import { useComposerAttachmentStore } from "./attachment-store";
 import { EQ_BAR_COUNT, EQ_FALLBACK_HEIGHTS, extractWaveform } from "./waveform";
+
+const MessageImageEditDialog = dynamic(
+  () => import("@/components/messages/message-image-edit-dialog"),
+  { ssr: false }
+);
 
 export { getUploadProgressInfo } from "@/lib/media/upload-progress";
 

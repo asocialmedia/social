@@ -1,6 +1,7 @@
 "use client";
 
 import type { PostData, PostsPage } from "@asm/db";
+import type { ExternalPost } from "@asm/protocols/contracts";
 import type { FeedSource } from "@asm/protocols/discovery";
 import {
   discoveryMode,
@@ -16,7 +17,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import Image from "next/image";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useDeferredValue, useMemo, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { FeedErrorState } from "@/components/feeds/feed-error-state";
@@ -25,6 +26,7 @@ import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-c
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
+import { useBoundedSourcePending } from "@/hooks/feed/use-bounded-source-pending";
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
 import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
 import { useFeedRecovery } from "@/hooks/feed/use-feed-recovery";
@@ -58,6 +60,7 @@ import { FeedView } from "./feed-view";
 import FeedEnd from "./feedview/feed-end";
 
 interface HomeFeedProps {
+  initialGuestExternalPosts?: ExternalPost[];
   initialGuestPosts?: PostData[];
   // When set, the community's own posts lead the feed and the global feed
   // follows once they run out (or the lead segment caps out). Used on a
@@ -115,6 +118,7 @@ export function feedIsRanked(variant: HomeFeedProps["variant"]): boolean {
 }
 
 export default function HomeFeed({
+  initialGuestExternalPosts,
   initialGuestPosts,
   variant = "personalized",
   excludePostId,
@@ -122,6 +126,11 @@ export default function HomeFeed({
   relatedExternal = false,
 }: HomeFeedProps) {
   const { user } = useSession();
+  const canUseGuestBootstrap =
+    !user && variant === "latest" && !communitySlug && !excludePostId;
+  const hasGuestBootstrap =
+    canUseGuestBootstrap &&
+    Boolean(initialGuestPosts?.length || initialGuestExternalPosts?.length);
   const selectedSource = useFeedSourceStore((state) => state.source);
   const excluded = useExternalExclusions(user?.id ?? "guest");
   const allowExternal = !communitySlug && (!excludePostId || relatedExternal);
@@ -138,14 +147,22 @@ export default function HomeFeed({
   const externalPosts = useMemo(
     () =>
       filterExternalRecommendations(
-        external.data?.pages.flatMap((page) => page.items) ?? [],
+        external.data?.pages.flatMap((page) => page.items) ??
+          (canUseGuestBootstrap ? (initialGuestExternalPosts ?? []) : []),
         excluded
       ).filter(
         (post) =>
           post.id !== excludePostId &&
           (variant !== "trending" || isExternalTrendingPost(post))
       ),
-    [external.data, excluded, excludePostId, variant]
+    [
+      external.data,
+      excluded,
+      excludePostId,
+      variant,
+      canUseGuestBootstrap,
+      initialGuestExternalPosts,
+    ]
   );
   const isTrending = variant === "trending";
   const network = useNetworkSettings();
@@ -289,8 +306,15 @@ export default function HomeFeed({
     updatedAt: dataUpdatedAt,
   });
   const globalPosts = useMemo(
-    () => flattenUniquePosts(data?.pages, excludePostId),
-    [data?.pages, excludePostId]
+    () =>
+      flattenUniquePosts(
+        data?.pages ??
+          (canUseGuestBootstrap && initialGuestPosts
+            ? [{ nextCursor: null, posts: initialGuestPosts }]
+            : undefined),
+        excludePostId
+      ),
+    [data?.pages, excludePostId, canUseGuestBootstrap, initialGuestPosts]
   );
   // A post can sit in the community query and the global query's window at the
   // same time; the community copy already leads, so drop the duplicate.
@@ -314,6 +338,7 @@ export default function HomeFeed({
     source !== "bluesky" && globalEnabled && globalStatus === "pending";
   const externalInitialLoading =
     allowExternal && includeBluesky && external.isPending;
+  const initialSourceLoading = globalInitialLoading || externalInitialLoading;
   const hasNextPage =
     (source !== "bluesky" &&
       (communityStillLeading ||
@@ -498,6 +523,20 @@ export default function HomeFeed({
     showCommunitySection ||
     (source !== "bluesky" && visibleGlobalPosts.length > 0) ||
     (allowExternal && source !== "asm" && externalPosts.length > 0);
+  const sourcesStagingPending = useBoundedSourcePending(
+    source === "all" &&
+      hasAnyPosts &&
+      initialSourceLoading &&
+      !hasGuestBootstrap
+  );
+  // Enter staging immediately, then release the larger batch in a background render.
+  const deferredSourceStaging = useDeferredValue(sourcesStagingPending);
+  const holdSourceStaging = sourcesStagingPending || deferredSourceStaging;
+  // Release the cards and their trailing placeholder together when a peer stalls.
+  const showInitialSourceSkeleton =
+    initialSourceLoading &&
+    !hasGuestBootstrap &&
+    (source !== "all" || !hasAnyPosts || sourcesStagingPending);
   const sourceFailed =
     (source !== "bluesky" && (communityFailed || globalStatus === "error")) ||
     (allowExternal && includeBluesky && external.isError);
@@ -578,18 +617,7 @@ export default function HomeFeed({
   if (availability === "loading") {
     return (
       <div ref={feedRootRef}>
-        {!user &&
-        isLatest &&
-        source !== "bluesky" &&
-        initialGuestPosts?.length ? (
-          <FeedView
-            posts={initialGuestPosts}
-            source="asm"
-            cacheKey={queryKey}
-          />
-        ) : (
-          <FeedViewSkeleton source={source} />
-        )}
+        <FeedViewSkeleton source={source} />
       </div>
     );
   }
@@ -654,7 +682,6 @@ export default function HomeFeed({
     isFetchingNextCommunityPage ||
     isFetchingNextGlobalPage ||
     (allowExternal && includeBluesky && external.isFetchingNextPage);
-  const initialSourceLoading = globalInitialLoading || externalInitialLoading;
   const sourceFetching =
     (source !== "bluesky" && (isFetching || isFetchingCommunity)) ||
     (allowExternal && includeBluesky && external.isFetching);
@@ -721,6 +748,7 @@ export default function HomeFeed({
         </div>
       ) : null}
       <InfiniteScrollContainer
+        paused={holdSourceStaging}
         continuationDelay={Math.max(
           source !== "bluesky" && globalHasNextPage
             ? feedContinuationDelay(data?.pages, (page) => page.posts)
@@ -752,9 +780,14 @@ export default function HomeFeed({
         ) : null}
         {hasAnyPosts ? (
           <FeedView
-            key={`${hashKey(queryKey)}:${source}`}
+            key={
+              hasGuestBootstrap
+                ? `guest:${source}`
+                : `${hashKey(queryKey)}:${source}`
+            }
             externalPosts={allowExternal ? externalPosts : []}
-            sourcesPending={source === "all" && initialSourceLoading}
+            sourcesPending={holdSourceStaging}
+            sourceWaitMs={null}
             source={source}
             cacheKey={queryKey}
             excludeIds={communityIds}
@@ -767,7 +800,7 @@ export default function HomeFeed({
             sortBy={isTrending || isPersonalized ? "server" : "newest"}
           />
         ) : null}
-        {initialSourceLoading ? (
+        {showInitialSourceSkeleton ? (
           <FeedViewSkeleton
             source={externalInitialLoading ? "bluesky" : source}
           />

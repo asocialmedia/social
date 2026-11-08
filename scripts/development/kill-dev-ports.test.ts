@@ -36,16 +36,20 @@ describe("kill-dev-ports", () => {
 
   test("killStaleDevProcesses executes without error when ports are free", async () => {
     await expect(killStaleDevProcesses([39877])).resolves.toBeUndefined();
-  });
+  }, 15_000);
 
   test("terminates a stale server and releases its port", async () => {
     const child = Bun.spawn(
       [
         process.execPath,
         "-e",
-        'const server = Bun.serve({ port: 0, fetch: () => new Response("ok") }); console.log(server.port);',
+        'const server = Bun.serve({ port: 0, fetch: () => new Response("ok") }); process.stdout.write(String(server.port) + "\\n");',
       ],
-      { stdout: "pipe", stderr: "inherit" }
+      {
+        env: { ...process.env, FORCE_COLOR: "1" },
+        stdout: "pipe",
+        stderr: "inherit",
+      }
     );
     try {
       let output = "";

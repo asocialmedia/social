@@ -22,9 +22,11 @@ import { SettingsButton } from "@/features/settings/components/settings-ui";
 import { useAppTheme } from "@/theme";
 
 import { cachedExternalAuthor } from "../lib/external-cache";
+import type { FeedPost } from "../lib/feed-types";
 import { useExternalFollow } from "../state/use-external-follow";
 import { BlueskyPostCard } from "./bluesky-post-card";
 import { FeedTabs } from "./feed-tabs";
+import { ShareSheet } from "./share-sheet";
 
 const pageSchema = z.object({
   cursor: z.string().nullable(),
@@ -52,6 +54,7 @@ function authorProfile(
     badges: [],
     bannerUrl: author.bannerUrl ?? null,
     bio: author.description ?? null,
+    blueskyHandle: author.handle ?? null,
     communityMemberships: [],
     createdAt: "",
     customDomain: null,
@@ -78,6 +81,7 @@ function ExternalProfileContent({ actor }: { actor: string }) {
   const network = useNetworkSettings();
   const { user } = useSessionContext();
   const [tab, setTab] = useState<"posts" | "replies" | "media">("posts");
+  const [sharePost, setSharePost] = useState<FeedPost | null>(null);
   const cached = cachedExternalAuthor(actor);
   const profileKey = `bluesky-profile:${actor}`;
   if (cached) {
@@ -153,6 +157,7 @@ function ExternalProfileContent({ actor }: { actor: string }) {
                   profile={authorProfile(author, follow.following)}
                   canFollow={!follow.pending}
                   canMessage={false}
+                  followPending={follow.pending}
                   isFollowing={follow.following}
                   isOwnProfile={false}
                   onFollow={() => {
@@ -181,7 +186,9 @@ function ExternalProfileContent({ actor }: { actor: string }) {
             ) : null}
           </View>
         }
-        renderItem={({ item }) => <BlueskyPostCard post={item} />}
+        renderItem={({ item }) => (
+          <BlueskyPostCard onShare={setSharePost} post={item} />
+        )}
         ListEmptyComponent={
           <>
             {feed.loading ? (
@@ -220,6 +227,7 @@ function ExternalProfileContent({ actor }: { actor: string }) {
           </View>
         }
       />
+      <ShareSheet onClose={() => setSharePost(null)} post={sharePost} />
     </View>
   );
 }

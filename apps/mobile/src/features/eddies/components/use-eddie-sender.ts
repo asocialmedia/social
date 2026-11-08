@@ -23,6 +23,7 @@ import {
   useScopeAttachments,
 } from "@/features/media-upload/state/attachment-store";
 import type { PickedMedia } from "@/features/media-upload/state/attachment-store";
+import { applyCountDelta } from "@/features/post/lib/comment-count-deltas";
 import { haptic } from "@/lib/interaction/haptics";
 
 import { emitEddieCreated } from "../lib/eddie-events";
@@ -113,6 +114,9 @@ export function useEddieSender(postId: string, parentId?: string | null) {
       setDraft(key, "");
       attachmentActions.clear(scope, { discard: false });
       emitEddieCreated(postId, comment);
+      // Web's useSubmitCommentMutation bumps the count on success; the stream
+      // echo bumps it again on arrival, same as web's realtime handler.
+      applyCountDelta({ field: "comments", postId }, 1);
       toast({
         description: "Your eddie is live, nice one!",
         title: "Eddie Created",

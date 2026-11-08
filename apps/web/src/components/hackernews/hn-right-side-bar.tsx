@@ -106,7 +106,7 @@ const HnRightSideBar: React.FC<HnRightSideBarProps> = ({
 
         <PopularOnHackerNews />
 
-        <PostHistoryCard />
+        <PostHistoryCard mediaQuery="(min-width: 80rem)" />
 
         <footer className="text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 px-3 pt-1 text-xs">
           <span>© {new Date().getFullYear()} asocialmedia</span>

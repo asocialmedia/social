@@ -78,3 +78,20 @@ test.each([
 ])("rejects invalid or foreign destinations: %s", (path) => {
   expect(nativeNetworkPath(path)).toBeNull();
 });
+test("short profile URLs open the native profile", () => {
+  expect(nativeNetworkPath("/alice")).toBe("/users/alice");
+  expect(nativeNetworkPath("https://asocialmedia.cc/alice_2/followers")).toBe(
+    "/users/alice_2/followers"
+  );
+  // Web routes are never usernames, whether or not native has a screen.
+  expect(nativeNetworkPath("/gusts")).toBe("/gusts");
+  expect(nativeNetworkPath("/about")).toBeNull();
+  expect(nativeNetworkPath("/Privacy")).toBeNull();
+  expect(nativeNetworkPath("/verify-email")).toBeNull();
+  // Every native top-level route survives the system-intent redirect instead
+  // of falling through to /notifications.
+  expect(nativeNetworkPath("asocialmedia://hackernews?sort=score")).toBe(
+    "/hackernews?sort=score"
+  );
+  expect(nativeNetworkPath("asocialmedia://camera")).toBe("/camera");
+});

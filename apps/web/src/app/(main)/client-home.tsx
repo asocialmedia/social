@@ -1,6 +1,7 @@
 "use client";
 
 import type { PostData, UserData } from "@asm/db";
+import type { ExternalPost } from "@asm/protocols/contracts";
 import {
   discoveryFleetFeed,
   homeFeedTabs,
@@ -31,7 +32,6 @@ import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-botto
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import SearchField from "@/components/layouts/navigation/search-field";
 import { CollapsibleTopBar } from "@/components/layouts/shell/collapsible-top-bar";
-import PostEditor from "@/components/posts/editor/post-editor";
 import { FeedSourceMenu } from "@/components/protocols/feed-source-menu";
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
 import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
@@ -50,13 +50,19 @@ import {
 import type { HomeTab } from "@/store/tab-store";
 
 interface ClientHomeProps {
+  initialGuestExternalPosts?: ExternalPost[];
+  composer?: React.ReactNode;
   initialGuestPosts?: PostData[];
   userData: UserData | null;
 }
 
 type FeedTab = HomeTab;
 
-const ClientHome: React.FC<ClientHomeProps> = ({ initialGuestPosts }) => {
+const ClientHome: React.FC<ClientHomeProps> = ({
+  composer,
+  initialGuestExternalPosts,
+  initialGuestPosts,
+}) => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user } = useSession();
@@ -255,7 +261,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ initialGuestPosts }) => {
               }`}
               ref={feedScrollRef}
             >
-              {isLoggedIn ? <PostEditor /> : null}
+              {isLoggedIn ? composer : null}
               <FeedTabContent
                 activeTab={tab}
                 className="mt-0 pb-12"
@@ -281,6 +287,7 @@ const ClientHome: React.FC<ClientHomeProps> = ({ initialGuestPosts }) => {
                 value="latest"
               >
                 <HomeFeed
+                  initialGuestExternalPosts={initialGuestExternalPosts}
                   initialGuestPosts={initialGuestPosts}
                   variant="latest"
                 />

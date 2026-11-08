@@ -42,7 +42,7 @@ export const siteConfig = {
   // full URL. Used for the default social share card.
   ogImage: "/favicon/og-image.png",
   siteName: "asocialmedia",
-  twitterCreator: "Harsh Sahu | parazeeknova",
+  twitterCreator: "@parazeeknova",
   twitterHandle: "@asocialmedia",
   url: "https://asocialmedia.cc",
 } as const;
