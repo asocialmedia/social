@@ -3,7 +3,12 @@ import { expect, mock, test } from "bun:test";
 import { renderToReadableStream } from "react-dom/server";
 
 const requestConnection = Promise.withResolvers<undefined>();
-const getPublicBlueskyDiscovery = mock(() => Promise.resolve([]));
+const discoveryPost = {
+  author: { handle: "example.bsky.social" },
+  id: "at://did:plc:example/app.bsky.feed.post/123",
+  text: "A public conversation.",
+};
+const getPublicBlueskyDiscovery = mock(() => Promise.resolve([discoveryPost]));
 
 mock.module("next/server", () => ({
   connection: () => requestConnection.promise,
@@ -29,5 +34,11 @@ test("discovery defers its database-backed snippets until a request connects", a
   await stream.allReady;
 
   expect(getPublicBlueskyDiscovery).toHaveBeenCalledTimes(1);
-  expect(await new Response(stream).text()).toContain("Explore");
+  const html = await new Response(stream).text();
+  expect(html).toContain("Explore");
+  expect(html).toContain(discoveryPost.author.handle);
+  expect(html).toContain(discoveryPost.text);
+  expect(html).toContain(
+    'href="/network/bluesky?uri=at%3A%2F%2Fdid%3Aplc%3Aexample%2Fapp.bsky.feed.post%2F123"'
+  );
 });
