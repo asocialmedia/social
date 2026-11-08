@@ -16,14 +16,17 @@ test("restarts for shared workspace edits while retaining the service working di
   await Bun.write(shared, "export const version = 1;");
   await Bun.write(
     path.join(appDirectory, "main.ts"),
-    'import { version } from "../../shared.ts"; console.log(JSON.stringify({ version, cwd: process.cwd(), main: import.meta.main })); setInterval(() => {}, 1000);'
+    'import { version } from "../../shared.ts"; process.stdout.write(JSON.stringify({ version, cwd: process.cwd(), main: import.meta.main }) + "\\n"); setInterval(() => {}, 1000);'
   );
+  const watchOptions = workspaceWatchOptions({
+    entrypoint: "main.ts",
+    flags: ["--no-clear-screen"],
+    workingDirectory: appDirectory,
+    watchRoot,
+  });
   const child = Bun.spawn({
-    ...workspaceWatchOptions({
-      entrypoint: "main.ts",
-      workingDirectory: appDirectory,
-      watchRoot,
-    }),
+    ...watchOptions,
+    env: { ...watchOptions.env, FORCE_COLOR: "1" },
     stdout: "pipe",
     stderr: "pipe",
   });

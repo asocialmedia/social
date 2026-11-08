@@ -43,9 +43,13 @@ describe("kill-dev-ports", () => {
       [
         process.execPath,
         "-e",
-        'const server = Bun.serve({ port: 0, fetch: () => new Response("ok") }); console.log(server.port);',
+        'const server = Bun.serve({ port: 0, fetch: () => new Response("ok") }); process.stdout.write(String(server.port) + "\\n");',
       ],
-      { stdout: "pipe", stderr: "inherit" }
+      {
+        env: { ...process.env, FORCE_COLOR: "1" },
+        stdout: "pipe",
+        stderr: "inherit",
+      }
     );
     try {
       let output = "";
