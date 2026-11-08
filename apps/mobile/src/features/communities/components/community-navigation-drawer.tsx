@@ -7,6 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { FileText, LockKeyhole, MessageCircle, X } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Animated,
   Easing,
@@ -38,6 +39,7 @@ import CommunityChannelShortcuts from "./community-channel-shortcuts";
 const EMPTY_THREADS: CommunityChatThreadSummary[] = [];
 
 export function CommunityNavigationDrawer({
+  about,
   active,
   accentColor,
   channels: availableChannels,
@@ -49,6 +51,7 @@ export function CommunityNavigationDrawer({
   threads = EMPTY_THREADS,
   viewerId,
 }: {
+  about?: ReactNode;
   active: "posts" | "chat";
   accentColor: string | null;
   channels?: CommunityChatRoom[];
@@ -304,6 +307,7 @@ export function CommunityNavigationDrawer({
                 ))}
               </View>
             ) : null}
+            {about}
           </ScrollView>
         </Animated.View>
         <LinearGradient

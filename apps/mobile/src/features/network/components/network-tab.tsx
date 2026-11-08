@@ -1,4 +1,3 @@
-import { Host, Picker, Switch } from "@expo/ui";
 import { randomUUID } from "expo-crypto";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
@@ -13,7 +12,6 @@ import {
 import { useMemo, useState } from "react";
 import type { RefObject } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
@@ -25,13 +23,16 @@ import type { ScrollViewInstance } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AuthPromptCard } from "@/components/auth/auth-prompt-card";
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { useSessionContext } from "@/features/auth/state/session";
+import { SettingsFooterArt } from "@/features/settings/components/settings-footer-art";
 import {
   SettingsButton,
   SettingsCard,
   SettingsCardHeading,
   SettingsInput,
   SettingsSectionHeader,
+  SettingsSwitch,
 } from "@/features/settings/components/settings-ui";
 import { SectionAnchor } from "@/features/settings/lib/settings-scroll";
 import { useAppTheme } from "@/theme";
@@ -41,11 +42,16 @@ import {
   networkLocaleChoices,
 } from "../lib/display-names";
 import {
+  contentRegionLabel,
+  toggleContentLanguage,
+} from "../lib/locale-selection";
+import {
   NETWORK_SUBPAGES,
   networkSubpageForSection,
   networkSubpageSummary,
 } from "../lib/network-subpages";
 import { useNetworkSettings } from "../state/use-network-settings";
+import { NetworkLocalePicker } from "./network-locale-picker";
 import { TopicPicker } from "./topic-picker";
 
 const SECTION_ICONS = {
@@ -76,7 +82,9 @@ export function NetworkTab({
       : "");
   const panel = NETWORK_SUBPAGES.find((entry) => entry.id === section);
   const [name, setName] = useState("");
-  const [languageSearch, setLanguageSearch] = useState("");
+  const [localePicker, setLocalePicker] = useState<
+    "languages" | "regions" | null
+  >(null);
   const { preferences, persona } = network.settings;
   const profile =
     preferences.profiles.find(
@@ -92,6 +100,12 @@ export function NetworkTab({
     [names]
   );
   const { save } = network;
+  const regionLabel = contentRegionLabel(preferences.region, (code) =>
+    names.region.of(code)
+  );
+  const selectedLanguages = preferences.contentLanguages.length
+    ? preferences.contentLanguages
+    : ["all"];
   const panelIcon = panel ? SECTION_ICONS[panel.id] : Network;
   const disabled = network.isSaving || !network.ready;
   const updateInterests = (topic: string) => {
@@ -153,7 +167,7 @@ export function NetworkTab({
         </SettingsCard>
       ) : null}
       {user && !network.ready && !network.error ? (
-        <ActivityIndicator color={theme.dividerText} />
+        <Spinner3D size={24} />
       ) : null}
       {user && network.ready && profile ? (
         <>
@@ -315,6 +329,21 @@ export function NetworkTab({
                     limit={32}
                     onToggle={updateInterests}
                   />
+                  <View
+                    accessibilityLabel="Chosen interests"
+                    style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}
+                  >
+                    {profile.interests.map((topic) => (
+                      <SettingsButton
+                        key={topic}
+                        label={`${topic} ×`}
+                        tone="gray"
+                        size="sm"
+                        disabled={disabled}
+                        onPress={() => updateInterests(topic)}
+                      />
+                    ))}
+                  </View>
                 </SettingsCard>
               </SectionAnchor>
               <SectionAnchor id="settings-network-activity" tab="network">
@@ -374,9 +403,19 @@ export function NetworkTab({
                     title="Explicit content"
                     description="Off by default. Applies to every profile, Home, Explore and Gusts."
                   />
-                  <Host matchContents>
-                    <Switch
-                      label="Show explicit content (18+)"
+                  <View
+                    style={{
+                      alignItems: "center",
+                      flexDirection: "row",
+                      gap: 12,
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <Text style={{ color: theme.inputText }}>
+                      Show explicit content (18+)
+                    </Text>
+                    <SettingsSwitch
+                      accessibilityLabel="Show explicit content (18+)"
                       disabled={disabled}
                       value={preferences.showExplicitContent}
                       onValueChange={(value) => {
@@ -405,7 +444,7 @@ export function NetworkTab({
                         }
                       }}
                     />
-                  </Host>
+                  </View>
                 </SettingsCard>
               </SectionAnchor>
               <SectionAnchor id="settings-network-avoid" tab="network">
@@ -431,6 +470,28 @@ export function NetworkTab({
                       });
                     }}
                   />
+                  <View
+                    accessibilityLabel="Avoided topics"
+                    style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}
+                  >
+                    {preferences.avoidedTopics.map((topic) => (
+                      <SettingsButton
+                        key={topic}
+                        label={`${topic} ×`}
+                        tone="gray"
+                        size="sm"
+                        disabled={disabled}
+                        onPress={() => {
+                          void save({
+                            ...preferences,
+                            avoidedTopics: preferences.avoidedTopics.filter(
+                              (entry) => entry !== topic
+                            ),
+                          });
+                        }}
+                      />
+                    ))}
+                  </View>
                   <Text style={{ color: theme.dividerText }}>
                     {persona.avoidedTopics.length
                       ? `Showing less: ${persona.avoidedTopics.join(", ")}`
@@ -476,65 +537,28 @@ export function NetworkTab({
                     });
                   }}
                 />
-                <SettingsInput
-                  label="Find a language"
-                  value={languageSearch}
-                  onChangeText={setLanguageSearch}
+                <SettingsButton
+                  label={
+                    preferences.contentLanguages.length
+                      ? preferences.contentLanguages
+                          .map((code) => names.language.of(code) ?? code)
+                          .join(", ")
+                      : "All languages"
+                  }
+                  tone="gray"
+                  disabled={disabled}
+                  onPress={() => setLocalePicker("languages")}
                 />
-                <View className="flex-row flex-wrap gap-2">
-                  {languages
-                    .filter((entry) =>
-                      `${entry.code} ${entry.label}`
-                        .toLowerCase()
-                        .includes(languageSearch.toLowerCase())
-                    )
-                    .map(({ code }) => {
-                      const selected =
-                        preferences.contentLanguages.includes(code);
-                      return (
-                        <SettingsButton
-                          key={code}
-                          size="sm"
-                          tone={selected ? "primary" : "gray"}
-                          disabled={disabled}
-                          label={`${selected ? "✓ " : ""}${names.language.of(code) ?? code}`}
-                          onPress={() => {
-                            void save({
-                              ...preferences,
-                              contentLanguages: selected
-                                ? preferences.contentLanguages.filter(
-                                    (entry) => entry !== code
-                                  )
-                                : [...preferences.contentLanguages, code],
-                              language: "en",
-                            });
-                          }}
-                        />
-                      );
-                    })}
-                </View>
                 <Text style={{ color: theme.dividerText }}>
                   Regional content
                 </Text>
-                <Host matchContents>
-                  <Picker
-                    selectedValue={preferences.region}
-                    enabled={!disabled}
-                    onValueChange={(region) => {
-                      void save({ ...preferences, region });
-                    }}
-                  >
-                    <Picker.Item value="auto" label="Device region" />
-                    <Picker.Item value="all" label="No regional preference" />
-                    {regions.map((entry) => (
-                      <Picker.Item
-                        key={entry.code}
-                        value={entry.code}
-                        label={entry.label}
-                      />
-                    ))}
-                  </Picker>
-                </Host>
+                <SettingsButton
+                  label={regionLabel}
+                  tone="gray"
+                  disabled={disabled}
+                  onPress={() => setLocalePicker("regions")}
+                />
+
                 <Text style={{ color: theme.dividerText }}>
                   Regional relevance is a preference. Feeds stay global when
                   local candidates are unavailable.
@@ -551,6 +575,48 @@ export function NetworkTab({
             </Text>
           ) : null}
         </>
+      ) : null}
+      <SettingsFooterArt tab="network" />
+      {localePicker ? (
+        <NetworkLocalePicker
+          multiple={localePicker === "languages"}
+          title={
+            localePicker === "languages"
+              ? "Content languages"
+              : "Regional content"
+          }
+          options={
+            localePicker === "languages"
+              ? [{ code: "all", label: "All languages" }, ...languages]
+              : [
+                  { code: "auto", label: "Device region" },
+                  { code: "all", label: "No regional preference" },
+                  ...regions,
+                ]
+          }
+          selected={
+            localePicker === "languages"
+              ? selectedLanguages
+              : [preferences.region]
+          }
+          disabled={disabled}
+          onClose={() => setLocalePicker(null)}
+          onSelect={(code) => {
+            if (localePicker === "regions") {
+              void save({ ...preferences, region: code });
+              setLocalePicker(null);
+            } else {
+              void save({
+                ...preferences,
+                contentLanguages: toggleContentLanguage(
+                  preferences.contentLanguages,
+                  code
+                ),
+                language: "en",
+              });
+            }
+          }}
+        />
       ) : null}
     </ScrollView>
   );

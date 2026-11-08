@@ -7,6 +7,21 @@ import {
 } from "./community-header-identity";
 
 describe("community header collapse math", () => {
+  test("the native section bar stays visible after the banner scrolls away", () => {
+    const height = 244;
+    for (const offset of [0, 100, height, 800, 2400]) {
+      const progress = communityHeaderProgress(offset, height);
+      const frame = communityHeaderFrame(height, progress, 0);
+      expect(height + frame.layerY).toBe(Math.max(0, height - offset));
+      expect(frame.spacerHeight).toBe(height + 48);
+    }
+    const restored = communityHeaderFrame(
+      height,
+      communityHeaderProgress(0, height),
+      0
+    );
+    expect(restored.layerY).toBeCloseTo(0);
+  });
   test("switching layout preserves feed position even when an animation reverses midway", () => {
     for (const height of [228, 286]) {
       for (const progress of [0, 0.2, 0.5, 0.8, 1]) {

@@ -180,6 +180,7 @@ export function SettingsScreen() {
       {/* Web: MobileTopBar onBack. Settings has no parent route, so back
           returns through history, or home when opened directly. */}
       <MobileHeader
+        hideOnScroll={false}
         onBack={() => {
           if (router.canGoBack()) {
             router.back();

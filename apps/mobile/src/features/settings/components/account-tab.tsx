@@ -50,6 +50,7 @@ import { SectionAnchor } from "../lib/settings-scroll";
 import type { AccountFacts } from "../lib/settings-view-model";
 import { AccountResolutionDialog } from "./account-resolution-dialog";
 import { SettingsBrandLogo } from "./settings-brand-logo";
+import { SettingsFooterArt } from "./settings-footer-art";
 import {
   SettingsButton,
   SettingsCard,
@@ -945,6 +946,7 @@ export function AccountTab({
           </Pressable>
         </Pressable>
       </Modal>
+      <SettingsFooterArt tab="account" />
     </ScrollView>
   );
 }
@@ -1013,7 +1015,7 @@ const styles = StyleSheet.create({
   // The card's own `gap` cannot reach children wrapped in a SectionAnchor, so
   // each anchored section carries the same 12px rhythm the card uses.
   cardSection: { gap: 12 },
-  content: { gap: 18, padding: 16, paddingBottom: 96 },
+  content: { flexGrow: 1, gap: 18, padding: 16, paddingBottom: 96 },
   dialog: {
     borderCurve: "continuous",
     borderRadius: 16,

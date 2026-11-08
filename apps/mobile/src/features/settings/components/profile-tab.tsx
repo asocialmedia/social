@@ -31,6 +31,7 @@ import { useAppTheme } from "@/theme";
 
 import { isBioWithinWordLimit } from "../lib/bio-editor";
 import { SectionAnchor } from "../lib/settings-scroll";
+import { SettingsFooterArt } from "./settings-footer-art";
 import { SettingsBannerInput, SettingsAvatarInput } from "./settings-media";
 import { SettingsCardSkeleton } from "./settings-skeleton";
 import { SocialBrandIcon } from "./settings-social-icons";
@@ -438,6 +439,7 @@ export function ProfileTab({
           </View>
         </>
       )}
+      <SettingsFooterArt tab="profile" />
     </ScrollView>
   );
 }
@@ -445,7 +447,7 @@ export function ProfileTab({
 const styles = StyleSheet.create({
   avatarSlot: { marginTop: -56 },
   bioBlock: { gap: 6 },
-  content: { gap: 18, padding: 16, paddingBottom: 96 },
+  content: { flexGrow: 1, gap: 18, padding: 16, paddingBottom: 96 },
   counterRow: { alignItems: "flex-end" },
   heroCard: { overflow: "hidden" },
   heroHint: {

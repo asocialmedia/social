@@ -9,6 +9,7 @@ import { useThemePreference } from "@/theme/theme-preference-native";
 
 import { SectionAnchor } from "../lib/settings-scroll";
 import { SettingsChoice } from "./settings-choice";
+import { SettingsFooterArt } from "./settings-footer-art";
 import {
   SettingsCard,
   SettingsCardHeading,
@@ -46,6 +47,7 @@ export function PersonalizationTab({
       ref={scrollRef}
       showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
       contentContainerStyle={{
+        flexGrow: 1,
         gap: 16,
         padding: 16,
         paddingBottom: 96 + insets.bottom,
@@ -76,6 +78,7 @@ export function PersonalizationTab({
           </View>
         </SettingsCard>
       </SectionAnchor>
+      <SettingsFooterArt tab="personalization" />
     </ScrollView>
   );
 }
