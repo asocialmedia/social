@@ -1,11 +1,17 @@
 import { connect } from "node:net";
+import { availableParallelism } from "node:os";
 import path from "node:path";
 
 import { collectTestFiles, isIntegrationTestFile } from "./test-file-discovery";
 
 const ENV_FILE_NAME = ".env.test";
 const TIMINGS_FILE_NAME = "test-timings.json";
-const DEFAULT_TEST_FILE_WORKERS = 2;
+
+export function defaultTestFileWorkers(
+  cpuCount = availableParallelism()
+): number {
+  return Math.max(1, Math.min(8, Math.floor(cpuCount / 2)));
+}
 
 export type ServiceName = "postgres" | "redis";
 
@@ -29,6 +35,7 @@ interface RunTestSuiteDeps {
   probeService?: (endpoint: ServiceEndpoint) => Promise<boolean>;
   readEnvFile?: (filePath: string) => Promise<string | undefined>;
   recordTimings?: boolean;
+  workerCount?: number;
   rootDir?: string;
   runProcess?: (options: {
     cmd: string[];
@@ -227,10 +234,6 @@ export async function runTestSuite(
   const command = [
     "bun",
     "test",
-    ...(hasParallelOverride
-      ? []
-      : [`--parallel=${integrationOnly ? 1 : DEFAULT_TEST_FILE_WORKERS}`]),
-    ...(integrationOnly ? ["--isolate"] : []),
     `--env-file=${ENV_FILE_NAME}`,
     ...(hasTimingsOverride ? [] : [`--timings=${TIMINGS_FILE_NAME}`]),
     ...(deps.recordTimings === false || testArgs.includes("--update-timings")
@@ -238,13 +241,30 @@ export async function runTestSuite(
       : ["--update-timings"]),
     ...testArgs,
   ];
-  for (const cmd of batchTestCommands(command, selectedTests)) {
-    const result = await runProcess({
-      cmd,
-      cwd: rootDir,
-      env: { ...processEnv, NODE_ENV: "test" },
-    });
-    if (result !== 0) return result;
+  const unitTests = selectedTests.filter(
+    (file) => !isIntegrationTestFile(file)
+  );
+  const integrationTests = selectedTests.filter(isIntegrationTestFile);
+  // Integration files share services; keep them serial even in the full suite.
+  const groups = [
+    { files: unitTests, workers: deps.workerCount ?? defaultTestFileWorkers() },
+    { files: integrationTests, workers: 1 },
+  ];
+  for (const { files, workers } of groups) {
+    const groupCommand = [
+      ...command.slice(0, 2),
+      ...(hasParallelOverride ? [] : [`--parallel=${workers}`]),
+      ...(files === integrationTests ? ["--isolate"] : []),
+      ...command.slice(2),
+    ];
+    for (const cmd of batchTestCommands(groupCommand, files)) {
+      const result = await runProcess({
+        cmd,
+        cwd: rootDir,
+        env: { ...processEnv, NODE_ENV: "test" },
+      });
+      if (result !== 0) return result;
+    }
   }
   return 0;
 }

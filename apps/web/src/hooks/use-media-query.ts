@@ -10,11 +10,12 @@ import { useSyncExternalStore } from "react";
 // flags it because the effect is synchronizing a value React already has a way to
 // subscribe to. This reports the current answer on the very first client render.
 //
-// The server snapshot is `false`, so the markup a client renders before hydration is
+// The default server snapshot is `false`, so the markup before hydration is
 // the narrow layout. That is the safe direction for every use here: the wide layout
 // is the one that adds a pane, and adding one a frame late is invisible while
 // removing one a frame late is a flash.
-export function useMediaQuery(query: string): boolean {
+// An always-matching query may use a true server snapshot to retain its existing markup.
+export function useMediaQuery(query: string, serverMatch = false): boolean {
   return useSyncExternalStore(
     (onChange) => {
       const list = window.matchMedia(query);
@@ -22,6 +23,6 @@ export function useMediaQuery(query: string): boolean {
       return () => list.removeEventListener("change", onChange);
     },
     () => window.matchMedia(query).matches,
-    () => false
+    () => serverMatch
   );
 }

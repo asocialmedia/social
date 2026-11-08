@@ -5,12 +5,20 @@ import path from "node:path";
 
 import {
   batchTestCommands,
+  defaultTestFileWorkers,
   endpointFromUrl,
   parseEnvFile,
   probeEndpoint,
   runTestSuite,
   type ServiceEndpoint,
 } from "./run-tests";
+
+test("default workers scale with CPUs while bounding memory pressure", () => {
+  expect(defaultTestFileWorkers(1)).toBe(1);
+  expect(defaultTestFileWorkers(4)).toBe(2);
+  expect(defaultTestFileWorkers(12)).toBe(6);
+  expect(defaultTestFileWorkers(20)).toBe(8);
+});
 
 test("large test selections stay below Windows command-line limits without losing files", () => {
   const command = ["bun", "test", "--parallel=2"];
@@ -155,6 +163,7 @@ describe("runTestSuite", () => {
             'DATABASE_URL="postgresql://u:p@db.local:5433/app"\nREDIS_URL="redis://:pass@redis.local/0"\n'
           ),
         rootDir: sandbox,
+        workerCount: 2,
         runProcess: (options: {
           cmd: string[];
           cwd: string;
@@ -178,7 +187,7 @@ describe("runTestSuite", () => {
     expect(logger.error).toHaveBeenCalledWith("No test files found.");
   });
 
-  test("runs every test file in one parallel bun test invocation", async () => {
+  test("runs unit files in parallel and integration files in a separate serial invocation", async () => {
     const { deps, invocations } = makeDeps({
       allFiles: [
         "apps/auth/a.integration.test.ts",
@@ -191,7 +200,7 @@ describe("runTestSuite", () => {
     const exitCode = await runTestSuite(["--bail=1"], deps);
 
     expect(exitCode).toBe(0);
-    expect(invocations.length).toBe(1);
+    expect(invocations.length).toBe(2);
     expect(invocations[0]?.cmd).toEqual([
       "bun",
       "test",
@@ -200,9 +209,19 @@ describe("runTestSuite", () => {
       "--timings=test-timings.json",
       "--update-timings",
       "--bail=1",
-      "./apps/auth/a.integration.test.ts",
       "./apps/web/b.test.ts",
       "./scripts/c.test.ts",
+    ]);
+    expect(invocations[1]?.cmd).toEqual([
+      "bun",
+      "test",
+      "--parallel=1",
+      "--isolate",
+      "--env-file=.env.test",
+      "--timings=test-timings.json",
+      "--update-timings",
+      "--bail=1",
+      "./apps/auth/a.integration.test.ts",
     ]);
     expect(invocations[0]?.cwd).toBe(sandbox);
     expect(invocations[0]?.env.NODE_ENV).toBe("test");
@@ -235,6 +254,23 @@ describe("runTestSuite", () => {
       "./apps/web/b.test.ts",
       "./scripts/c.test.ts",
     ]);
+  });
+
+  test("stops before integration tests when a unit batch fails", async () => {
+    const { deps } = makeDeps({
+      allFiles: ["apps/web/a.test.ts", "packages/db/b.integration.test.ts"],
+    });
+    const runProcess = mock(
+      (options: Parameters<typeof deps.runProcess>[0]) => {
+        expect(options.cmd).toContain("./apps/web/a.test.ts");
+        return Promise.resolve(7);
+      }
+    );
+    expect(await runTestSuite([], { ...deps, runProcess })).toBe(7);
+    expect(runProcess).toHaveBeenCalledTimes(1);
+    expect(runProcess.mock.calls[0]?.[0].cmd).not.toContain(
+      "./packages/db/b.integration.test.ts"
+    );
   });
 
   test("returns success when integration tests are the only files and services are down", async () => {

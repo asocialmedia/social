@@ -19,7 +19,7 @@ const SecondaryRightSideBar: React.FC<{ children?: React.ReactNode }> = ({
   <aside className="hide-native-scrollbar bg-background border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-y-auto border-l px-2.5 pt-2.5 pb-6 xl:flex">
     <div className="flex flex-col gap-4">
       {children}
-      <TrendingTopics />
+      <TrendingTopics mediaQuery="(min-width: 80rem)" />
       <footer className="text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 px-3 pt-1 text-xs">
         <span>© {new Date().getFullYear()} asocialmedia</span>
         {FOOTER_LINKS.map(({ href, label }) => (

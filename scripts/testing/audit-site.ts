@@ -202,6 +202,7 @@ for (const [index, entry] of inventory.entries()) {
                   "accessibility",
                   "best-practices",
                   "seo",
+                  "agentic-browsing",
                 ],
               },
               formFactor === "desktop" ? desktopConfig : undefined,

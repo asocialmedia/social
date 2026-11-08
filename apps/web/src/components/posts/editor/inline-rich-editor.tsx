@@ -81,7 +81,10 @@ export function InlineRichEditor({
     content: textToDoc(initialContent, enableLinks),
     editorProps: {
       attributes: {
+        "aria-label": placeholder || "Text editor",
+        "aria-multiline": "true",
         class: cn("inline-rich-editor focus:outline-none", editorClassName),
+        role: "textbox",
       },
       handleDOMEvents: {
         keydown: (_view, event) => {

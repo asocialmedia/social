@@ -268,8 +268,8 @@ const FollowersFollowingPage: React.FC<{
         </div>
       </div>
       <aside className="hide-native-scrollbar sticky top-0 hidden h-screen w-80 shrink-0 flex-col gap-3 overflow-y-auto border-l border-[hsl(var(--border))] bg-[hsl(var(--background-alt))] p-3 lg:flex">
-        <PostHistoryCard />
-        <TrendingTopics />
+        <PostHistoryCard mediaQuery="(min-width: 64rem)" />
+        <TrendingTopics mediaQuery="(min-width: 64rem)" />
       </aside>
       <MobileBottomNav />
     </>

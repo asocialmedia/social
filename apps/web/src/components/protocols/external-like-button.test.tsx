@@ -2,6 +2,7 @@ import { expect, mock, test } from "bun:test";
 
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Window } from "happy-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 
 mock.module("@/app/(main)/session-provider", () => ({
@@ -70,15 +71,26 @@ function renderLike(connected: boolean) {
 
 test("an unlinked heart renders outside a tooltip provider without crashing a post or Gust", () => {
   const html = renderLike(false);
-  expect(html).toContain('aria-label="Connect Bluesky to like"');
+  expect(html).toContain('aria-label="Connect Bluesky to like, 12 likes"');
   expect(html).toContain("opacity-50");
   expect(html).toContain(">12</span>");
   expect(html).not.toContain("disabled=");
+  const dom = new Window();
+  try {
+    dom.document.body.innerHTML = html;
+    const button = dom.document.querySelector("[data-bluesky-like]");
+    expect(button?.classList.contains("opacity-50")).toBe(false);
+    expect(button?.querySelector("svg")?.classList.contains("opacity-50")).toBe(
+      true
+    );
+  } finally {
+    dom.close();
+  }
 });
 
 test("a connected heart renders the account's saved like state and upstream count", () => {
   const html = renderLike(true);
-  expect(html).toContain('aria-label="Unlike on Bluesky"');
+  expect(html).toContain('aria-label="Unlike on Bluesky, 13 likes"');
   expect(html).toContain('aria-pressed="true"');
   expect(html).toContain("fill-current");
   expect(html).toContain(">13</span>");

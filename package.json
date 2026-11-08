@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/social",
-  "version": "1.13.92",
+  "version": "1.13.93",
   "private": true,
   "homepage": "https://asocialmedia.cc",
   "license": "AGPL-3.0",
@@ -23,7 +23,7 @@
     "mob": "bun --cwd apps/mobile start",
     "db:prebuild-dm-indexes": "bun run --cwd packages/db --env-file=../../.env.test src/messages/prebuild-indexes.ts",
     "docker:clean": "docker compose -f docker/docker-compose.dev.yml down -v && docker volume rm asmdev-postgres18-data asmdev-redis-data asmdev-asmob-data asmdev-redisinsight-data && rm -f .dev-init",
-    "check-types": "tsc --project scripts/tsconfig.json && turbo check-types --concurrency=2",
+    "check-types": "turbo run check-types check-types:scripts --concurrency=2",
     "test:coverage": "bun scripts/testing/run-coverage-suite.ts",
     "seed:dm": "bun scripts/seed-dm-history.ts",
     "build": "turbo check-types && turbo build",
@@ -32,7 +32,8 @@
     "docker:dev": "bun scripts/development/dev-init.ts",
     "apk": "bun apps/mobile/scripts/android/build-android-apk.ts",
     "predev": "bun scripts/development/dev-preflight.ts",
-    "db:gen": "bun run --cwd packages/db prisma skills sync && bun run --cwd packages/db prisma contract emit"
+    "db:gen": "bun run --cwd packages/db prisma skills sync && bun run --cwd packages/db prisma contract emit",
+    "check-types:scripts": "tsc --project scripts/tsconfig.json"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",

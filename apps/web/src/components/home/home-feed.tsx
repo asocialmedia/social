@@ -17,7 +17,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import Image from "next/image";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useDeferredValue, useMemo, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { FeedErrorState } from "@/components/feeds/feed-error-state";
@@ -529,6 +529,9 @@ export default function HomeFeed({
       initialSourceLoading &&
       !hasGuestBootstrap
   );
+  // Enter staging immediately, then release the larger batch in a background render.
+  const deferredSourceStaging = useDeferredValue(sourcesStagingPending);
+  const holdSourceStaging = sourcesStagingPending || deferredSourceStaging;
   // Release the cards and their trailing placeholder together when a peer stalls.
   const showInitialSourceSkeleton =
     initialSourceLoading &&
@@ -745,6 +748,7 @@ export default function HomeFeed({
         </div>
       ) : null}
       <InfiniteScrollContainer
+        paused={holdSourceStaging}
         continuationDelay={Math.max(
           source !== "bluesky" && globalHasNextPage
             ? feedContinuationDelay(data?.pages, (page) => page.posts)
@@ -782,7 +786,7 @@ export default function HomeFeed({
                 : `${hashKey(queryKey)}:${source}`
             }
             externalPosts={allowExternal ? externalPosts : []}
-            sourcesPending={sourcesStagingPending}
+            sourcesPending={holdSourceStaging}
             sourceWaitMs={null}
             source={source}
             cacheKey={queryKey}

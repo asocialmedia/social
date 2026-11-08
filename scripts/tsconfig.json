@@ -6,6 +6,8 @@
     "declaration": false,
     "declarationMap": false,
     "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": "../.cache/typecheck/scripts.tsbuildinfo",
     // The scripts/ folder sits outside the bun workspaces graph (apps/*,
     // packages/*), so workspace packages never get node_modules links here.
     // Map them by name so ops scripts can import shared code normally. A few

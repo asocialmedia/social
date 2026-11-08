@@ -24,6 +24,7 @@ import {
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useSecondaryFeedReady } from "@/hooks/feed/use-secondary-feed-ready";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { useSession } from "@/lib/auth/session-context";
 import kyInstance from "@/lib/ky";
@@ -204,12 +205,13 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ post }) => {
   );
 };
 
-const PostHistoryCard: React.FC = () => {
+const PostHistoryCard: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
+  const enabled = useMediaQuery(mediaQuery || "all", !mediaQuery);
   const { user } = useSession();
   const network = useNetworkSettings();
   const primaryReady = useSecondaryFeedReady();
   const { data, status } = useQuery({
-    enabled: Boolean(user) && network.ready && primaryReady,
+    enabled: enabled && Boolean(user) && network.ready && primaryReady,
     queryFn: () =>
       kyInstance.get("/api/posts/history").json<{ posts: PresentedPost[] }>(),
     queryKey: ["post-history", user?.id ?? "guest", network.scope],
@@ -218,7 +220,7 @@ const PostHistoryCard: React.FC = () => {
     staleTime: 30 * 1000,
   });
 
-  const posts = (data?.posts ?? []).filter((post) =>
+  const posts = (enabled ? (data?.posts ?? []) : []).filter((post) =>
     networkPostAllowed(
       post,
       network.settings.preferences,
@@ -227,7 +229,7 @@ const PostHistoryCard: React.FC = () => {
   );
 
   let body: React.ReactNode;
-  if (status === "pending") {
+  if (!enabled || status === "pending") {
     body = (
       <div className="flex flex-col gap-0.5">
         <HistoryRowSkeleton />

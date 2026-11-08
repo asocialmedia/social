@@ -117,7 +117,7 @@ const itemVariants = {
   visible: { opacity: 1, y: 0 },
 };
 
-/** Chip color for the n/10 counter: neutral, amber near the cap, red at it. */
+// Chip color for the n/10 counter: neutral, amber near the cap, red at it.
 function capacityChipClass(count: number, full: boolean): string {
   if (full) {
     return "bg-destructive/10 text-destructive";
@@ -746,7 +746,10 @@ export default function PostEditor({
   const editor = useEditor({
     editorProps: {
       attributes: {
+        "aria-label": "Post text",
+        "aria-multiline": "true",
         class: "focus:outline-none",
+        role: "textbox",
       },
       handleDOMEvents: {
         keydown: (_view, event) => {
@@ -1882,7 +1885,7 @@ const attachmentKeyOf = (attachment: Attachment, index: number): string =>
   attachment.name ??
   `attachment-${index}`;
 
-/** One draggable grid tile: dnd-kit transform wrapper around the preview. */
+// One draggable grid tile: dnd-kit transform wrapper around the preview.
 const SortableAttachment = ({
   attachment,
   canReorder,
@@ -2214,7 +2217,7 @@ const ModeToggle: React.FC<{
       }
     >
       <button
-        aria-label="Create a fleet post"
+        aria-label="Fleets: Create a fleet post"
         aria-pressed={!isGust}
         className={cn(
           "flex h-8 items-center justify-center rounded-full px-3.5 text-xs font-semibold transition-all duration-200",

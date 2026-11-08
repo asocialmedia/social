@@ -146,7 +146,7 @@ test("Bluesky cards display upstream likes independently of ASM amplification st
       <PostCard post={post} />
     </QueryClientProvider>
   );
-  expect(html).toContain('aria-label="Connect Bluesky to like"');
+  expect(html).toContain('aria-label="Connect Bluesky to like, 347 likes"');
   expect(html).toContain(">347</span>");
   expect(html).not.toContain('title="Aura"');
   client.clear();
@@ -175,7 +175,7 @@ test("Bluesky Gusts use the same source likes while amplification remains a sepa
       />
     </QueryClientProvider>
   );
-  expect(html).toContain('aria-label="Connect Bluesky to like"');
+  expect(html).toContain('aria-label="Connect Bluesky to like, 347 likes"');
   expect(html).toContain(">347</span>");
   expect(html).toContain('aria-label="Remove amplification"');
   expect(html).not.toContain('title="Aura"');
