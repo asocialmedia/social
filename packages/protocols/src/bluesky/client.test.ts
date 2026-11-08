@@ -1051,3 +1051,25 @@ test("hashtag searches send the official tag filter and preserve pagination", as
     client.close();
   }
 });
+
+test("a malformed continuation cools down independently of the feed head", async () => {
+  const requests: (string | null)[] = [];
+  const feed = `at://${authorDid}/app.bsky.feed.generator/healthy`;
+  const client = new BlueskyClient({
+    fetch: async (raw) => {
+      const cursor = new URL(raw).searchParams.get("cursor");
+      requests.push(cursor);
+      return Response.json(cursor ? { feed: "invalid" } : { feed: [] });
+    },
+    maxRetries: 0,
+  });
+  await expect(client.getFeed(feed, { cursor: "bad" })).rejects.toMatchObject({
+    code: "invalid_response",
+  });
+  await expect(client.getFeed(feed, { cursor: "bad" })).rejects.toMatchObject({
+    code: "unavailable",
+  });
+  await expect(client.getFeed(feed)).resolves.toMatchObject({ items: [] });
+  expect(requests).toEqual(["bad", null]);
+  client.close();
+});

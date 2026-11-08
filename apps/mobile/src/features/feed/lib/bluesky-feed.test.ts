@@ -335,3 +335,40 @@ test("retry re-reads the failed page and keeps the loaded pages", async () => {
   expect(urls.at(-1)).toContain("cursor=next");
   store.dispose();
 });
+
+for (const initial of [true, false]) {
+  test(`retry advances beyond three empty windows (initial: ${initial})`, async () => {
+    const cursors: (string | null)[] = [];
+    const store = createBlueskyFeed("https://asm.test", "latest", (url) => {
+      const cursor = new URL(url).searchParams.get("cursor");
+      cursors.push(cursor);
+      if (!initial && cursor === null) {
+        return Promise.resolve(Response.json(page));
+      }
+      const index = cursor?.startsWith("empty-") ? Number(cursor.slice(6)) : 0;
+      return Promise.resolve(
+        Response.json(
+          index < 3
+            ? { ...page, cursor: `empty-${index + 1}`, items: [] }
+            : { ...page, cursor: null, items: [external("after-empty")] }
+        )
+      );
+    });
+    await store.refresh();
+    if (!initial) {
+      await store.fetchNext();
+    }
+    expect(store.snapshot().status).toBe("error");
+    const [loaded] = store.snapshot().pages;
+    await store.retry();
+    expect(cursors.at(-1)).toBe("empty-3");
+    expect(store.snapshot().status).toBe("success");
+    expect(store.snapshot().pages.at(-1)?.items[0]?.id).toBe(
+      external("after-empty").id
+    );
+    if (!initial) {
+      expect(store.snapshot().pages[0]).toBe(loaded);
+    }
+    store.dispose();
+  });
+}

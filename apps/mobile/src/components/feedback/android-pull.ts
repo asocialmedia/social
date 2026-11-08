@@ -1,3 +1,5 @@
+export const PULL_THRESHOLD = 90;
+
 const CAPTURE_SLOP = 8;
 const RESISTANCE = 0.55;
 

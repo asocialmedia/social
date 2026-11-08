@@ -19,6 +19,7 @@ describe("shared native loading indicator", () => {
       expect(element?.props.accessibilityRole).toBe("progressbar");
       expect(element?.props.children.type).toBe("Spinner3D");
       expect(element?.props.children.props.size).toBe(24);
+      expect(element?.props.children.props.animating).toBe(true);
     }
   });
 
@@ -26,11 +27,13 @@ describe("shared native loading indicator", () => {
     expect(ZephLoader({ animating: false })).toBeNull();
     const stopped = ZephLoader({
       animating: false,
+      color: "#ffffff",
       hidesWhenStopped: false,
       size: 18,
     });
     expect(stopped?.props.children.props.animating).toBe(false);
     expect(stopped?.props.children.props.size).toBe(18);
+    expect(stopped?.props.children.props.color).toBe("#ffffff");
     expect(ZephLoader({ size: "large" })?.props.children.props.size).toBe(56);
   });
 });

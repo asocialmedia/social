@@ -201,7 +201,7 @@ export function PrivacyTab({
 }
 
 const styles = StyleSheet.create({
-  content: { gap: 14, padding: 16 },
+  content: { flexGrow: 1, gap: 14, padding: 16 },
   marker: {
     borderCurve: "continuous",
     borderRadius: 999,

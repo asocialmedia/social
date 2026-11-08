@@ -59,6 +59,7 @@ function createPullGestures(refs: {
   scrollOffset?: Pick<SharedValue<number>, "get">;
 }) {
   let baseline: number | null = null;
+  let activated = false;
   let touchStart: { x: number; y: number } | null = null;
   const offset = () => refs.scrollOffset?.get() ?? refs.scrollOffsetRef.current;
   const resetPull = () => {
@@ -73,6 +74,7 @@ function createPullGestures(refs: {
     .manualActivation(true)
     .simultaneousWithExternalGesture(nativeScroll)
     .onTouchesDown((event, manager) => {
+      activated = false;
       const [touch] = event.allTouches;
       touchStart = touch ? { x: touch.absoluteX, y: touch.absoluteY } : null;
       // A drag that starts down the feed belongs to scrolling for its entire lifetime.
@@ -87,6 +89,9 @@ function createPullGestures(refs: {
       }
     })
     .onTouchesMove((event, manager) => {
+      if (activated) {
+        return;
+      }
       const [touch] = event.allTouches;
       if (!touchStart || !touch) {
         manager.fail();
@@ -102,6 +107,7 @@ function createPullGestures(refs: {
       if (decision === "fail") {
         manager.fail();
       } else if (decision === "activate") {
+        activated = true;
         manager.activate();
       }
     })
@@ -130,6 +136,7 @@ function createPullGestures(refs: {
         !refs.refreshingRef.current &&
         refs.pullRef.current > PULL_THRESHOLD;
       touchStart = null;
+      activated = false;
       if (!trigger && refs.pullRef.current === 0) {
         baseline = null;
         return;

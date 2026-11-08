@@ -14,7 +14,7 @@ export type ZephLoaderVariant =
 
 export function ZephLoader({
   animating = true,
-  color: _color,
+  color,
   hidesWhenStopped = true,
   size = "small",
   style,
@@ -41,7 +41,12 @@ export function ZephLoader({
       ]}
       {...props}
     >
-      <Spinner3D accessible={false} animating={animating} size={dimension} />
+      <Spinner3D
+        accessible={false}
+        animating={animating}
+        color={color}
+        size={dimension}
+      />
     </View>
   );
 }

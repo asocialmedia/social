@@ -4,6 +4,8 @@ import { Window } from "happy-dom";
 import { act, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 
+import { PULL_THRESHOLD } from "./android-pull";
+
 interface Touch {
   absoluteX: number;
   absoluteY: number;
@@ -83,7 +85,7 @@ mock.module("react-native", () => ({
   Platform: { OS: "android" },
 }));
 mock.module("@/features/feed/components/pull-loader", () => ({
-  PULL_THRESHOLD: 72,
+  PULL_THRESHOLD,
   PullLoader: () => null,
 }));
 
@@ -170,6 +172,21 @@ test("restored offsets reject refresh, top crossings retain the recognizer, and 
     pull?.onScrollEndDrag();
     gesture?.finalize?.({}, true);
     expect(refresh).toHaveBeenCalledTimes(1);
+    // A new touch below verifies threshold boundaries using the production constant.
+    for (const distance of [80, PULL_THRESHOLD, PULL_THRESHOLD + 1]) {
+      gesture?.down?.(touch(0), manager);
+      gesture?.move?.(touch(20), manager);
+      gesture?.update?.({ translationY: 20 });
+      gesture?.update?.({ translationY: 20 + distance / 0.55 });
+      const failedBeforeDrift = manager.fail.mock.calls.length;
+      gesture?.move?.(
+        { allTouches: [{ absoluteX: 90, absoluteY: 220 }], numberOfTouches: 1 },
+        manager
+      );
+      expect(manager.fail.mock.calls.length).toBe(failedBeforeDrift);
+      gesture?.finalize?.({}, true);
+    }
+    expect(refresh).toHaveBeenCalledTimes(2);
   } finally {
     await act(() => root.unmount());
   }

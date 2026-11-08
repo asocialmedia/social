@@ -174,8 +174,12 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { signOut } = useSessionContext();
+  const [displayedUserId, setDisplayedUserId] = useState(userId);
+  if (userId && userId !== displayedUserId) {
+    setDisplayedUserId(userId);
+  }
   const { reload, state }: { reload: () => void; state: PopupDataState } =
-    usePopupProfile(userId);
+    usePopupProfile(userId ?? displayedUserId);
   const [badgesOpen, setBadgesOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
@@ -245,6 +249,11 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
   return (
     <Modal
       animationType="fade"
+      onDismiss={() => {
+        if (!userId) {
+          setDisplayedUserId(null);
+        }
+      }}
       onRequestClose={onClose}
       transparent
       visible={userId !== null}

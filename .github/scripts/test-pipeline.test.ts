@@ -106,9 +106,9 @@ test("integration tests have their own local database, migrations, Redis and ser
   expect(command).not.toContain("--unit");
 });
 
-test("type checks run unbounded inside Turbo", async () => {
+test("type checks use the available CPU count inside Turbo", async () => {
   const manifest = await Bun.file(path.join(root, "package.json")).json();
   expect(manifest.scripts["check-types"]).toBe(
-    "turbo run check-types check-types:scripts"
+    "turbo run check-types check-types:scripts --concurrency=100%"
   );
 });

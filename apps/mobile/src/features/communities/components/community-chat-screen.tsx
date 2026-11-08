@@ -88,6 +88,7 @@ import { communityChatUiEnabled } from "../lib/community-chat-features";
 import { stabilizeCommunityChatRows } from "../lib/community-chat-row-identity";
 import { shouldSnapTimelineToLatest } from "../lib/community-chat-timeline-gate";
 import { rememberCommunityChatHref } from "../lib/community-section-links";
+import { CommunityAboutCard } from "./community-about-card";
 import { CommunityAvatar } from "./community-avatar";
 import { CommunityChannelSettingsButton } from "./community-channel-settings";
 import CommunityChatLoading from "./community-chat-loading";
@@ -2174,6 +2175,11 @@ function CommunityChatTimelineScreen() {
       ) : null}
       {channelsOpen ? (
         <CommunityNavigationDrawer
+          about={
+            detail && detail.community.type !== "PRIVATE" ? (
+              <CommunityAboutCard detail={detail} />
+            ) : undefined
+          }
           active="chat"
           accentColor={detail?.community.accentColor ?? null}
           channelId={channelId}

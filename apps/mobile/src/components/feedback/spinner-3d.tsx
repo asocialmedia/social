@@ -13,7 +13,7 @@
 // geometry is authored on web's 56px box and scaled to `size`.
 
 import { useEffect, useId } from "react";
-import type { ViewProps } from "react-native";
+import type { ColorValue, ViewProps } from "react-native";
 import { View } from "react-native";
 import {
   cancelAnimation,
@@ -37,6 +37,7 @@ import { buildConicArc } from "./spinner-arc";
 
 interface Spinner3DProps extends ViewProps {
   animating?: boolean;
+  color?: ColorValue;
   size?: number;
 }
 
@@ -70,6 +71,7 @@ const AnimatedView = createAnimatedComponent(View);
 export function Spinner3D({
   animating = true,
   className,
+  color,
   size = BOX,
   style,
   ...props
@@ -163,7 +165,7 @@ export function Spinner3D({
           {ARC_SLICES.map((slice) => (
             <Path
               d={slice.path}
-              fill={slice.color}
+              fill={color ?? slice.color}
               fillOpacity={slice.opacity}
               key={slice.key}
             />

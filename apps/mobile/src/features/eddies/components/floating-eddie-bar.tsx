@@ -1,15 +1,3 @@
-// Floating eddie bar for the post screen, port of web's mobile
-// FloatingPostEditor (components/layouts/navigation/mobile/
-// floating-post-editor.tsx): a bottom bar (background/95, hairline top
-// border, soft upward shadow) holding
-// - the reply chip "Replying to @user" + one-line preview + X, when a row's
-//   Reply targeted an eddie
-// - a 36px avatar, the premium-input field ("Reply to @u..." / "Add your
-//   Eddie to the flow...") and, collapsed, the round orange "Send" pill
-// - expanded while focused: the attachment tile, round Image / GIF buttons
-//   (purple while the picker is open), the length counter, "Send", the GIF
-//   picker
-// It sits flush with the post viewport and rises above the keyboard.
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Clapperboard,
@@ -49,13 +37,25 @@ import {
 import { useSessionContext } from "@/features/auth/state/session";
 import type { InlineRichInputRef } from "@/features/composer/components/inline-rich-input";
 import {
-  composerContentHeight,
   keyboardOverlap,
   keyboardScreenTop,
 } from "@/lib/layout/keyboard-overlap";
 import { useAppTheme } from "@/theme";
 
 import { useEddieComposerStore } from "../state/eddie-composer-store";
+// Floating eddie bar for the post screen, port of web's mobile
+// FloatingPostEditor (components/layouts/navigation/mobile/
+// floating-post-editor.tsx): a bottom bar (background/95, hairline top
+// border, soft upward shadow) holding
+// - the reply chip "Replying to @user" + one-line preview + X, when a row's
+//   Reply targeted an eddie
+// - a 36px avatar, the premium-input field ("Reply to @u..." / "Add your
+//   Eddie to the flow...") and, collapsed, the round orange "Send" pill
+// - expanded while focused: the attachment tile, round Image / GIF buttons
+//   (purple while the picker is open), the length counter, "Send", the GIF
+//   picker
+// It sits flush with the post viewport and rises above the keyboard.
+import { ComposerAnchor } from "./composer-anchor";
 import { EddieAttachmentTile } from "./eddie-attachment-tile";
 import { EddieLinkPreviews } from "./eddie-link-previews";
 import { EddieRichField } from "./eddie-rich-field";
@@ -230,20 +230,10 @@ export function FloatingEddieBar({
     // the gust floating bar. The detail screen's GuestAuthBar still owns the
     // full-width banner; this pill keeps the composer slot actionable.
     return (
-      <View
-        onLayout={(event) => {
-          onHeightChange?.(
-            composerContentHeight(
-              event.nativeEvent.layout.height,
-              viewportBottom,
-              keyboardTop
-            )
-          );
-        }}
-        style={[
-          styles.anchor,
-          { paddingBottom: keyboardOverlap(viewportBottom, keyboardTop) },
-        ]}
+      <ComposerAnchor
+        keyboardTop={keyboardTop}
+        onHeightChange={onHeightChange}
+        viewportBottom={viewportBottom}
       >
         <View
           style={[
@@ -271,7 +261,7 @@ export function FloatingEddieBar({
             </Pressable>
           </View>
         </View>
-      </View>
+      </ComposerAnchor>
     );
   }
 
@@ -292,20 +282,10 @@ export function FloatingEddieBar({
     }
   };
   return (
-    <View
-      onLayout={(event) => {
-        onHeightChange?.(
-          composerContentHeight(
-            event.nativeEvent.layout.height,
-            viewportBottom,
-            keyboardTop
-          )
-        );
-      }}
-      style={[
-        styles.anchor,
-        { paddingBottom: keyboardOverlap(viewportBottom, keyboardTop) },
-      ]}
+    <ComposerAnchor
+      keyboardTop={keyboardTop}
+      onHeightChange={onHeightChange}
+      viewportBottom={viewportBottom}
     >
       <View
         style={[
@@ -490,18 +470,11 @@ export function FloatingEddieBar({
           ) : null}
         </ScrollView>
       </View>
-    </View>
+    </ComposerAnchor>
   );
 }
 
 const styles = StyleSheet.create({
-  anchor: {
-    bottom: 0,
-    left: 0,
-    position: "absolute",
-    right: 0,
-    zIndex: 40,
-  },
   attachments: {
     flexDirection: "row",
     flexWrap: "wrap",

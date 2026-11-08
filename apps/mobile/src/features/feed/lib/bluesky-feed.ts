@@ -60,6 +60,8 @@ export function createBlueskyFeed(
     const current = new AbortController();
     const requestGeneration = generation;
     let timedOut = false;
+    let retryCursor = cursor;
+    let retryReplace = replace;
     const timer = setTimeout(() => {
       timedOut = true;
       current.abort();
@@ -112,6 +114,8 @@ export function createBlueskyFeed(
       // A bounded window that still has no new rows must wait for an explicit
       // retry. Auto-paging it again can loop forever on repeated cursors.
       if (page.items.length === 0 && page.cursor) {
+        retryCursor = page.cursor;
+        retryReplace = replace || expired;
         throw new FeedReadError(502);
       }
       failedRead = null;
@@ -127,7 +131,7 @@ export function createBlueskyFeed(
         (!current.signal.aborted || timedOut)
       ) {
         const failure = timedOut ? new FeedReadError(408) : error;
-        failedRead = { cursor, replace };
+        failedRead = { cursor: retryCursor, replace: retryReplace };
         retryable = canRetryRead(failure);
         retryAt =
           Date.now() +

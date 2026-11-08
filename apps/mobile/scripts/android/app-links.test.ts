@@ -39,6 +39,7 @@ describe("Android browser-only About page", () => {
     for (const path of [
       "/about",
       "/about/",
+      "/about/team",
       "/about?source=share",
       "/about#faq",
     ]) {

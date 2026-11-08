@@ -9,7 +9,7 @@ test("all type checks run inside Turbo including the root scripts project", asyn
   ).json();
 
   expect(manifest.scripts["check-types"]).toBe(
-    "turbo run check-types check-types:scripts"
+    "turbo run check-types check-types:scripts --concurrency=100%"
   );
   expect(manifest.scripts["check-types:scripts"]).toBe(
     "tsc --project scripts/tsconfig.json"
@@ -42,4 +42,11 @@ test("shared TypeScript projects retain compiler state across Turbo cache misses
     );
     expect(config).toMatchObject({ compilerOptions: { incremental: true } });
   }
+});
+
+test("web type checking generates route-aware declarations before invoking TypeScript", async () => {
+  const manifest = await Bun.file(
+    new URL("../../apps/web/package.json", import.meta.url)
+  ).json();
+  expect(manifest.scripts["check-types"]).toBe("next typegen && tsc --noEmit");
 });

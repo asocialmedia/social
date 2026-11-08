@@ -533,7 +533,9 @@ export function SpotlightModal() {
           />
         </View>
 
-        <View
+        <Pressable
+          accessible={false}
+          onPress={() => inputRef.current?.focus()}
           style={[
             styles.inputWrap,
             blue
@@ -593,7 +595,7 @@ export function SpotlightModal() {
               />
             </Pressable>
           ) : null}
-        </View>
+        </Pressable>
 
         {trimmed.length >= 2 ? (
           <View style={styles.statusLine}>

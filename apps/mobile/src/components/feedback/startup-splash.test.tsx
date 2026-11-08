@@ -77,6 +77,12 @@ test("a warm return dismisses the native overlay without replaying startup or re
       await Promise.resolve();
     });
     expect(presented).toHaveBeenCalledTimes(1);
+    await act(() =>
+      root.render(<StartupGate ready={false} onPresented={presented} />)
+    );
+    await act(() => root.render(<StartupGate ready onPresented={presented} />));
+    expect(frames.size).toBe(0);
+    expect(presented).toHaveBeenCalledTimes(1);
     await act(async () => {
       for (const listener of listeners) {
         listener("background");

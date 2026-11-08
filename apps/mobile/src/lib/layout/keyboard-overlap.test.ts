@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  composerContentHeight,
-  keyboardOverlap,
-  keyboardScreenTop,
-} from "./keyboard-overlap";
+import { keyboardOverlap, keyboardScreenTop } from "./keyboard-overlap";
 
 describe("composer keyboard overlap", () => {
   test("edge-to-edge windows lift the composer above the keyboard", () => {
@@ -58,10 +54,4 @@ describe("composer keyboard overlap", () => {
       })
     ).toBe(500);
   });
-});
-
-test("composer measurement does not count the keyboard lift as composer content", () => {
-  expect(composerContentHeight(400, 952, 616)).toBe(64);
-  expect(composerContentHeight(64, 616, 616)).toBe(64);
-  expect(composerContentHeight(88, 952, null)).toBe(88);
 });

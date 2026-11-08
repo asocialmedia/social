@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { Animated, Easing, StyleSheet, Text, View } from "react-native";
 
+import { PULL_THRESHOLD } from "@/components/feedback/android-pull";
 import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { REFRESH_TIMING } from "@/lib/lifecycle/refresh-timing";
@@ -24,7 +25,7 @@ import {
   useAppTheme,
 } from "@/theme";
 
-export const PULL_THRESHOLD = 90;
+export { PULL_THRESHOLD } from "@/components/feedback/android-pull";
 
 // The chip's resting distance below the top of the scroll container. Screens
 // that begin under a notch add their safe-area inset on top of this.
