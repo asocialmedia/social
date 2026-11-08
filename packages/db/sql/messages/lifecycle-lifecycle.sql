@@ -121,7 +121,7 @@ INSERT INTO public.message_view_once_receipts (id,"mediaId","userId","messageId"
 DELETE FROM public.message_view_once_grants g USING public.message_view_once_recipients r
     WHERE g.id=$1 AND g."recipientId"=r.id AND r."userId"=$2 AND g.status='RESERVED'
 // query: extracted.statement28
-UPDATE public.message_view_once_grants g SET status='CLOSED',"closedAt"=clock_timestamp(),"expiresAt"=clock_timestamp()
+UPDATE public.message_view_once_grants g SET status='CLOSED',"closedAt"=clock_timestamp(),"expiresAt"=date_trunc('milliseconds',clock_timestamp())
     FROM public.message_view_once_recipients r WHERE g.id=$1 AND g."recipientId"=r.id
       AND r."userId"=$2 AND g.status='ACTIVE'
 // query: extracted.statement29

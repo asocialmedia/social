@@ -61,7 +61,7 @@ SELECT g.id,r."mediaLinkId" FROM public.message_view_once_grants g
       WHERE g.status IN ('CLOSED','EXPIRED','REVOKED') AND g."expiresAt"<=clock_timestamp()
       ORDER BY g."expiresAt",g.id LIMIT 100
 // query: extracted.statement17
-UPDATE public.message_media_links l SET "deliveryExpiresAt"=LEAST(l."deliveryExpiresAt",clock_timestamp())
+UPDATE public.message_media_links l SET "deliveryExpiresAt"=LEAST(l."deliveryExpiresAt",date_trunc('milliseconds',clock_timestamp()))
         WHERE l.id=ANY($1::text[]) AND l."viewOnce"=true
         AND NOT EXISTS (SELECT 1 FROM public.message_view_once_recipients r WHERE r."mediaLinkId"=l.id
           AND NOT EXISTS (SELECT 1 FROM public.message_view_once_grants g

@@ -1,6 +1,7 @@
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { connection } from "next/server";
 import { Suspense } from "react";
 
 import ExploreClient from "@/components/discover/explore-client";
@@ -41,6 +42,8 @@ export default function DiscoveryPage() {
 }
 
 async function PublicNetworkPosts() {
+  // Image builds have no database; defer the cached query until a request arrives.
+  await connection();
   const posts = await getPublicBlueskyDiscovery();
   if (!posts.length) {
     return null;

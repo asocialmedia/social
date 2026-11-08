@@ -1,9 +1,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
+import { readSqlBundle } from "@asm/db/sql-template";
+
 import { keys } from "../../keys";
-import { toPrismaDateTime } from "../dates";
+import cleanupSqlSource from "../../sql/messages/lifecycle-cleanup-lifecycle.sql" with { type: "text" };
+import lifecycleSqlSource from "../../sql/messages/lifecycle-lifecycle.sql" with { type: "text" };
+import { fromPrismaDateTime, toPrismaDateTime } from "../dates";
 import prisma from "../prisma";
 import { messageInteractionAllowed } from "./access/interaction-access";
+import { rawExecute } from "./infrastructure/raw-sql";
 import {
   activateViewOnceGrant,
   closeViewOnceGrant,
@@ -21,6 +26,14 @@ import {
 const owner = `interaction-owner-${crypto.randomUUID()}`;
 const peer = `interaction-peer-${crypto.randomUUID()}`;
 const third = `interaction-third-${crypto.randomUUID()}`;
+
+function lifecycleStatements(source: string) {
+  return readSqlBundle(source, {
+    extracted: [
+      ...source.matchAll(/^\/\/ query: extracted\.(?<name>\w+)/gmu),
+    ].map((match) => match.groups?.name ?? ""),
+  }).extracted;
+}
 
 beforeAll(async () => {
   const url = new URL(keys.DATABASE_URL);
@@ -338,6 +351,51 @@ describe("message interaction authorization and lifecycle", () => {
         id: mediaId,
       }).first();
       expect(media?.status).toBe("DELETED");
+    });
+  });
+
+  test("immediate view-once cleanup deadlines never round into the future", async () => {
+    await withChat(async (conversationId) => {
+      const { mediaId } = await createPhoto(conversationId);
+      const grantId = crypto.randomUUID();
+      await reserveViewOnceMedia(conversationId, mediaId, peer, grantId);
+      expect(await activateViewOnceGrant(conversationId, grantId, peer)).toBe(
+        true
+      );
+      // Bind the real statements' clock to a fractional millisecond that PostgreSQL rounds up.
+      const clock = "2026-11-08T00:00:00.9998Z";
+      await rawExecute(
+        lifecycleStatements(lifecycleSqlSource).statement28.replaceAll(
+          "clock_timestamp()",
+          "$3::timestamptz"
+        ),
+        [grantId, peer, clock]
+      );
+      const grant = await prisma.orm.public.MessageViewOnceGrants.where({
+        id: grantId,
+      }).first();
+      expect(fromPrismaDateTime(grant?.expiresAt).toISOString()).toBe(
+        "2026-11-08T00:00:00.999Z"
+      );
+      const link = await prisma.orm.public.MessageMediaLinks.where({
+        mediaId,
+      }).first();
+      if (!link) {
+        throw new Error("Missing view-once media link");
+      }
+      await rawExecute(
+        lifecycleStatements(cleanupSqlSource).statement17.replaceAll(
+          "clock_timestamp()",
+          "$2::timestamptz"
+        ),
+        [[link.id], clock]
+      );
+      const settled = await prisma.orm.public.MessageMediaLinks.where({
+        id: link.id,
+      }).first();
+      expect(fromPrismaDateTime(settled?.deliveryExpiresAt).toISOString()).toBe(
+        "2026-11-08T00:00:00.999Z"
+      );
     });
   });
 
