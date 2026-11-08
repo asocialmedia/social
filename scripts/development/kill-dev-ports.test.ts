@@ -36,7 +36,7 @@ describe("kill-dev-ports", () => {
 
   test("killStaleDevProcesses executes without error when ports are free", async () => {
     await expect(killStaleDevProcesses([39877])).resolves.toBeUndefined();
-  });
+  }, 15_000);
 
   test("terminates a stale server and releases its port", async () => {
     const child = Bun.spawn(

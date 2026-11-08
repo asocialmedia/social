@@ -205,7 +205,7 @@
     },
     "apps/protocols": {
       "name": "@asm/protocols-app",
-      "version": "0.1.85",
+      "version": "0.1.86",
       "dependencies": {
         "@asm/logger": "workspace:*",
         "@asm/protocols": "workspace:*",
@@ -479,7 +479,7 @@
     },
     "packages/protocols": {
       "name": "@asm/protocols",
-      "version": "0.1.85",
+      "version": "0.1.86",
       "dependencies": {
         "@atproto/lex": "0.3.14",
         "@atproto/syntax": "^0.7.7",
