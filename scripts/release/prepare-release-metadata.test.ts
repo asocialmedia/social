@@ -73,6 +73,13 @@ describe("generateReleaseNotesFile", () => {
     const reusedNotes = await readFile(reused.notesPath, "utf8");
     expect(reusedNotes).toContain("APK reused from Release `v1.13.52+108e1eb`");
 
+    expect(reusedNotes).toContain("| `v0.2.57` |");
+    expect(reusedNotes).not.toContain("0.0.1");
+    const legacy = await run({ REUSED_APK_TAG: "v1.13.40" });
+    expect(await readFile(legacy.notesPath, "utf8")).toContain(
+      "APK reused from Release `v1.13.40`"
+    );
+
     const injected = await run({ REUSED_APK_TAG: "evil `tag](https://x)" });
     const injectedNotes = await readFile(injected.notesPath, "utf8");
     expect(injectedNotes).not.toContain("APK reused from Release");

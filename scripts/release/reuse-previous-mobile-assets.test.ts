@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   hasMobileAsset,
+  reusePreviousMobileAssets,
   selectReleaseWithApk,
 } from "./reuse-previous-mobile-assets";
 
@@ -50,4 +51,104 @@ describe("selectReleaseWithApk", () => {
     ).toBeNull();
     expect(selectReleaseWithApk([])).toBeNull();
   });
+});
+
+test("reuse flow retries lookup and forwards download patterns and provenance", async () => {
+  const { mkdtemp, readFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+  const root = await mkdtemp(path.join(tmpdir(), "asm-reuse-flow-"));
+  const calls: string[][] = [];
+  let viewCalls = 0;
+  try {
+    const envFile = path.join(root, "github-env");
+    const dir = path.join(root, "artifacts");
+    await reusePreviousMobileAssets({
+      repoRoot: root,
+      env: { ARTIFACT_DIR: "artifacts", GITHUB_ENV: envFile },
+      wait: async () => {},
+      logger: { log() {}, warn() {} },
+      runGh: async (args) => {
+        calls.push(args);
+        if (args[1] === "list")
+          return {
+            stdout: JSON.stringify([{ tagName: "v1.2.3" }]),
+            stderr: "",
+            exitCode: 0,
+          };
+        if (args[1] === "view") {
+          viewCalls += 1;
+          if (viewCalls === 1)
+            return { stdout: "", stderr: "HTTP 503", exitCode: 1 };
+          return {
+            stdout: JSON.stringify({
+              assets: [{ name: "asocialmedia-v0.2.57-arm64-v8a.apk" }],
+            }),
+            stderr: "",
+            exitCode: 0,
+          };
+        }
+        return { stdout: "downloaded", stderr: "", exitCode: 0 };
+      },
+    });
+    expect(viewCalls).toBe(2);
+    expect(calls[0]).toEqual([
+      "release",
+      "list",
+      "--limit",
+      "50",
+      "--json",
+      "tagName",
+    ]);
+    expect(calls[1]).toEqual(["release", "view", "v1.2.3", "--json", "assets"]);
+    expect(calls.at(-1)).toEqual([
+      "release",
+      "download",
+      "v1.2.3",
+      "--pattern",
+      "asocialmedia-*.apk",
+      "--pattern",
+      "asocialmedia-*.aab",
+      "--pattern",
+      "asocialmedia-*.apk.sha256",
+      "--pattern",
+      "asocialmedia-*.aab.sha256",
+      "--dir",
+      dir,
+      "--clobber",
+    ]);
+    expect(await readFile(envFile, "utf8")).toBe("REUSED_APK_TAG=v1.2.3\n");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("exhausted metadata lookups warn and allow a release without reused assets", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+  const root = await mkdtemp(path.join(tmpdir(), "asm-reuse-outage-"));
+  let calls = 0;
+  const warnings: string[] = [];
+  try {
+    await reusePreviousMobileAssets({
+      repoRoot: root,
+      env: {},
+      wait: async () => {},
+      logger: {
+        log() {},
+        warn: (message) => {
+          warnings.push(message);
+        },
+      },
+      runGh: async () => {
+        calls += 1;
+        return { stdout: "", stderr: "HTTP 502", exitCode: 1 };
+      },
+    });
+    expect(calls).toBe(3);
+    expect(warnings.join(" ")).toContain("publishing without reused assets");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
