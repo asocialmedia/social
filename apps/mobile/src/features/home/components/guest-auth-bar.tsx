@@ -2,8 +2,9 @@
 // (components/layouts/shell/guest-auth-bar.tsx), mobile arrangement:
 // centered copy stacked above the Log in / Sign up row, orange horizontal
 // gradient, top border + inner bevel, white-gradient Log in pill and gray
-// 3D Sign up pill. UI-only: no scroll-hiding, no routing guards. The parent
-// screen floats the bar over the feed above the bottom dock.
+// 3D Sign up pill. It slides away with the dock on scroll-down, like web; no
+// routing guards. The parent screen floats the bar over the feed above the
+// bottom dock.
 //
 // No safe-area padding here, unlike web's pb-safe. Web applies that only
 // when it has no nav to dock onto (!hasNav && pb-safe); every native call
@@ -22,10 +23,19 @@
 // lip lands where web puts it.
 
 import { useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { ORANGE_GRADIENT } from "@/components/surface/recipes";
+import { subscribeHeaderVisibility } from "@/features/feed/lib/header-visibility";
 
 const BANNER_SHADOWS =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.25), inset 0 1.5px 2px rgba(255, 255, 255, 0.4), 0 -2px 8px rgba(0, 0, 0, 0.18)";
@@ -48,52 +58,84 @@ const BANNER_BORDER = "rgba(246, 107, 21, 0.25)";
 const LOGIN_PILL_GRADIENT = ["#ffffff", "#ececec"] as const;
 const SIGNUP_PILL_GRADIENT = ["#4a4a4a", "#333333"] as const;
 
+// Web's motion transition for the banner: 0.24s on ease [0.32, 0.72, 0, 1].
+const SLIDE_MS = 240;
+const SLIDE_EASING = Easing.bezier(0.32, 0.72, 0, 1);
+
 export function GuestAuthBar() {
   const router = useRouter();
+  const reduceMotion = useReducedMotion();
+  // Web slides the banner fully below the fold on scroll-down and back on
+  // scroll-up, off the same signal as the dock (useHideOnPageScroll), so it
+  // never hovers over content while the dock is gone. Reduced motion keeps
+  // only the fade, as web does.
+  const [hidden, setHidden] = useState(false);
+  const [height, setHeight] = useState(0);
+  const progress = useSharedValue(0);
+  useEffect(() => subscribeHeaderVisibility(setHidden), []);
+  useEffect(() => {
+    progress.set(
+      withTiming(hidden ? 1 : 0, { duration: SLIDE_MS, easing: SLIDE_EASING })
+    );
+  }, [hidden, progress]);
+  const slideStyle = useAnimatedStyle(() => ({
+    opacity: 1 - progress.value,
+    transform: [
+      { translateY: reduceMotion ? 0 : progress.value * height * 1.1 },
+    ],
+  }));
 
   return (
-    <View style={[styles.docked, { borderTopColor: BANNER_BORDER }]}>
-      <Gradient3D
-        colors={ORANGE_GRADIENT}
-        direction="horizontal"
-        radius={0}
-        shadows={BANNER_SHADOWS}
-        style={styles.banner}
-      >
-        <View style={styles.copy}>
-          <Text style={styles.title}>
-            Log in to start posting on asocialmedia
-          </Text>
-          <Text style={styles.subtitle}>
-            Sign in with an account to start posting on asocialmedia
-          </Text>
-        </View>
-        <View style={styles.actions}>
-          <Pressable onPress={() => router.push("/(auth)/login")}>
-            {({ pressed }) => (
-              <Gradient3D
-                colors={LOGIN_PILL_GRADIENT}
-                shadows={WHITE_PILL_SHADOWS}
-                style={[styles.pill, pressed && styles.pressedShift]}
-              >
-                <Text style={styles.loginBtnText}>Log in</Text>
-              </Gradient3D>
-            )}
-          </Pressable>
-          <Pressable onPress={() => router.push("/(auth)/signup")}>
-            {({ pressed }) => (
-              <Gradient3D
-                colors={SIGNUP_PILL_GRADIENT}
-                shadows={pressed ? GRAY_3D_PRESSED_SHADOWS : GRAY_3D_SHADOWS}
-                style={[styles.pill, pressed && styles.pressedShift]}
-              >
-                <Text style={styles.signupBtnText}>Sign up</Text>
-              </Gradient3D>
-            )}
-          </Pressable>
-        </View>
-      </Gradient3D>
-    </View>
+    <Animated.View
+      accessibilityElementsHidden={hidden}
+      importantForAccessibility={hidden ? "no-hide-descendants" : "auto"}
+      onLayout={(event) => setHeight(event.nativeEvent.layout.height)}
+      pointerEvents={hidden ? "none" : "auto"}
+      style={slideStyle}
+    >
+      <View style={[styles.docked, { borderTopColor: BANNER_BORDER }]}>
+        <Gradient3D
+          colors={ORANGE_GRADIENT}
+          direction="horizontal"
+          radius={0}
+          shadows={BANNER_SHADOWS}
+          style={styles.banner}
+        >
+          <View style={styles.copy}>
+            <Text style={styles.title}>
+              Log in to start posting on asocialmedia
+            </Text>
+            <Text style={styles.subtitle}>
+              Sign in with an account to start posting on asocialmedia
+            </Text>
+          </View>
+          <View style={styles.actions}>
+            <Pressable onPress={() => router.push("/(auth)/login")}>
+              {({ pressed }) => (
+                <Gradient3D
+                  colors={LOGIN_PILL_GRADIENT}
+                  shadows={WHITE_PILL_SHADOWS}
+                  style={[styles.pill, pressed && styles.pressedShift]}
+                >
+                  <Text style={styles.loginBtnText}>Log in</Text>
+                </Gradient3D>
+              )}
+            </Pressable>
+            <Pressable onPress={() => router.push("/(auth)/signup")}>
+              {({ pressed }) => (
+                <Gradient3D
+                  colors={SIGNUP_PILL_GRADIENT}
+                  shadows={pressed ? GRAY_3D_PRESSED_SHADOWS : GRAY_3D_SHADOWS}
+                  style={[styles.pill, pressed && styles.pressedShift]}
+                >
+                  <Text style={styles.signupBtnText}>Sign up</Text>
+                </Gradient3D>
+              )}
+            </Pressable>
+          </View>
+        </Gradient3D>
+      </View>
+    </Animated.View>
   );
 }
 
