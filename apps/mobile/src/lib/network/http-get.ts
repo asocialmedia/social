@@ -1,6 +1,13 @@
 const DEFAULT_TIMEOUT_MS = 15_000;
 
-const inFlight = new Map<string, Promise<Response>>();
+interface SharedRequest {
+  controller: AbortController;
+  request: Promise<Response>;
+  // Callers still waiting on this request.
+  waiters: number;
+}
+
+const inFlight = new Map<string, SharedRequest>();
 const fetchIds = new WeakMap<object, number>();
 let nextFetchId = 1;
 
@@ -43,8 +50,8 @@ async function cloneResponse(request: Promise<Response>): Promise<Response> {
   return response.clone();
 }
 
-function removeInFlight(key: string, request: Promise<Response>): void {
-  if (inFlight.get(key) === request) {
+function removeInFlight(key: string, entry: SharedRequest): void {
+  if (inFlight.get(key) === entry) {
     inFlight.delete(key);
   }
 }
@@ -73,10 +80,17 @@ export function getWithTimeout(
   }
   const baseFetch = options.baseFetch ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const key = `${dedupeKey(input, { ...init, method }, baseFetch)}:${timeoutMs}:${options.readBody ?? false}`;
+  // The caller's signal belongs to that caller, not to the shared request:
+  // it is held back from the network call and settles only this caller.
+  const { signal, ...shared } = init;
+  const callerSignal = signal ?? undefined;
+  if (callerSignal?.aborted) {
+    return Promise.reject(abortReason(callerSignal));
+  }
+  const key = `${dedupeKey(input, { ...shared, method }, baseFetch)}:${timeoutMs}:${options.readBody ?? false}`;
   const existing = inFlight.get(key);
   if (existing) {
-    return cloneResponse(existing);
+    return attachCaller(existing, callerSignal);
   }
 
   const controller = new AbortController();
@@ -92,7 +106,7 @@ export function getWithTimeout(
     try {
       const read = async () => {
         const response = await baseFetch(input, {
-          ...init,
+          ...shared,
           method: "GET",
           signal: controller.signal,
         });
@@ -118,15 +132,66 @@ export function getWithTimeout(
       }
     }
   })();
-  inFlight.set(key, request);
+  const entry: SharedRequest = { controller, request, waiters: 0 };
+  inFlight.set(key, entry);
   // Cleanup is intentionally best effort and never changes the request result.
   void (async () => {
     try {
       await request;
-      removeInFlight(key, request);
+      removeInFlight(key, entry);
     } catch {
-      removeInFlight(key, request);
+      removeInFlight(key, entry);
     }
   })();
-  return cloneResponse(request);
+  return attachCaller(entry, callerSignal);
+}
+
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("Aborted", "AbortError");
+}
+
+// Joins one caller to a shared request. A caller with a signal leaves on
+// abort and gets its own rejection; the network read is cancelled only when
+// the last caller has left, so one screen unmounting never cancels the same
+// read for another. A caller without a signal stays until the request ends.
+function attachCaller(
+  entry: SharedRequest,
+  signal: AbortSignal | undefined
+): Promise<Response> {
+  entry.waiters += 1;
+  const response = cloneResponse(entry.request);
+  if (!signal) {
+    return response;
+  }
+  // After this caller leaves, the shared read can still reject (it is
+  // cancelled once nobody waits). That branch is consumed here so it never
+  // surfaces as an unhandled rejection.
+  void (async () => {
+    try {
+      await response;
+    } catch {
+      // Reported to the caller through the race below, or nobody is left.
+    }
+  })();
+  let onAbort: (() => void) | null = null;
+  // oxlint-disable-next-line promise/avoid-new -- an AbortSignal only reports through an event
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => {
+      entry.waiters -= 1;
+      if (entry.waiters <= 0) {
+        entry.controller.abort();
+      }
+      reject(abortReason(signal));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  return (async () => {
+    try {
+      return await Promise.race([response, aborted]);
+    } finally {
+      if (onAbort && !signal.aborted) {
+        signal.removeEventListener("abort", onAbort);
+      }
+    }
+  })();
 }
