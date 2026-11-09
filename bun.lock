@@ -111,7 +111,7 @@
     },
     "apps/mobile": {
       "name": "@asocialmedia/mobile",
-      "version": "0.3.9",
+      "version": "0.3.11",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/db": "workspace:*",
@@ -464,7 +464,7 @@
     },
     "packages/notifications": {
       "name": "@asm/notifications",
-      "version": "1.0.13",
+      "version": "1.0.14",
       "dependencies": {
         "jose": "^6.2.12",
         "web-push": "^3.6.7",

@@ -498,7 +498,9 @@ export function NotificationsScreen() {
                   if (pushStatus.reason === "permission-denied") {
                     void Linking.openSettings();
                   } else {
-                    void registerForPushNotifications(runWithInstallToken);
+                    void registerForPushNotifications(runWithInstallToken, {
+                      prompt: true,
+                    });
                   }
                 }}
               >

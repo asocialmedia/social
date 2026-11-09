@@ -206,6 +206,7 @@ export function NativeIncognitoThread({
   const [localError, setLocalError] = useState<string | null>(null);
   const [clock, setClock] = useState(Date.now);
   const mounted = useRef(true);
+  const earlierLoad = useRef<AbortController | null>(null);
   const generation = useRef(0);
   const pending = useRef<{ id: string; signature: string } | null>(null);
   const reactionLocks = useRef(new Set<string>());
@@ -520,13 +521,26 @@ export function NativeIncognitoThread({
     }
     setLatest(false);
     setLoading(true);
+    // Leaving the thread aborts the read, so it never sets state on an
+    // unmounted screen.
+    earlierLoad.current?.abort();
+    const controller = new AbortController();
+    earlierLoad.current = controller;
     try {
-      await load(new AbortController().signal, before);
+      await load(controller.signal, before);
     } catch {
-      setLocalError("Earlier messages couldn't be loaded. Retry.");
-      setLoading(false);
+      if (!controller.signal.aborted && mounted.current) {
+        setLocalError("Earlier messages couldn't be loaded. Retry.");
+        setLoading(false);
+      }
     }
   };
+  useEffect(
+    () => () => {
+      earlierLoad.current?.abort();
+    },
+    []
+  );
   const visibleRows = useMemo(
     () =>
       rows.filter(

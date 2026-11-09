@@ -19,6 +19,11 @@
 // /posts/abcd1234). Post paths map onto the native detail screen; everything
 // else resolves to the notifications list, which always exists.
 
+import {
+  LEGACY_PUSH_CHANNEL_ID,
+  PUSH_CHANNELS,
+} from "@asm/notifications/shared";
+import type { PushChannelImportance } from "@asm/notifications/shared";
 import { isRunningInExpoGo } from "expo";
 import type * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
@@ -37,8 +42,6 @@ import {
 import { createPushTokenObserver } from "./push-token-observer";
 
 export { pathToNativeRoute } from "./push-path";
-
-const ANDROID_CHANNEL_ID = "default";
 
 // Foreground presentation: show the banner and play sound even while the app
 // is open, so live notifications alert visibly and audibly.
@@ -65,20 +68,39 @@ function loadNotifications(): Promise<NotificationsModule> | null {
   return notificationsPromise;
 }
 
-async function ensureAndroidChannel(): Promise<void> {
+// Creates the per-category channels the delivery worker posts to (shared ids
+// in @asm/notifications), then drops the old catch-all MAX channel. Android
+// keeps a channel's importance once created, so retuning "default" in place
+// would not have quieted it.
+async function ensureAndroidChannels(): Promise<void> {
   const notifications = await loadNotifications();
   if (Platform.OS !== "android" || !notifications) {
     return;
   }
-  await notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
-    enableLights: true,
-    enableVibrate: true,
-    importance: notifications.AndroidImportance.MAX,
-    lightColor: "#ff9500",
-    name: "Notifications",
-    showBadge: true,
-    vibrationPattern: [0, 250, 250, 250],
-  });
+  const importance: Record<PushChannelImportance, number> = {
+    default: notifications.AndroidImportance.DEFAULT,
+    high: notifications.AndroidImportance.HIGH,
+    low: notifications.AndroidImportance.LOW,
+  };
+  for (const channel of PUSH_CHANNELS) {
+    const quiet = channel.importance === "low";
+    // oxlint-disable-next-line no-await-in-loop -- five tiny native calls, in order
+    await notifications.setNotificationChannelAsync(channel.id, {
+      description: channel.description,
+      enableLights: !quiet,
+      enableVibrate: !quiet,
+      importance: importance[channel.importance],
+      lightColor: "#ff9500",
+      name: channel.name,
+      showBadge: true,
+      vibrationPattern: quiet ? null : [0, 250, 250, 250],
+    });
+  }
+  try {
+    await notifications.deleteNotificationChannelAsync(LEGACY_PUSH_CHANNEL_ID);
+  } catch {
+    // Already gone on a fresh install.
+  }
 }
 
 // The push routes authenticate with the session cookie and bearer token like every
@@ -156,11 +178,16 @@ let registrationFlight: {
   promise: Promise<string | null>;
 } | null = null;
 
+// `prompt` lets this call show the system permission dialog. Only a direct
+// tap on a "Turn on" control passes it; lifecycle registration (sign-in,
+// foreground, token rotation) registers silently when permission is already
+// granted and otherwise publishes "permission-not-requested".
 export function registerForPushNotifications(
-  runWithInstallToken: RunWithInstallToken
+  runWithInstallToken: RunWithInstallToken,
+  options: { prompt?: boolean } = {}
 ): Promise<string | null> {
   const generation = registrationGeneration;
-  if (registrationFlight?.generation === generation) {
+  if (registrationFlight?.generation === generation && !options.prompt) {
     return registrationFlight.promise;
   }
   const previous = registrationFlight?.promise;
@@ -188,9 +215,18 @@ export function registerForPushNotifications(
       if (!notifications) {
         return null;
       }
-      await ensureAndroidChannel();
+      await ensureAndroidChannels();
       let permission = await notifications.getPermissionsAsync();
       if (!permission.granted && permission.canAskAgain) {
+        if (!options.prompt) {
+          // Background registration never fires the system prompt cold; the
+          // notifications screen explains first and asks on the reader's tap.
+          publish({
+            detail: "Notification permission has not been requested yet.",
+            reason: "permission-not-requested",
+          });
+          return null;
+        }
         permission = await notifications.requestPermissionsAsync();
       }
       if (!permission.granted) {
@@ -260,13 +296,62 @@ export function resetPushRegistration(): void {
   publishPushSetupStatus(null);
 }
 
-// Unregisters the last-known token (best-effort, on sign-out).
+// The device's FCM token without prompting. It is stable per install, so a
+// cold start can still name the token an earlier session registered.
+async function currentDeviceToken(): Promise<string | null> {
+  const notifications = await loadNotifications();
+  if (!notifications || Platform.OS !== "android") {
+    return null;
+  }
+  try {
+    const permission = await notifications.getPermissionsAsync();
+    if (!permission.granted) {
+      return null;
+    }
+    const deviceToken = await notifications.getDevicePushTokenAsync();
+    return typeof deviceToken.data === "string" ? deviceToken.data : null;
+  } catch {
+    return null;
+  }
+}
+
+// Unregisters this device's token (best-effort, on sign-out). The in-memory
+// token is gone after a cold start, which left the binding on the server and
+// sent the previous account's notifications to the next person signing in, so
+// the token is read back from the device when memory has none.
 export async function unregisterPushNotifications(): Promise<void> {
   registrationGeneration += 1;
   publishPushSetupStatus(null);
-  if (lastRegisteredToken) {
-    await unregisterToken(lastRegisteredToken);
-    lastRegisteredToken = null;
+  const token = lastRegisteredToken ?? (await currentDeviceToken());
+  lastRegisteredToken = null;
+  if (token) {
+    await unregisterToken(token);
+  }
+}
+
+// Mirrors the unread count onto the launcher badge.
+export async function syncAppBadge(count: number): Promise<void> {
+  const notifications = await loadNotifications();
+  if (!notifications) {
+    return;
+  }
+  try {
+    await notifications.setBadgeCountAsync(Math.max(0, count));
+  } catch {
+    // Launchers without badge support reject; nothing to show there anyway.
+  }
+}
+
+// Clears delivered alerts from the tray once everything has been read in app.
+export async function dismissDeliveredNotifications(): Promise<void> {
+  const notifications = await loadNotifications();
+  if (!notifications) {
+    return;
+  }
+  try {
+    await notifications.dismissAllNotificationsAsync();
+  } catch {
+    // Best effort: a stale tray entry is harmless.
   }
 }
 

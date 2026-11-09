@@ -2,9 +2,10 @@
 // per-user activity stream, both server-sent events over fetch + a ReadableStream
 // reader.
 //
-// Native callers inject expo/fetch so headers and chunks arrive before the
-// response ends. React Native global fetch buffers the entire SSE response -- and it is the same shape web uses, which keeps one frame
-// parser for both clients.
+// Callers inject expo/fetch so headers and chunks arrive before the response
+// ends; React Native's global fetch buffers the entire SSE response. The frame
+// format is the same one web reads, which keeps one parser shape for both
+// clients.
 //
 // TWO DELIBERATE DIFFERENCES FROM THE SHARED @/lib/sse-stream READER:
 // 1. Backoff resets only on the server's `connected` greeting, not on a
@@ -209,14 +210,17 @@ export type MessageStreamFetch = (
 export interface MessageStreamOptions extends MessageStreamCallbacks {
   url: string;
   cookie?: string | null;
-  baseFetch?: MessageStreamFetch;
+  // Required: React Native's global fetch buffers the whole SSE response, so
+  // a stream read through it would deliver nothing until the server hung up.
+  // Callers pass expo/fetch, which streams.
+  baseFetch: MessageStreamFetch;
   signal?: AbortSignal;
   setTimeoutFn?: typeof setTimeout;
   clearTimeoutFn?: typeof clearTimeout;
 }
 
 export async function readMessageStream({
-  baseFetch = fetch,
+  baseFetch,
   clearTimeoutFn = clearTimeout,
   cookie,
   onConnect,

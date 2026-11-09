@@ -1,6 +1,6 @@
 // Unread-notification count store: one module-level source of truth for the
 // header bell badge, mirroring how the feed cache is shared without a state
-// library. Polling lives here (60s, same interval as web's React Query) so the
+// library. Polling lives here (every 20s, UNREAD_POLL_INTERVAL_MS) so the
 // header, the bottom dock and the notifications screen all read one number and
 // one timer.
 //
@@ -23,6 +23,7 @@ type Listener = (count: number) => void;
 class UnreadCountStore {
   private count = 0;
   private listeners = new Set<Listener>();
+  private allReadListeners = new Set<() => void>();
   private poller: ReturnType<typeof createExpoPoller> | null = null;
   // A session change (sign in / out) must stop a poll loop that was started
   // for the previous identity.
@@ -145,10 +146,22 @@ class UnreadCountStore {
       this.generation += 1;
       this.refreshFlight = null;
       this.set(0);
+      for (const listener of this.allReadListeners) {
+        listener();
+      }
       void this.refresh();
       return true;
     }
     return false;
+  }
+
+  // Fires after the server accepts mark-all-read, so the tray can be cleared
+  // without this module importing expo-notifications.
+  subscribeAllRead(listener: () => void): () => void {
+    this.allReadListeners.add(listener);
+    return () => {
+      this.allReadListeners.delete(listener);
+    };
   }
 }
 

@@ -17,8 +17,10 @@ import { useStartupPresented } from "@/lib/lifecycle/startup-context";
 import { logInfo } from "@/lib/lifecycle/telemetry";
 
 import {
+  dismissDeliveredNotifications,
   registerForPushNotifications,
   resetPushRegistration,
+  syncAppBadge,
   subscribeToPushReceived,
   subscribeToPushTokenChanges,
   subscribeToPushTaps,
@@ -53,6 +55,25 @@ export function PushRegistrar() {
       void unreadCountStore.refresh();
     });
     return () => listener.remove();
+  }, []);
+
+  // The launcher badge follows the in-app unread count, and reading
+  // everything in the app clears the delivered alerts from the tray, so the
+  // badge and tray never outlive what the bell shows.
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      return;
+    }
+    const stopBadge = unreadCountStore.subscribe((count) => {
+      void syncAppBadge(count);
+    });
+    const stopTray = unreadCountStore.subscribeAllRead(() => {
+      void dismissDeliveredNotifications();
+    });
+    return () => {
+      stopBadge();
+      stopTray();
+    };
   }, []);
 
   useEffect(() => {
