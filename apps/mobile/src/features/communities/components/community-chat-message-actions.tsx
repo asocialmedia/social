@@ -52,39 +52,44 @@ function CommunityChatMessageActions({
   onStartThread: () => void;
 }) {
   const { theme } = useAppTheme();
-  if (!gating.canSend) {
-    return (
-      <Text style={[styles.note, { color: theme.dividerText }]}>
-        Join this community to reply or react.
-      </Text>
-    );
-  }
+  // Web gates per item: only reacting, replying, threading and editing need
+  // send access. Copy link, staff Pin and Delete stay available, so a
+  // moderator can still manage a read-only channel.
   return (
     <>
-      <View style={styles.reactions}>
-        {QUICK_MESSAGE_REACTIONS.map((emoji) => (
-          <Pressable
-            accessibilityLabel={`React ${emoji}`}
-            accessibilityRole="button"
-            key={emoji}
-            onPress={() => onReact(emoji)}
-            style={styles.reaction}
-          >
-            <Text style={styles.reactionEmoji}>{emoji}</Text>
-          </Pressable>
-        ))}
-      </View>
-      <ActionRow
-        icon={<Reply color={accent} size={18} />}
-        label="Reply"
-        onPress={onReply}
-      />
-      {!gating.threadId && !gating.hasThread ? (
-        <ActionRow
-          icon={<MessageCircle color={accent} size={18} />}
-          label="Start a thread"
-          onPress={onStartThread}
-        />
+      {gating.canSend ? null : (
+        <Text style={[styles.note, { color: theme.dividerText }]}>
+          Join this community to reply or react.
+        </Text>
+      )}
+      {gating.canSend ? (
+        <>
+          <View style={styles.reactions}>
+            {QUICK_MESSAGE_REACTIONS.map((emoji) => (
+              <Pressable
+                accessibilityLabel={`React ${emoji}`}
+                accessibilityRole="button"
+                key={emoji}
+                onPress={() => onReact(emoji)}
+                style={styles.reaction}
+              >
+                <Text style={styles.reactionEmoji}>{emoji}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <ActionRow
+            icon={<Reply color={accent} size={18} />}
+            label="Reply"
+            onPress={onReply}
+          />
+          {!gating.threadId && !gating.hasThread ? (
+            <ActionRow
+              icon={<MessageCircle color={accent} size={18} />}
+              label="Start a thread"
+              onPress={onStartThread}
+            />
+          ) : null}
+        </>
       ) : null}
       <ActionRow
         icon={<Link2 color={accent} size={18} />}
@@ -99,7 +104,7 @@ function CommunityChatMessageActions({
           onPress={onPin}
         />
       ) : null}
-      {gating.isOwn ? (
+      {gating.isOwn && gating.canSend ? (
         <ActionRow
           icon={<Pencil color={accent} size={18} />}
           label="Edit message"

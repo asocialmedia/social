@@ -117,11 +117,17 @@ export function CommunityRosterCard({
     successTitle: string
   ) => {
     setBusyUserId(userId);
-    const resolved = await options();
-    const result = await runWithInstallToken(
-      () => run(resolved),
-      (value) => Boolean(value && value.kind === "install-token-required")
-    );
+    let result: CommunityMutationResult | null;
+    try {
+      const resolved = await options();
+      result = await runWithInstallToken(
+        () => run(resolved),
+        (value) => Boolean(value && value.kind === "install-token-required")
+      );
+    } catch {
+      // A thrown request must not leave the row disabled for good.
+      result = { kind: "error", message: "Couldn't do that", status: 0 };
+    }
     setBusyUserId(null);
     if (result === null) {
       return;

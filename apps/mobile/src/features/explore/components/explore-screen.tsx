@@ -975,6 +975,16 @@ const ExploreTabContent = memo(
       },
       [activeTab, handleFollow, openUser, router, viewerId]
     );
+    // The list's cell renderer, stable across renders so FlashList can reuse
+    // cells; an inline closure here re-created every visible cell each render.
+    const renderCell = useCallback(
+      ({ item }: { item: ExploreItem }) => (
+        <View style={activeTab === "people" ? undefined : styles.gridCell}>
+          {renderItem({ item })}
+        </View>
+      ),
+      [activeTab, renderItem]
+    );
 
     const showPill =
       newItems.length + remote.newItems.length > 0 &&
@@ -1251,13 +1261,7 @@ const ExploreTabContent = memo(
                 ListHeaderComponent={header ?? undefined}
                 ListEmptyComponent={empty ?? undefined}
                 ListFooterComponent={footer ?? undefined}
-                renderItem={({ item }) => (
-                  <View
-                    style={activeTab === "people" ? undefined : styles.gridCell}
-                  >
-                    {renderItem({ item })}
-                  </View>
-                )}
+                renderItem={renderCell}
               />
             </Animated.View>
             {pull.loader}

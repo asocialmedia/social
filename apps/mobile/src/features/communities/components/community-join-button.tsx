@@ -6,6 +6,7 @@
 import { Pressable, StyleSheet, Text } from "react-native";
 
 import { Gradient3D } from "@/components/surface/gradient-3d";
+import { btnGray } from "@/components/surface/recipes";
 import { useAppTheme } from "@/theme";
 
 import type { CommunityMembership } from "../state/use-community-membership";
@@ -56,6 +57,8 @@ export function CommunityJoinButton({
   style?: object;
 }) {
   const { isDark } = useAppTheme();
+  // `.btn-3d-gray` resting and pressed, in the active theme.
+  const gray = btnGray(isDark);
   const { isOwner, pending, membership, toggle } = membershipState;
 
   if (isOwner) {
@@ -97,12 +100,22 @@ export function CommunityJoinButton({
           </Gradient3D>
         ) : (
           <Gradient3D
-            colors={pressed ? GRAY_ACTIVE : grayResting(isDark)}
+            colors={pressed ? gray.pressed.colors : gray.resting.colors}
             radius={9999}
-            shadows={pressed ? GRAY_ACTIVE_SHADOWS : grayShadows(isDark)}
+            shadows={pressed ? gray.pressed.shadows : gray.resting.shadows}
             style={[styles.pill, pressed && styles.pressed]}
           >
-            <Text style={styles.labelGray}>{label}</Text>
+            <Text
+              style={[
+                styles.labelGray,
+                // The white emboss only reads on the light pill; on the dark
+                // one it haloed white text.
+                isDark ? styles.labelGrayDark : null,
+                { color: gray.resting.text },
+              ]}
+            >
+              {label}
+            </Text>
           </Gradient3D>
         )
       }
@@ -119,26 +132,16 @@ const BTN_3D =
 const BTN_3D_ACTIVE =
   "inset 0 0 0 1px rgba(255, 255, 255, 0.2), inset 0 1px 2px rgba(255, 255, 255, 0.18), 0 0 0 1px rgba(170, 60, 0, 0.95), 0 0 0 rgba(255, 255, 255, 0), 0 1px 2px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.12)";
 
-const grayResting = (isDark: boolean) =>
-  isDark
-    ? (["#4a4a4a", "#333333"] as const)
-    : (["#f7f8fa", "#e4e7ec"] as const);
-const grayShadows = (isDark: boolean) =>
-  isDark
-    ? "inset 0 0 0 1px rgba(255, 255, 255, 0.18), inset 0 1.5px 2px rgba(255, 255, 255, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.7), 0 1px 2px rgba(0, 0, 0, 0.2)"
-    : "inset 0 0 0 1px rgba(255, 255, 255, 0.85), inset 0 1.5px 2px rgba(255, 255, 255, 0.95), 0 0 0 1px rgba(0, 0, 0, 0.1), 0 1px 1px rgba(0, 0, 0, 0.03), 0 2px 4px rgba(0, 0, 0, 0.06)";
-const GRAY_ACTIVE = ["#dfe3e9", "#cdd2da"] as const;
-const GRAY_ACTIVE_SHADOWS =
-  "inset 0 0 0 1px rgba(255, 255, 255, 0.6), inset 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.06)";
-
 const styles = StyleSheet.create({
   labelGray: {
-    color: "#1f2430",
     fontFamily: "SofiaProMed",
     fontSize: 12,
     fontWeight: "normal",
     textShadowColor: "rgba(255, 255, 255, 0.7)",
     textShadowOffset: { height: 1, width: 0 },
+  },
+  labelGrayDark: {
+    textShadowColor: "rgba(0, 0, 0, 0.35)",
   },
   labelPrimary: {
     color: "#ffffff",
