@@ -97,6 +97,7 @@ import { getMessageGroupMeta } from "@/features/messages/lib/message-grouping";
 import type { MessageGroupMeta } from "@/features/messages/lib/message-grouping";
 import { getMessageReceipt } from "@/features/messages/lib/message-receipts";
 import { messageReadRetryDelay } from "@/features/messages/lib/read-retry";
+import { senderRatchet } from "@/features/messages/lib/sender-ratchet";
 import { buildTranscriptRows } from "@/features/messages/lib/transcript-rows";
 import type { TranscriptItem } from "@/features/messages/lib/transcript-rows";
 import type {
@@ -622,20 +623,24 @@ function NormalMessageThreadScreen({
       }
       // The newest epoch is where new messages belong, and the ratchet index counts
       // what this sender has already sent in it.
-      let baseIndex = 0;
+      // The loaded rows are only a floor: the counter outside the window also
+      // knows sends made while the window sat in history, and reserving keeps
+      // two concurrent sends off the same index.
+      let windowFloor = 0;
       for (const row of transcriptStore.getSnapshot(conversationId).messages) {
         if (row.senderId === userId) {
-          baseIndex = Math.max(baseIndex, row.ratchetIndex + 1);
+          windowFloor = Math.max(windowFloor, row.ratchetIndex + 1);
         }
       }
       const sent = await sendEncryptedMessage(
         conversationId,
         rootKey,
         userId,
-        baseIndex,
+        senderRatchet.reserve(conversationId, windowFloor),
         payload,
         options
       );
+      senderRatchet.observe(conversationId, sent.ratchetIndex);
       transcriptStore.appendMessage(conversationId, sent);
     },
     [apiOptions, conversationId, invalidateKeys, privateKey, userId]

@@ -80,3 +80,83 @@ test("body-aware deduplication buffers once and gives independent completed resp
   expect(await first.json()).toEqual({ posts: ["one"] });
   expect(await second.json()).toEqual({ posts: ["one"] });
 });
+
+// A fetch the test releases by hand, recording whether its signal fired.
+function gatedFetch() {
+  const state = { aborted: false, calls: 0 };
+  let release: (() => void) | null = null;
+  const baseFetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+    state.calls += 1;
+    // oxlint-disable-next-line promise/avoid-new -- the test controls when the response lands
+    return new Promise<Response>((resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => {
+        state.aborted = true;
+        reject(new DOMException("Aborted", "AbortError"));
+      });
+      release = () => resolve(Response.json({ ok: true }));
+    });
+  }) as unknown as typeof fetch;
+  return { baseFetch, release: () => release?.(), state };
+}
+
+describe("caller abort signals", () => {
+  test("one caller leaving does not cancel the read for another", async () => {
+    const gate = gatedFetch();
+    const leaving = new AbortController();
+    const first = getWithTimeout(
+      "https://api.test/shared",
+      { signal: leaving.signal },
+      { baseFetch: gate.baseFetch }
+    );
+    const second = getWithTimeout(
+      "https://api.test/shared",
+      {},
+      { baseFetch: gate.baseFetch }
+    );
+    leaving.abort();
+    await expect(first).rejects.toThrow();
+    expect(gate.state.aborted).toBe(false);
+    gate.release();
+    const response = await second;
+    expect(await response.json()).toEqual({ ok: true });
+    expect(gate.state.calls).toBe(1);
+  });
+
+  test("the read is cancelled once every caller has left", async () => {
+    const gate = gatedFetch();
+    const a = new AbortController();
+    const b = new AbortController();
+    const first = getWithTimeout(
+      "https://api.test/abandoned",
+      { signal: a.signal },
+      { baseFetch: gate.baseFetch }
+    );
+    const second = getWithTimeout(
+      "https://api.test/abandoned",
+      { signal: b.signal },
+      { baseFetch: gate.baseFetch }
+    );
+    a.abort();
+    b.abort();
+    const results = await Promise.allSettled([first, second]);
+    expect(results.map((result) => result.status)).toEqual([
+      "rejected",
+      "rejected",
+    ]);
+    expect(gate.state.aborted).toBe(true);
+  });
+
+  test("an already aborted signal rejects without a request", async () => {
+    const gate = gatedFetch();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      getWithTimeout(
+        "https://api.test/never",
+        { signal: controller.signal },
+        { baseFetch: gate.baseFetch }
+      )
+    ).rejects.toThrow();
+    expect(gate.state.calls).toBe(0);
+  });
+});

@@ -6,3 +6,5 @@ export default function PostDetailRoute() {
   const { postId } = useLocalSearchParams<{ postId?: string }>();
   return <PostDetailScreen postId={typeof postId === "string" ? postId : ""} />;
 }
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/feedback/route-error-boundary";

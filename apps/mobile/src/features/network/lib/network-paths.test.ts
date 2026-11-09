@@ -57,8 +57,12 @@ test("maps author links, community post slugs, media and conversation links", ()
     nativeNetworkPath("/network/bluesky/profile?actor=did%3Aplc%3Aalice")
   ).toBe("/external-profile?actor=did%3Aplc%3Aalice");
   expect(nativeNetworkPath("/a/code/posts/123/a-post-slug/media/2")).toBe(
-    "/posts/123/media/2"
+    "/a/code/posts/123/media/2"
   );
+  expect(nativeNetworkPath("/a/code/posts/123/a-post-slug")).toBe(
+    "/a/code/posts/123"
+  );
+  expect(nativeNetworkPath("/posts/123/a-post-slug")).toBe("/posts/123");
   expect(
     nativeNetworkPath("asocialmedia://settings?tab=account&state=nonce")
   ).toBe("/settings?tab=account&state=nonce");
@@ -94,4 +98,47 @@ test("short profile URLs open the native profile", () => {
     "/hackernews?sort=score"
   );
   expect(nativeNetworkPath("asocialmedia://camera")).toBe("/camera");
+});
+test("community chat links open the chat, not the notifications list", () => {
+  expect(nativeNetworkPath("https://asocialmedia.cc/a/code/chat")).toBe(
+    "/a/code/chat"
+  );
+  expect(nativeNetworkPath("/a/code/chat/general")).toBe(
+    "/a/code/chat/general"
+  );
+  expect(nativeNetworkPath("/a/code/chat/general/threads/t1?message=m_1")).toBe(
+    "/a/code/chat/general/threads/t1?message=m_1"
+  );
+  // A jump target that is not an id is dropped, never forwarded.
+  expect(nativeNetworkPath("/a/code/chat/general?message=../x")).toBe(
+    "/a/code/chat/general"
+  );
+});
+test("video share links open the post media viewer on that video", () => {
+  expect(nativeNetworkPath("https://asocialmedia.cc/watch/p1/m_2")).toBe(
+    "/posts/p1/media/0?mediaId=m_2"
+  );
+  expect(nativeNetworkPath("/watch/p1")).toBeNull();
+  expect(nativeNetworkPath("/watch/p1/../x")).toBeNull();
+});
+test("legal pages open the in-app document screen", () => {
+  expect(nativeNetworkPath("asocialmedia://privacy")).toBe("/legal/privacy");
+  expect(nativeNetworkPath("https://asocialmedia.cc/toc/")).toBe(
+    "/legal/terms"
+  );
+});
+test("Android claims video share links", () => {
+  const claims = config.expo.android.intentFilters.flatMap(
+    (filter) => filter.data
+  );
+  for (const host of ["asocialmedia.cc", "www.asocialmedia.cc"]) {
+    expect(
+      claims.some(
+        (entry) =>
+          entry.host === host &&
+          "pathPrefix" in entry &&
+          entry.pathPrefix === "/watch/"
+      )
+    ).toBe(true);
+  }
 });

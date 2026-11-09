@@ -9,6 +9,7 @@ import {
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useInstall } from "@/features/auth/state/install";
 import { useSessionContext } from "@/features/auth/state/session";
+import { useFollowStateStore } from "@/features/feed/state/follow-state-store";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 
 import {
@@ -287,6 +288,10 @@ export function useProfile(username: string): {
           _count: { ...optimistic._count, followers: result.followers },
           isFollowing: result.isFollowedByUser,
         });
+        // Post cards by this author read the shared entry.
+        useFollowStateStore
+          .getState()
+          .setFollowing(current.id, result.isFollowedByUser);
       } catch {
         profileCache.setData(key, previous);
       }

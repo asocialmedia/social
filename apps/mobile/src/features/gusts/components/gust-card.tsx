@@ -64,7 +64,6 @@ import { extractInlineMeta } from "@/features/feed/lib/feed-types";
 import { mediaPosterUrl } from "@/features/feed/lib/media-url";
 import {
   cuesFromTranscript,
-  findActiveCue,
   parseWebVttCues,
   splitTranscriptIntoTimedLines,
 } from "@/features/feed/lib/transcript-cues";
@@ -85,6 +84,7 @@ import { haptic } from "@/lib/interaction/haptics";
 import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
 
 import { gustVideo, gustVideoUrl } from "../lib/gusts-api";
+import { createPlaybackClock } from "../lib/playback-clock";
 import { gustPreviewGeometry } from "../lib/preview-geometry";
 import {
   captionNeedsToggle,
@@ -101,15 +101,13 @@ import { useGustMediaGestures } from "../state/use-gust-media-gestures";
 import { useGustPinchZoom } from "../state/use-gust-pinch-zoom";
 import { FollowButton } from "./follow-button";
 import type { AuraBurstHandle } from "./gust-overlays";
+import { AuraBurstLayer, GustExplicitGate, PlayPulse } from "./gust-overlays";
 import {
-  AuraBurstLayer,
-  GustExplicitGate,
-  LiveCaption,
-  PlayPulse,
-  SeekBar,
-} from "./gust-overlays";
+  ClockedLiveCaption,
+  ClockedSeekBar,
+  ClockedTranscriptDrawer,
+} from "./gust-playback-views";
 import { RAIL_ICON_COLOR, RailButton } from "./rail-button";
-import { TranscriptDrawer } from "./transcript-drawer";
 
 // text-primary, hsl(22.93 92.59% 52.35%).
 const PRIMARY = "#f66b15";
@@ -199,7 +197,10 @@ export function GustCard({
     playbackRate: player.playbackRate,
   });
   const [holdingSpeed, setHoldingSpeed] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
+  // Playback position, kept off React state so a timeUpdate re-renders only
+  // the seek bar, caption and transcript highlight that read it.
+  // oxlint-disable-next-line react/hook-use-state -- one stable clock per card; it carries its own subscribers
+  const [clock] = useState(() => createPlaybackClock());
   const [duration, setDuration] = useState(0);
   const [videoAspectRatio, setVideoAspectRatio] = useState(() =>
     video?.width && video?.height ? video.width / video.height : 9 / 16
@@ -309,7 +310,7 @@ export function GustCard({
   }, [appActive, isActive, suspended, post.id]);
 
   useEventListener(player, "timeUpdate", (payload) => {
-    setCurrentTime(payload.currentTime);
+    clock.set(payload.currentTime);
     playbackSample.current.position = payload.currentTime;
     engagement.current?.sample(playbackSample.current, Date.now());
   });
@@ -389,12 +390,11 @@ export function GustCard({
   // Inactive cards drop their progress, like web's render-phase reset.
   useEffect(() => {
     if (!isActive) {
-      // oxlint-disable-next-line react/set-state-in-effect -- leaving the active slot resets the seek line and caption clamp
-      setCurrentTime(0);
-      // oxlint-disable-next-line react/set-state-in-effect -- same reset as above
+      clock.set(0);
+      // oxlint-disable-next-line react/set-state-in-effect -- leaving the active slot resets the caption clamp
       setCaptionExpanded(false);
     }
-  }, [isActive]);
+  }, [clock, isActive]);
 
   useEffect(
     () =>
@@ -479,8 +479,7 @@ export function GustCard({
   );
   const cues =
     fetchedCues !== null && fetchedCues.length > 0 ? fetchedCues : directCues;
-  const activeCue =
-    captionsOn && isActive && source ? findActiveCue(cues, currentTime) : null;
+  const showCaption = captionsOn && isActive && source !== null;
 
   const togglePlay = () => {
     if (!source || !revealed) {
@@ -528,7 +527,7 @@ export function GustCard({
     }
     // oxlint-disable-next-line react/immutability -- expo-video's documented player API; no setter exists
     player.currentTime = seconds;
-    setCurrentTime(seconds);
+    clock.set(seconds);
   };
 
   const continueExplicit = () => {
@@ -594,7 +593,6 @@ export function GustCard({
   const needsToggle = captionNeedsToggle(content);
   const flame = getAuraFlameStyle(vote.aura);
   const views = usePostViews(post.id, post.viewCount ?? 0);
-  const progress = duration > 0 ? currentTime / duration : 0;
   const showBuffering =
     isActive && revealed && source !== null && status === "loading";
 
@@ -788,8 +786,8 @@ export function GustCard({
           </View>
         ) : null}
         <AuraBurstLayer ref={auraLayer} />
-        {activeCue && !eddiesOpen ? (
-          <LiveCaption key={`${activeCue.start}`} text={activeCue.text} />
+        {showCaption && !eddiesOpen ? (
+          <ClockedLiveCaption clock={clock} cues={cues} />
         ) : null}
         {revealed ? null : (
           <GustExplicitGate
@@ -1079,13 +1077,13 @@ export function GustCard({
         </View>
 
         {eddiesOpen ? null : (
-          <SeekBar duration={duration} onSeek={seek} progress={progress} />
+          <ClockedSeekBar clock={clock} duration={duration} onSeek={seek} />
         )}
 
         {!post.external && transcriptOpen && isActive ? (
-          <TranscriptDrawer
+          <ClockedTranscriptDrawer
+            clock={clock}
             cues={cues}
-            currentTime={currentTime}
             loading={cuesLoading && fetchedCues === null}
             onClose={onCloseTranscript}
             onSeek={(seconds) => {

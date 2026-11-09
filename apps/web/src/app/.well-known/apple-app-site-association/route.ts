@@ -20,6 +20,7 @@ export function GET() {
                   "/gusts*",
                   "/messages*",
                   "/settings*",
+                  "/watch/*",
                 ],
               },
             ]

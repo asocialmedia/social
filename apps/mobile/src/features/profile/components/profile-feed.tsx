@@ -953,9 +953,9 @@ export function ProfileFeed({
     },
     [onSwipeNavigate]
   );
-  /* eslint-disable react/capitalized-calls -- Gesture.Pan is a factory, not a component */
   const swipeGesture = useMemo(
     () =>
+      // oxlint-disable-next-line react/capitalized-calls -- Gesture.Pan is a factory, not a component
       Gesture.Pan()
         .activeOffsetX([-24, 24])
         .failOffsetY([-12, 12])
@@ -971,7 +971,6 @@ export function ProfileFeed({
         }),
     [commitSwipe]
   );
-  /* eslint-enable react/capitalized-calls */
 
   const openPost = useCallback(
     (post: FeedPost) => openPostRoute(router, post.id),
@@ -1412,12 +1411,11 @@ export function ProfileFeed({
   // Pull (vertical) and swipe (horizontal) run simultaneously: direction
   // locks decide the winner natively, so a vertical pull never triggers a tab
   // switch and a horizontal swipe never starts a refresh.
-  /* eslint-disable react/capitalized-calls -- Gesture.Simultaneous is a factory, not a component */
   const outerGestures = useMemo(
+    // oxlint-disable-next-line react/capitalized-calls -- Gesture.Simultaneous is a factory, not a component
     () => Gesture.Simultaneous(pull.gesture, swipeGesture),
     [pull.gesture, swipeGesture]
   );
-  /* eslint-enable react/capitalized-calls */
   return (
     <GestureDetector gesture={outerGestures}>
       <View style={styles.rootContainer}>

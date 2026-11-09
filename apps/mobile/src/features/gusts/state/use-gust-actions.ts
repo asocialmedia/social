@@ -14,6 +14,7 @@ import {
   getUserVote,
   isBookmarkedByUser,
 } from "@/features/feed/lib/feed-types";
+import { useFollowStateStore } from "@/features/feed/state/follow-state-store";
 import { useExternalFeedback } from "@/features/feed/state/use-external-feedback";
 import { useExternalFollow } from "@/features/feed/state/use-external-follow";
 import { useExternalInteractions } from "@/features/feed/state/use-external-interactions";
@@ -267,6 +268,9 @@ export function useGustFollow(post: FeedPost, viewerId: string | null) {
       try {
         const info = await setFollowOnServer(authorId, next, await context());
         setFollowing(info.isFollowedByUser);
+        useFollowStateStore
+          .getState()
+          .setFollowing(authorId, info.isFollowedByUser);
         logInfo("gusts.followed", { follow: next });
       } catch (error) {
         logWarn("gusts.follow_failed", { reason: reason(error) });

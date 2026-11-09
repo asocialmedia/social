@@ -2,7 +2,7 @@
 
 // oxlint-disable react/todo -- Async encoders catch failures and keep the editor available for retry.
 
-import { encodeProfileCrop } from "@asm/media/image-edit";
+import { encodeProfileCrop, encodeStillCrop } from "@asm/media/image-edit";
 import { PhotoEditorWorkspace } from "@asm/ui/components/photo-editor-workspace";
 import type { PhotoEditorHandle } from "@asm/ui/components/photo-editor-workspace";
 import { CROPPER_ACCENT } from "@asm/ui/lib/cropper-accent";
@@ -119,7 +119,7 @@ export default function ProfileCropEngine({
         }
         if (mounted.current) {
           await onComplete({
-            dataUrl: output.toDataURL("image/png"),
+            dataUrl: encodeStillCrop(output),
             height: output.height,
             width: output.width,
           });

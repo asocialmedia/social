@@ -2,7 +2,7 @@
   "expo": {
     "name": "asocialmedia",
     "slug": "asocialmedia",
-    "version": "0.2.98",
+    "version": "0.3.12",
     "description": "The social network that knows you back. A feed that learns your taste, Aura that remembers what you contribute, and communities you have to earn.",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -55,6 +55,11 @@
               "scheme": "https",
               "host": "asocialmedia.cc",
               "pathPrefix": "/hashtag/"
+            },
+            {
+              "scheme": "https",
+              "host": "asocialmedia.cc",
+              "pathPrefix": "/watch/"
             },
             {
               "scheme": "https",
@@ -160,6 +165,11 @@
               "scheme": "https",
               "host": "www.asocialmedia.cc",
               "pathPrefix": "/hashtag/"
+            },
+            {
+              "scheme": "https",
+              "host": "www.asocialmedia.cc",
+              "pathPrefix": "/watch/"
             },
             {
               "scheme": "https",
@@ -290,7 +300,8 @@
         "expo-notifications",
         {
           "color": "#ff9500",
-          "defaultChannel": "default"
+          "defaultChannel": "asm-account",
+          "icon": "./assets/images/notification-icon.png"
         }
       ],
       "expo-video",

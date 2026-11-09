@@ -135,12 +135,14 @@ export async function fetchMessageReactions(
   conversationId: string,
   messageId: string,
   options: ApiCallOptions,
-  sessionId?: string
+  sessionId?: string,
+  signal?: AbortSignal
 ): Promise<MessageReactionSummary[]> {
   const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
   const result = await request<{ reactions: MessageReactionSummary[] }>(
     `/api/messages/conversations/${conversationId}/reactions/${messageId}${query}`,
-    options
+    options,
+    signal ? { signal } : undefined
   );
   return result.reactions;
 }
@@ -1187,6 +1189,22 @@ export function searchConversationHistory(
     { body: JSON.stringify(input), method: "POST", signal }
   );
 }
+// One page of the conversation's durable change log, parsed by
+// @asm/messages replayDurableMessageChanges.
+export function fetchConversationChangesPage(
+  conversationId: string,
+  cursor: string | undefined,
+  options: ApiCallOptions,
+  signal: AbortSignal
+): Promise<unknown> {
+  const suffix = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+  return request<unknown>(
+    `/api/messages/conversations/${encodeURIComponent(conversationId)}/changes${suffix}`,
+    options,
+    { signal }
+  );
+}
+
 export function hydrateSearchHits(
   conversationId: string,
   hits: { id: string; revision: number }[],

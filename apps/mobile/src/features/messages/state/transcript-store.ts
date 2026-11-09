@@ -478,6 +478,18 @@ export class TranscriptStore {
     this.#patch(conversationId, { peerWatermarks: watermarks });
   }
 
+  // A live arrival landed past the end of the window on screen (an anchored
+  // history window after a search jump). The window cannot take it without a
+  // gap, so it is flagged as newer content instead: the "latest messages"
+  // control appears and loadNewest fetches it.
+  markNewerAvailable(conversationId: string): void {
+    const entry = this.#entries.get(conversationId);
+    if (!entry || entry.snapshot.hasMoreNewer) {
+      return;
+    }
+    this.#patch(conversationId, { hasMoreNewer: true });
+  }
+
   setMyLastReadAt(conversationId: string, value: string | null): void {
     this.#patch(conversationId, { myLastReadAt: value });
   }

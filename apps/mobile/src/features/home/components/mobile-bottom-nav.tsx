@@ -8,8 +8,8 @@
 // directly above it, like web (the banner measures this dock's height).
 //
 // Wiring notes: active state reads expo-router's pathname; auth-gated tabs send guests to
-// login like web's goToLogin; destinations with no mobile screen yet render
-// as disabled stubs, and the centre action opens the post composer. The
+// login like web's goToLogin; every tab has a native screen behind it, and
+// the centre action opens the post composer. The
 // hide signal is the shared feed scroll store, so the dock moves in lockstep
 // with the top bar. The pending-navigation spinner has no expo-router
 // equivalent (navigation is instant), so tabs always show their icon.
@@ -90,19 +90,6 @@ const RIGHT_ITEMS: MobileNavItem[] = [
     requiresAuth: true,
   },
 ];
-
-// Routes with a mobile screen behind them. Everything else renders as a disabled
-// stub until its screen lands - no dead-feeling fake navigation.
-// Typed as Hrefs so the membership check accepts the nav items' typed
-// hrefs; every entry is a static route the dock can land on.
-const LIVE_ROUTES = new Set<Href>([
-  "/",
-  "/gusts",
-  "/discover",
-  "/communities",
-  "/hackernews",
-  "/messages",
-]);
 
 // Desktop sidebar's `.pill-nav-active`: tonal primary tint, hairline
 // primary border and the inner lip, never a saturated fill. Light keys off
@@ -341,7 +328,6 @@ export function MobileBottomNav({
     );
 
   const renderTab = (item: MobileNavItem) => {
-    const live = LIVE_ROUTES.has(item.href);
     const state = tabState(item);
     if (state.requiresLogin) {
       return (
@@ -354,17 +340,6 @@ export function MobileBottomNav({
           key={item.label}
           label={item.label}
           onPress={goToLogin}
-        />
-      );
-    }
-    if (!live) {
-      return (
-        <DockTab
-          active={false}
-          disabled
-          icon={item.icon}
-          key={item.label}
-          label={item.label}
         />
       );
     }

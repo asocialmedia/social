@@ -19,3 +19,5 @@ export default function CommunityPostDetailRoute() {
     />
   );
 }
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/feedback/route-error-boundary";

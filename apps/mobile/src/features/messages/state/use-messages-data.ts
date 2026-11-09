@@ -1,4 +1,9 @@
-import { LIFECYCLE_CAPABILITY } from "@asm/messages";
+import {
+  LIFECYCLE_CAPABILITY,
+  applyChangesBeforeCursorCommit,
+  readMessageChangeCursor,
+  replayDurableMessageChanges,
+} from "@asm/messages";
 import { fetch as streamingFetch } from "expo/fetch";
 // The React bindings for the messages realtime streams and the polling that backs
 // them up.
@@ -27,13 +32,19 @@ import {
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { reconcileAnchoredWindow } from "@/features/messages/lib/anchored-window";
+import {
+  planChangeReplay,
+  replayCursorStorage,
+} from "@/features/messages/lib/change-replay-plan";
 import { changedMessageIds } from "@/features/messages/lib/changed-message-ids";
 import {
   ackMessageDelivered,
   fetchConversationDetail,
   fetchConversationList,
   fetchMessageReactions,
+  fetchConversationChangesPage,
   fetchMessages,
+  hydrateSearchHits,
 } from "@/features/messages/lib/client";
 import { messageDecryptor } from "@/features/messages/lib/decryptor";
 import type { DecryptItem } from "@/features/messages/lib/decryptor";
@@ -42,6 +53,7 @@ import { peerWatermarks } from "@/features/messages/lib/message-receipts";
 import { messageReadRetryDelay } from "@/features/messages/lib/read-retry";
 import { readMessageStream } from "@/features/messages/lib/realtime";
 import type { MessageStreamEvent } from "@/features/messages/lib/realtime";
+import { senderRatchet } from "@/features/messages/lib/sender-ratchet";
 import type { MessageData } from "@/features/messages/lib/types";
 import { conversationListStore } from "@/features/messages/state/conversation-list-store";
 import type { ConversationListSnapshot } from "@/features/messages/state/conversation-list-store";
@@ -496,6 +508,7 @@ export function useTranscript(
       return;
     }
     const controller = new AbortController();
+    const reactionReads = new Map<string, number>();
 
     const handleEvent = (event: MessageStreamEvent) => {
       if (event.conversationId !== conversationId) {
@@ -507,10 +520,22 @@ export function useTranscript(
           if (!message?.id) {
             return;
           }
-          if (!anchored.current) {
+          // An anchored window that already reaches the live tail can take the
+          // arrival as is; one that ends in history cannot without a gap, so
+          // the arrival is flagged and the latest-messages control appears
+          // instead of the message vanishing until the next poll.
+          if (
+            !anchored.current ||
+            !transcriptStore.getSnapshot(conversationId).hasMoreNewer
+          ) {
             transcriptStore.appendMessage(conversationId, message);
+          } else {
+            transcriptStore.markNewerAvailable(conversationId);
           }
           if (message.senderId === userId) {
+            // A send from this account (this device or another) moves the
+            // next index this device may use.
+            senderRatchet.observe(conversationId, message.ratchetIndex);
             // Our own message: the thread marks read immediately.
             transcriptStore.setPeerTyping(conversationId, false);
             return;
@@ -601,6 +626,10 @@ export function useTranscript(
             return;
           }
           const { messageId } = event;
+          // Two quick reactions start two reads that can settle out of order;
+          // only the newest read for a message may write its summary.
+          const generation = (reactionReads.get(messageId) ?? 0) + 1;
+          reactionReads.set(messageId, generation);
           void (async () => {
             try {
               const reactions = await fetchMessageReactions(
@@ -611,8 +640,15 @@ export function useTranscript(
                   baseFetch: fetch,
                   cookie,
                 },
-                event.sessionId
+                event.sessionId,
+                controller.signal
               );
+              if (
+                controller.signal.aborted ||
+                reactionReads.get(messageId) !== generation
+              ) {
+                return;
+              }
               transcriptStore.applyMessageReactions(
                 conversationId,
                 messageId,
@@ -642,6 +678,104 @@ export function useTranscript(
       }
     };
 
+    const callOptions = { apiBase, baseFetch: fetch, cookie };
+    const replayChanges = async () => {
+      const { signal } = controller;
+      const previous = readMessageChangeCursor(
+        replayCursorStorage,
+        userId,
+        conversationId
+      );
+      try {
+        const replay = await replayDurableMessageChanges({
+          cursor: previous,
+          fetchPage: (cursor, requestSignal) =>
+            fetchConversationChangesPage(
+              conversationId,
+              cursor,
+              callOptions,
+              requestSignal
+            ),
+          signal,
+        });
+        await applyChangesBeforeCursorCommit({
+          apply: async () => {
+            // The first connect only learns where the log stands; the window
+            // it would reconcile was just loaded fresh.
+            if (previous === undefined) {
+              return true;
+            }
+            const loaded = transcriptStore.getSnapshot(conversationId).messages;
+            const plan = planChangeReplay(
+              replay.changes,
+              replay.resetRequired,
+              new Set(loaded.map((row) => row.id))
+            );
+            if (plan.reset) {
+              for (const row of loaded) {
+                messageDecryptor.invalidate(row.id);
+              }
+              replaceNewest.current = true;
+              setNonce((value) => value + 1);
+              return true;
+            }
+            for (const id of plan.deleteIds) {
+              transcriptStore.applyMessageDeleted(
+                conversationId,
+                id,
+                new Date()
+              );
+            }
+            if (plan.removeIds.length > 0) {
+              transcriptStore.removeMessages(
+                conversationId,
+                new Set(plan.removeIds)
+              );
+            }
+            for (let start = 0; start < plan.refetch.length; start += 20) {
+              // oxlint-disable-next-line no-await-in-loop -- the batch route takes at most 20 rows, sent one batch at a time
+              const batch = await hydrateSearchHits(
+                conversationId,
+                plan.refetch.slice(start, start + 20),
+                callOptions,
+                signal
+              );
+              if (signal.aborted) {
+                return false;
+              }
+              const current = new Map(
+                transcriptStore
+                  .getSnapshot(conversationId)
+                  .messages.map((row) => [row.id, row])
+              );
+              for (const message of batch.messages) {
+                const before = current.get(message.id);
+                transcriptStore.applyMessageEdit(conversationId, message);
+                if (before && before.ciphertext !== message.ciphertext) {
+                  messageDecryptor.invalidate(message.id);
+                }
+              }
+              if (batch.unavailableIds.length > 0) {
+                transcriptStore.removeMessages(
+                  conversationId,
+                  new Set(batch.unavailableIds)
+                );
+              }
+            }
+            return true;
+          },
+          conversationId,
+          cursor: replay.cursor,
+          signal,
+          storage: replayCursorStorage,
+          userId,
+        });
+      } catch {
+        // The poll and the next reconnect reconcile; a failed replay leaves
+        // the stored cursor where it was, so nothing is skipped.
+      }
+    };
+
     void (async () => {
       await hydrateMessageCache(apiBase, userId, identityKey);
       if (controller.signal.aborted) {
@@ -651,6 +785,9 @@ export function useTranscript(
         baseFetch: streamingFetch,
         cookie,
         onConnect: () => {
+          // Edits, deletes, hides and reactions on older loaded rows during
+          // the gap come from the durable change log, not the newest page.
+          void replayChanges();
           // Subscribe before catch-up so a fresh cache cannot hide an arrival during background/blur.
           // An older in-flight read must settle before this post-subscription read begins.
           if (newestFetching.current) {

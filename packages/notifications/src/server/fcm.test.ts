@@ -190,7 +190,32 @@ describe("buildFcmMessage", () => {
     expect(message.data.notificationId).toBe("notif-1");
     expect(message.android.collapseKey).toBe("amplify:post-1234567890");
     expect(message.android.notification.tag).toBe("amplify:post-1234567890");
-    expect(message.android.notification.channelId).toBe("default");
+    // An amplify is a social signal: the quiet channel, no sound.
+    expect(message.android.notification.channelId).toBe("asm-social");
+    expect(message.android.notification.notificationPriority).toBe(
+      "PRIORITY_LOW"
+    );
+    expect(message.android.notification.defaultSound).toBe(false);
+  });
+
+  test("direct messages post to the messages channel with a heads-up", () => {
+    const message = buildFcmMessage(
+      {
+        id: "message-1",
+        payload: {
+          body: "Sent you a message",
+          path: "/messages?c=conversation-1",
+          tag: "dm:conversation-1",
+          title: "Alice",
+        },
+        recipientId: "author-1",
+      },
+      "tok"
+    );
+    expect(message.android.notification.channelId).toBe("asm-messages");
+    expect(message.android.notification.notificationPriority).toBe(
+      "PRIORITY_HIGH"
+    );
   });
 });
 

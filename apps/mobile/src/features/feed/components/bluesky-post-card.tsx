@@ -7,10 +7,10 @@ import {
   UserRoundMinus,
 } from "lucide-react-native";
 import { memo, useEffect, useMemo, useState } from "react";
-import { Linking } from "react-native";
 
 import { useSessionContext } from "@/features/auth/state/session";
 import { PostDetailCard } from "@/features/post/components/post-detail-card";
+import { openExternalUrl } from "@/lib/interaction/open-url";
 
 import { rememberExternalPost } from "../lib/external-cache";
 import { externalPostView } from "../lib/external-post-view";
@@ -120,7 +120,7 @@ export const BlueskyPostCard = memo(
             if (type === "follow") {
               void follow.toggle();
             } else if (type === "open") {
-              void Linking.openURL(menuPost.url);
+              void openExternalUrl(menuPost.url);
             } else {
               void feedback(type);
             }

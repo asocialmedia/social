@@ -20,10 +20,12 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 import { SignJWT, importPKCS8 } from "jose";
 
+import { pushChannel } from "../shared/channels";
+import type { PushChannelImportance } from "../shared/channels";
 import { describePushError } from "./log";
 import type { PushLogger } from "./log";
+import { buildPushPayload, pushChannelForDelivery } from "./payload";
 import type { PushDelivery } from "./payload";
-import { buildPushPayload } from "./payload";
 
 export const FCM_OAUTH_ENDPOINT = "https://oauth2.googleapis.com/token";
 export const FCM_MESSAGING_SCOPE =
@@ -282,20 +284,29 @@ interface FcmMessage {
   token: string;
 }
 
+const FCM_PRIORITY: Record<PushChannelImportance, string> = {
+  default: "PRIORITY_DEFAULT",
+  high: "PRIORITY_HIGH",
+  low: "PRIORITY_LOW",
+};
+
 // FCM's `data` payload is string-to-string only.
 export function buildFcmMessage(
   notification: PushDelivery,
   token: string
 ): FcmMessage {
   const payload = buildPushPayload(notification);
+  const channel = pushChannel(pushChannelForDelivery(notification));
   return {
     android: {
       collapseKey: payload.tag,
       notification: {
-        channelId: "default",
-        defaultSound: true,
-        defaultVibrateTimings: true,
-        notificationPriority: "PRIORITY_MAX",
+        // The channel decides sound and heads-up on Android 8+; the priority
+        // only matters on older releases, so it follows the channel too.
+        channelId: channel.id,
+        defaultSound: channel.importance !== "low",
+        defaultVibrateTimings: channel.importance !== "low",
+        notificationPriority: FCM_PRIORITY[channel.importance],
         tag: payload.tag,
       },
       priority: "HIGH",

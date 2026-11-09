@@ -48,3 +48,5 @@ export default function MessagesRoute() {
     />
   );
 }
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/feedback/route-error-boundary";

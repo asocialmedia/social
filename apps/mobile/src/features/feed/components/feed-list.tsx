@@ -157,6 +157,8 @@ function feedRowType(row: TimelineRow): string {
 // drawDistance extends the render window ahead of hard flings so recycled
 // rows are bound before they enter the viewport instead of popping in blank.
 const HOME_FEED_DRAW_DISTANCE = 500;
+// onEndReached fires this many visible heights before the end of the list.
+const FEED_PREFETCH_SCREENS = 2;
 
 const AnimatedFeedList = createAnimatedComponent(FlashList<TimelineRow>);
 
@@ -1210,7 +1212,9 @@ export const FeedList = memo(
                     void external.fetchNext();
                   }
                 }}
-                onEndReachedThreshold={0.5}
+                // Web's infinite-scroll container prefetches about 1600px
+                // ahead; two screens keeps a fast fling off the spinner.
+                onEndReachedThreshold={FEED_PREFETCH_SCREENS}
                 onScroll={handleScroll}
                 onViewableItemsChanged={handleViewableItemsChanged}
                 ref={listRef}

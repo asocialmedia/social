@@ -1474,7 +1474,8 @@ function PushSettingsCard() {
     const next = state !== "on";
     setState("working");
     await (next
-      ? registerForPushNotifications(runWithInstallToken)
+      ? // The reader turned push on here, so the system prompt may show.
+        registerForPushNotifications(runWithInstallToken, { prompt: true })
       : unregisterPushNotifications());
     await refresh();
   };

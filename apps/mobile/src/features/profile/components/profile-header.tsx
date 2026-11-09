@@ -4,7 +4,6 @@ import type { UserListMutual } from "@asm/ui/lib/user-list";
 import { FontAwesome6 } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
 import {
   CalendarDays,
@@ -32,6 +31,7 @@ import {
 } from "@/features/home/components/profile-utils";
 import { UserBadge } from "@/features/home/components/user-badge";
 import { imageCachePolicy } from "@/lib/cache/image-cache";
+import { openExternalUrl } from "@/lib/interaction/open-url";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
   BTN_3D_GRAY_SHADOWS,
@@ -194,11 +194,7 @@ export function ProfileHeader({
   const grayStyles = getGrayButtonStyles(isDark);
   const editStyles = getEditButtonStyles(isDark);
   const openSocial = useCallback(async (href: string) => {
-    try {
-      await Linking.openURL(href);
-    } catch {
-      // Linking can reject when the OS has no handler for the profile's host.
-    }
+    await openExternalUrl(href);
   }, []);
 
   return (
@@ -339,7 +335,11 @@ export function ProfileHeader({
                   </Gradient3D>
                 </Pressable>
                 <Pressable
-                  accessibilityLabel="Message"
+                  accessibilityLabel={
+                    external
+                      ? "Visit on Bluesky"
+                      : `Message ${profile.displayName || profile.username}`
+                  }
                   accessibilityRole="button"
                   disabled={!external && !canMessage}
                   onPress={onMessage}

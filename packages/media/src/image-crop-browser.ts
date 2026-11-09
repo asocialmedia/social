@@ -18,6 +18,64 @@ function canvas(width: number, height: number) {
   return { context, element };
 }
 
+// Whether cropped pixels actually use transparency, sampled on a downscaled
+// copy so this stays cheap on a full-size image. An opaque crop can then be
+// encoded as JPEG instead of carrying a needless alpha channel.
+//
+// Shared by every cropper on web and native (avatars, banners, message
+// photos). Never encode WebP from a canvas: Chrome writes the extended VP8X
+// form, which the media pipeline's Bun.Image decoder cannot read; PNG and
+// JPEG are safe.
+export function cropHasTransparency(source: HTMLCanvasElement): boolean {
+  const probe = document.createElement("canvas");
+  probe.width = 64;
+  probe.height = 64;
+  const context = probe.getContext("2d");
+  if (!context) {
+    return false;
+  }
+  context.drawImage(source, 0, 0, 64, 64);
+  try {
+    const { data } = context.getImageData(0, 0, 64, 64);
+    return hasTransparentPixel(data);
+  } catch {
+    // Treat an unreadable probe as opaque; JPEG is the safer default since a
+    // needless alpha channel is the worse failure.
+    return false;
+  }
+}
+
+// 250 rather than 255 so near-opaque anti-aliased edges still count.
+export function hasTransparentPixel(rgba: ArrayLike<number>): boolean {
+  for (let index = 3; index < rgba.length; index += 4) {
+    if (rgba[index] < 250) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// The still-image encoding every cropper uses: PNG only when the crop needs
+// its alpha channel, otherwise JPEG at 0.92, as web's crop dialog always did.
+export const CROP_JPEG_QUALITY = 0.92;
+
+export function cropOutputMimeType(transparent: boolean) {
+  return transparent ? "image/png" : "image/jpeg";
+}
+
+export function encodeStillCrop(source: HTMLCanvasElement): string {
+  return source.toDataURL(
+    cropOutputMimeType(cropHasTransparency(source)),
+    CROP_JPEG_QUALITY
+  );
+}
+
+// The MIME type a data URL carries, so the caller can name the saved file.
+export function dataUrlMimeType(dataUrl: string): string | null {
+  const match = /^data:(?<type>[\w.+-]+\/[\w.+-]+)[;,]/u.exec(dataUrl);
+  return match?.groups?.type ?? null;
+}
+
 export async function encodeProfileCrop(
   dataUrl: string,
   animated: boolean,
@@ -88,7 +146,7 @@ export async function encodeProfileCrop(
   };
   if (!animated) {
     draw(image);
-    return output.element.toDataURL("image/png");
+    return encodeStillCrop(output.element);
   }
   const response = await fetch(dataUrl);
   const bytes = await response.arrayBuffer();

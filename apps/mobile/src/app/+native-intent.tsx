@@ -1,5 +1,8 @@
 import { authDeepLinkPath } from "@/features/auth/lib/auth-deep-link";
-import { nativeNetworkPath } from "@/features/network/lib/network-paths";
+import {
+  UNMAPPED_LINK_FALLBACK,
+  nativeNetworkPath,
+} from "@/features/network/lib/network-paths";
 
 export function redirectSystemPath({
   path,
@@ -9,9 +12,11 @@ export function redirectSystemPath({
 }) {
   try {
     return (
-      authDeepLinkPath(path) ?? nativeNetworkPath(path) ?? "/notifications"
+      authDeepLinkPath(path) ??
+      nativeNetworkPath(path) ??
+      UNMAPPED_LINK_FALLBACK
     );
   } catch {
-    return "/notifications";
+    return UNMAPPED_LINK_FALLBACK;
   }
 }

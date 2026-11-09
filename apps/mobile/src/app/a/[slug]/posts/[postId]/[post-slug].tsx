@@ -21,3 +21,5 @@ export default function CommunityPostSluggedRoute() {
     />
   );
 }
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/feedback/route-error-boundary";

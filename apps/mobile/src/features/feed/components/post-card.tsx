@@ -49,6 +49,7 @@ import { useMediaPreviewStore } from "../state/media-preview-store";
 import { useVideoCaptionsStore } from "../state/video-captions-store";
 import { CommunityAttribution } from "./community-attribution";
 import { useExternalAuthorPreview } from "./external-author-preview";
+import { FeedFollowButton } from "./feed-follow-button";
 import type { MenuAnchor } from "./more-menu";
 import {
   BookmarkToggle,
@@ -74,9 +75,9 @@ import {
   useMediaActivity,
 } from "./post-media";
 
-// Content past this length collapses behind Show more, mirroring web's
-// ~6-line clamp. BioContent cuts at segment boundaries so pills never split.
-const CONTENT_CLAMP_LENGTH = 400;
+// Web's `line-clamp-6`: content past six laid-out lines collapses behind
+// Show more. BioContent cuts on word boundaries so pills never split.
+const CONTENT_CLAMP_LINES = 6;
 
 function ThreadRail({
   hasThreadChild,
@@ -418,6 +419,13 @@ export const PostCard = memo(
                     <Text style={[styles.date, { color: theme.dividerText }]}>
                       {cachedFormatRelativeDate(post.createdAt)}
                     </Text>
+                    {/* Web shows Follow beside the handle on other people's
+                        native posts, to guests too (a tap goes to login). */}
+                    {post.external ||
+                    !author ||
+                    author.id === viewerId ? null : (
+                      <FeedFollowButton post={post} viewerId={viewerId} />
+                    )}
                   </View>
                   {/* Web's header buttons carry -my-1 so the text row sets the row
                 height and the name stays top-aligned with the avatar. */}
@@ -445,7 +453,7 @@ export const PostCard = memo(
                         sourceSegments={post.external?.segments}
                         apiBase={apiBase}
                         bio={post.content}
-                        clampLength={CONTENT_CLAMP_LENGTH}
+                        clampLines={CONTENT_CLAMP_LINES}
                       />
                     </View>
                   ) : null}

@@ -3,6 +3,8 @@
 // every transport (web push and native push) then carries. Keeping it pure
 // means the copy is unit-tested once and cannot drift between platforms.
 
+import { pushChannelForType } from "../shared/channels";
+import type { PushChannelId } from "../shared/channels";
 import {
   notificationCommunitySlug,
   presentNotification,
@@ -135,6 +137,17 @@ function issuerName(notification: NotificationRecord): string {
   return (
     notification.issuer.displayName ?? notification.issuer.username ?? "Someone"
   );
+}
+
+// The Android channel a delivery posts to. A prebuilt payload is a direct
+// message (apps/auth worker message-push), which belongs with messages.
+export function pushChannelForDelivery(
+  notification: PushDelivery
+): PushChannelId {
+  if ("payload" in notification) {
+    return "asm-messages";
+  }
+  return pushChannelForType(notification.type);
 }
 
 export function buildPushPayload(notification: PushDelivery): PushPayload {

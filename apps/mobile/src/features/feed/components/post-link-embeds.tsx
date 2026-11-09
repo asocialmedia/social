@@ -6,11 +6,11 @@
 // instead of swapping in a youtube-nocookie player.
 import { FontAwesome6 } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import * as Linking from "expo-linking";
 import { Play } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import { openExternalUrl } from "@/lib/interaction/open-url";
 import { useAppTheme } from "@/theme";
 
 import {
@@ -30,7 +30,7 @@ const EMBED_PANEL_SHADOWS_DARK =
 function openEmbedUrl(url: string): void {
   const safe = safeLinkUrl(url);
   if (safe) {
-    void Linking.openURL(safe);
+    void openExternalUrl(safe);
   }
 }
 

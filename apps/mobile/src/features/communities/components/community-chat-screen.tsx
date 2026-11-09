@@ -1013,6 +1013,11 @@ function CommunityChatTimelineScreen() {
       // oxlint-disable-next-line no-void -- Focus effect starts the cancellable event stream.
       void connect();
       const timer = setInterval(async () => {
+        // Android keeps JS timers alive in the background; the focus and
+        // foreground effects already catch up when the app returns.
+        if (AppState.currentState !== "active") {
+          return;
+        }
         try {
           await fetchLatest();
         } catch {

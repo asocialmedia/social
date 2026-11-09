@@ -5,7 +5,7 @@ import {
 } from "@asm/protocols/discovery";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { FlatList, Linking, Text, View } from "react-native";
+import { FlatList, Text, View } from "react-native";
 import { z } from "zod";
 
 import { Spinner3D } from "@/components/feedback/spinner-3d";
@@ -20,6 +20,7 @@ import {
 import { ProfileHeader } from "@/features/profile/components/profile-header";
 import type { ProfileHeaderProfile } from "@/features/profile/lib/profile-view-model";
 import { SettingsButton } from "@/features/settings/components/settings-ui";
+import { openExternalUrl } from "@/lib/interaction/open-url";
 import { useAppTheme } from "@/theme";
 
 import { cachedExternalAuthor } from "../lib/external-cache";
@@ -168,7 +169,7 @@ function ExternalProfileContent({ actor }: { actor: string }) {
                   }}
                   onEdit={() => router.push("/settings")}
                   onMessage={() => {
-                    void Linking.openURL(author.url);
+                    void openExternalUrl(author.url);
                   }}
                 />
                 <FeedTabs tabs={TABS} active={tab} onChange={setTab} />

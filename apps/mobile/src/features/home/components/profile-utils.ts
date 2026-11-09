@@ -753,6 +753,117 @@ export function bskyAvatarForSize(rawUrl: string, size: number): string {
   return rawUrl;
 }
 
+// Roughly how many characters of body text fit on one line of a box this
+// wide. SofiaPro's average advance is about 0.52em; erring a little wide
+// keeps the clamp from overshooting six rendered lines.
+export function estimateCharsPerLine(width: number, fontSize: number): number {
+  if (!Number.isFinite(width) || width <= 0 || fontSize <= 0) {
+    return 1;
+  }
+  return Math.max(1, Math.floor(width / (fontSize * 0.52)));
+}
+
+function chipLabelLength(segment: BioSegment): number {
+  if (segment.type === "url") {
+    return Math.min(segment.url.length, 32);
+  }
+  if (segment.type === "mention") {
+    return segment.username.length + 1;
+  }
+  if (segment.type === "tag") {
+    return segment.tag.length + 1;
+  }
+  return 0;
+}
+
+// Web's `line-clamp-6`, translated for a body made of text runs and pills:
+// a line budget instead of a character budget, so ten short lines collapse
+// the same way one long paragraph does. Text is laid out word by word with
+// the given line width; a hard newline always starts a new line, a pill is
+// placed whole (never split) and costs its label plus padding. The cut lands
+// on a word boundary, never mid-word.
+export function clampBioSegmentsByLines(
+  segments: BioSegment[],
+  maxLines: number,
+  charsPerLine: number
+): { clamped: boolean; visible: BioSegment[] } {
+  const width = Math.max(1, charsPerLine);
+  let line = 0;
+  let column = 0;
+  const visible: BioSegment[] = [];
+  // Places a run `size` wide; false once it would start line maxLines + 1.
+  const place = (size: number): boolean => {
+    if (column > 0 && column + size > width) {
+      line += 1;
+      column = 0;
+    }
+    if (line >= maxLines) {
+      return false;
+    }
+    column += size;
+    while (column > width) {
+      line += 1;
+      column -= width;
+    }
+    return line < maxLines || column === 0;
+  };
+  for (const segment of segments) {
+    if (segment.type !== "text") {
+      if (!place(chipLabelLength(segment) + 4)) {
+        return { clamped: true, visible };
+      }
+      visible.push(segment);
+      continue;
+    }
+    let kept = "";
+    const paragraphs = segment.text.split("\n");
+    for (let index = 0; index < paragraphs.length; index += 1) {
+      if (index > 0) {
+        line += 1;
+        column = 0;
+        if (line >= maxLines) {
+          return finishClamp(visible, kept);
+        }
+        kept += "\n";
+      }
+      for (const word of paragraphs[index].split(/(?<=\s)/u)) {
+        if (word.length === 0) {
+          continue;
+        }
+        const before = { column, line };
+        if (!place(word.trimEnd().length)) {
+          // One unbreakable run longer than everything that is left (a long
+          // pasted token) is cut by characters, as CSS breaks it, so the
+          // collapsed body never shows nothing but a Show more.
+          if (visible.length === 0 && kept.trim().length === 0) {
+            const room = Math.max(
+              1,
+              (maxLines - before.line) * width - before.column
+            );
+            return finishClamp(visible, kept + word.slice(0, room));
+          }
+          return finishClamp(visible, kept);
+        }
+        column += word.length - word.trimEnd().length;
+        kept += word;
+      }
+    }
+    visible.push({ ...segment, text: kept });
+  }
+  return { clamped: false, visible };
+}
+
+function finishClamp(
+  visible: BioSegment[],
+  kept: string
+): { clamped: boolean; visible: BioSegment[] } {
+  const text = kept.trimEnd();
+  return {
+    clamped: true,
+    visible: text ? [...visible, { text, type: "text" }] : visible,
+  };
+}
+
 // Cuts segments to a character budget at segment boundaries so pills never
 // split. Non-text first segments (a long URL, mention or tag) are always
 // admitted whole - they cannot be cut. A long opening paragraph IS cut at

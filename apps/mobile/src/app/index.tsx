@@ -21,3 +21,5 @@ export default function IndexScreen() {
   // neighbouring feeds underneath an unrelated restored screen.
   return mount ? <HomeScreen /> : null;
 }
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/feedback/route-error-boundary";

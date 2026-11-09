@@ -14,6 +14,7 @@ export type PushSetupReason =
   | "emulator"
   | "no-firebase"
   | "permission-denied"
+  | "permission-not-requested"
   | "unknown";
 
 export interface PushSetupStatus {
@@ -57,6 +58,15 @@ export function pushSetupCopy(status: PushSetupStatus): {
         action: "Open settings",
         body: "Notifications are turned off for this app. Enable them in system settings to receive alerts.",
         title: "Notifications are off",
+      };
+    }
+    case "permission-not-requested": {
+      // The explainer shown before the system prompt: Android 13+ allows the
+      // prompt only about twice, so it is spent on a reader who asked.
+      return {
+        action: "Turn on notifications",
+        body: "Get an alert when someone replies, mentions you or sends you a message. You can change this any time in settings.",
+        title: "Don't miss replies and messages",
       };
     }
     case "ios-unsupported": {

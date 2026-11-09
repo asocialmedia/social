@@ -61,3 +61,5 @@ const styles = StyleSheet.create({
     fontWeight: "normal",
   },
 });
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/feedback/route-error-boundary";

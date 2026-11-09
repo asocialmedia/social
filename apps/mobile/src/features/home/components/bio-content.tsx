@@ -10,16 +10,22 @@ import type { TextSegment } from "@asm/protocols/contracts";
 // post-meta.tsx.
 import { FontAwesome6 } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
 import { Hash } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { externalInlineSegments } from "@/features/network/lib/source-text";
+import { openExternalUrl } from "@/lib/interaction/open-url";
 import {
   META_CHIP_SHADOWS,
   META_CHIP_SHADOWS_DARK,
@@ -31,6 +37,8 @@ import { fetchLinkPreview } from "./profile-data";
 import type { BioSegment } from "./profile-utils";
 import {
   clampBioSegments,
+  clampBioSegmentsByLines,
+  estimateCharsPerLine,
   getLinkPlatform,
   hostLabel,
   safeLinkUrl,
@@ -75,7 +83,7 @@ function LinkChip({ title, url }: { title?: string; url: string }) {
         event.stopPropagation();
         const safe = safeLinkUrl(url);
         if (safe) {
-          void Linking.openURL(safe);
+          void openExternalUrl(safe);
         }
       }}
     >
@@ -228,6 +236,7 @@ export function BioContent({
   apiBase,
   bio,
   clampLength,
+  clampLines,
   compactBlankLines = false,
   textColor,
   textSize,
@@ -239,6 +248,9 @@ export function BioContent({
   // Long bodies collapse behind Show more/less, mirroring web's ~6-line
   // clamp. Cutting happens at segment boundaries so pills never split.
   clampLength?: number;
+  // Web's `line-clamp-N`: collapse after this many laid-out lines, measured
+  // against the body's own width. Takes precedence over clampLength.
+  clampLines?: number;
   compactBlankLines?: boolean;
   // Plain-text ink override for dark scrims (the media viewer panel renders
   // white text on black in both themes). Chips keep their own treatment.
@@ -248,11 +260,22 @@ export function BioContent({
 }) {
   const [expanded, setExpanded] = useState(false);
   const { theme } = useAppTheme();
+  const window = useWindowDimensions();
+  // Until the body reports its width, assume the feed card's text column
+  // (the window less the avatar rail and card padding), so the first paint
+  // is already close to the measured clamp.
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
+  const lineWidth = measuredWidth ?? Math.max(1, window.width - 88);
+  const charsPerLine = estimateCharsPerLine(
+    lineWidth,
+    textSize?.fontSize ?? 14
+  );
+  const clampsAtAll = clampLines !== undefined || clampLength !== undefined;
   const full = useMemo<BioSegment[]>(() => {
     const source = sourceSegments
       ? externalInlineSegments(sourceSegments)
       : segmentBioContent(bio);
-    return compactBlankLines || clampLength !== undefined || sourceSegments
+    return compactBlankLines || clampsAtAll || sourceSegments
       ? source.map((segment) =>
           segment.type === "text"
             ? {
@@ -262,19 +285,22 @@ export function BioContent({
             : segment
         )
       : source;
-  }, [bio, sourceSegments, compactBlankLines, clampLength]);
+  }, [bio, sourceSegments, compactBlankLines, clampsAtAll]);
   // Web's line-clamp cuts at whole lines; the native port cuts at whole
   // segments instead, so a collapsed body never slices a pill or a line of
   // text in half the way the old maxHeight clip did. Show more appears only
   // when the budget actually drops nodes.
-  const clamp = useMemo(
-    () =>
-      clampLength === undefined ? null : clampBioSegments(full, clampLength),
-    [clampLength, full]
-  );
-  const collapsed = clampLength !== undefined && !expanded;
+  const clamp = useMemo(() => {
+    if (clampLines !== undefined) {
+      return clampBioSegmentsByLines(full, clampLines, charsPerLine);
+    }
+    return clampLength === undefined
+      ? null
+      : clampBioSegments(full, clampLength);
+  }, [charsPerLine, clampLength, clampLines, full]);
+  const collapsed = clampsAtAll && !expanded;
   const segments = collapsed && clamp ? clamp.visible : full;
-  const showToggle = clampLength !== undefined && (clamp?.clamped ?? false);
+  const showToggle = clampsAtAll && (clamp?.clamped ?? false);
   const [titles, setTitles] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -327,7 +353,19 @@ export function BioContent({
   }, [apiBase, full, sourceSegments]);
 
   return (
-    <View>
+    <View
+      onLayout={
+        clampLines === undefined
+          ? undefined
+          : (event) => {
+              const { width } = event.nativeEvent.layout;
+              // Sub-pixel jitter must not re-run the clamp.
+              if (width > 0 && Math.abs(width - (measuredWidth ?? 0)) >= 1) {
+                setMeasuredWidth(width);
+              }
+            }
+      }
+    >
       <View style={styles.wrap}>
         {segments.map((segment, index) => (
           // Index keys are safe: segments derive deterministically from the
@@ -343,6 +381,8 @@ export function BioContent({
       </View>
       {showToggle ? (
         <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
           hitSlop={4}
           onPress={(event) => {
             event.stopPropagation();

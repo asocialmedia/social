@@ -3,3 +3,5 @@ import { CommunitiesScreen } from "@/features/communities/components/communities
 export default function CommunitiesRoute() {
   return <CommunitiesScreen />;
 }
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/feedback/route-error-boundary";

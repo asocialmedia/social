@@ -12,3 +12,4 @@ export * from "./reactions";
 export * from "./view-once";
 export { BubbleEntranceRegistry } from "./bubble-entrance";
 export * from "./bubble-motion";
+export * from "./durable-change-replay";
