@@ -55,6 +55,7 @@ import { clearExploreCache } from "@/features/explore/lib/explore-cache-native";
 import { engagementStore } from "@/features/feed/lib/engagement-store";
 import { viewBatcher } from "@/features/feed/lib/view-batcher";
 import { feedCache } from "@/features/feed/state/feed-store";
+import { useFollowStateStore } from "@/features/feed/state/follow-state-store";
 import { clearHnCache } from "@/features/hackernews/lib/hn-cache-native";
 import { sleep } from "@/features/media-upload/lib/retry";
 import { clearMessageSession } from "@/features/messages/state/clear-message-session";
@@ -489,6 +490,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const flight = runSignOutFlow({
         clear: () => {
           engagementStore.clear();
+          useFollowStateStore.getState().clear();
           viewBatcher.reset();
           feedCache.clear();
           clearExploreCache();
