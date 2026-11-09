@@ -1,11 +1,12 @@
 import { networkPostAllowed } from "@asm/protocols/discovery";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { FlatList, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { z } from "zod";
 
 import { BlueskyPostCard } from "@/features/feed/components/bluesky-post-card";
+import { FeedSkeleton } from "@/features/feed/components/feed-skeleton";
 import { ManagedPostCard } from "@/features/feed/components/managed-post-card";
 import { ShareSheet } from "@/features/feed/components/share-sheet";
 import { normalizePostsData } from "@/features/feed/lib/feed-types";
@@ -61,6 +62,20 @@ export default function HistoryRoute() {
     }, 30_000);
     return () => clearInterval(timer);
   }, [network.ready, network.viewer, refetchHistory]);
+  const renderItem = useCallback(
+    ({ item }: { item: FeedPost }) =>
+      item.external ? (
+        <BlueskyPostCard onShare={setSharePost} post={item.external} />
+      ) : (
+        <ManagedPostCard
+          post={item}
+          onChanged={() => {
+            void refetchHistory();
+          }}
+        />
+      ),
+    [refetchHistory]
+  );
   return (
     <View
       style={{
@@ -73,7 +88,14 @@ export default function HistoryRoute() {
         <SettingsButton
           tone="gray"
           label="Back"
-          onPress={() => router.back()}
+          onPress={() => {
+            // A cold deep link to /history has nothing to go back to.
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/");
+            }
+          }}
         />
         <Text
           className="text-xl font-semibold"
@@ -97,29 +119,25 @@ export default function HistoryRoute() {
           />
         )}
         {query.error ? (
-          <Text style={{ color: theme.dividerText }}>{query.error}</Text>
+          // Web's copy; the transport error is for logs, not the reader.
+          <Text style={{ color: theme.dividerText }}>
+            Couldn&apos;t load your history.
+          </Text>
         ) : null}
       </View>
       <FlatList
         data={posts}
         keyExtractor={(post) => post.id}
         contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
-        renderItem={({ item }) =>
-          item.external ? (
-            <BlueskyPostCard onShare={setSharePost} post={item.external} />
-          ) : (
-            <ManagedPostCard
-              post={item}
-              onChanged={() => {
-                void query.refetch();
-              }}
-            />
-          )
-        }
+        renderItem={renderItem}
         ListEmptyComponent={
-          <Text className="p-4" style={{ color: theme.dividerText }}>
-            {query.loading ? "Loading history…" : "No recently viewed posts."}
-          </Text>
+          query.loading ? (
+            <FeedSkeleton count={3} />
+          ) : (
+            <Text className="p-4" style={{ color: theme.dividerText }}>
+              No recently viewed posts.
+            </Text>
+          )
         }
       />
       <ShareSheet onClose={() => setSharePost(null)} post={sharePost} />

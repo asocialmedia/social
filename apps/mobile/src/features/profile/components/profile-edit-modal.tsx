@@ -50,16 +50,17 @@ interface SocialFieldConfig {
   placeholder: string;
 }
 
+// Web's field order (layouts/user/edit-profile-dialog.tsx SOCIAL_FIELDS).
 const SOCIAL_FIELDS: SocialFieldConfig[] = [
+  { key: "githubUsername", label: "GitHub", placeholder: "octocat" },
+  { key: "linkedinUsername", label: "LinkedIn", placeholder: "john-doe" },
+  { key: "twitterUsername", label: "Twitter / X", placeholder: "yourhandle" },
+  { key: "redditUsername", label: "Reddit", placeholder: "yourusername" },
   {
     key: "customDomain",
     label: "Custom domain",
     placeholder: "yourdomain.com",
   },
-  { key: "githubUsername", label: "GitHub", placeholder: "octocat" },
-  { key: "linkedinUsername", label: "LinkedIn", placeholder: "john-doe" },
-  { key: "redditUsername", label: "Reddit", placeholder: "yourusername" },
-  { key: "twitterUsername", label: "Twitter / X", placeholder: "yourhandle" },
 ];
 
 function draftFromProfile(profile: ProfileHeaderProfile): ProfileDraft {

@@ -335,7 +335,11 @@ export function ProfileHeader({
                   </Gradient3D>
                 </Pressable>
                 <Pressable
-                  accessibilityLabel="Message"
+                  accessibilityLabel={
+                    external
+                      ? "Visit on Bluesky"
+                      : `Message ${profile.displayName || profile.username}`
+                  }
                   accessibilityRole="button"
                   disabled={!external && !canMessage}
                   onPress={onMessage}
