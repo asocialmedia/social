@@ -48,10 +48,14 @@ describe("push path routing", () => {
     );
   });
 
-  test("drops a community prefix and still opens the post", () => {
+  test("keeps the community namespace when opening a community post", () => {
     expect(pathToNativeRoute("/a/anime/posts/abcd1234")).toBe(
-      "/posts/abcd1234"
+      "/a/anime/posts/abcd1234"
     );
+  });
+
+  test("falls back to the notifications list for unmapped targets", () => {
+    expect(pathToNativeRoute("/about")).toBe("/notifications");
   });
 
   test("falls back to the notifications list for non-post paths", () => {

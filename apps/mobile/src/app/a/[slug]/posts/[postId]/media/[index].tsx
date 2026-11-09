@@ -38,7 +38,14 @@ export default function CommunityPostMediaRoute() {
         <Pressable
           accessibilityLabel="Back to post"
           accessibilityRole="button"
-          onPress={() => router.back()}
+          onPress={() => {
+            // A cold deep link has no history to return to.
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/");
+            }
+          }}
           style={styles.btn}
         >
           <Text style={styles.btnText}>Go back</Text>
