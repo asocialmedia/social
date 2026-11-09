@@ -421,43 +421,6 @@ export async function createComment(
   }
 }
 
-export interface ResponsesPage {
-  previousCursor: string | null;
-  responses: FeedPost[];
-}
-
-export async function fetchResponsesPage(
-  postId: string,
-  cursor: string | null,
-  options: ApiCallOptions
-): Promise<ResponsesPage> {
-  const base = `/api/posts/${encodeURIComponent(postId)}/responses`;
-  const path = cursor ? `${base}?cursor=${encodeURIComponent(cursor)}` : base;
-  const response = await callFeedApi(path, options);
-  if (!response.ok) {
-    throw new FeedApiError(
-      `Responses request failed (${response.status})`,
-      response.status
-    );
-  }
-  // The route answers { responses, previousCursor } (not the feed's
-  // { posts, nextCursor }); parsing it as a feed page left every response
-  // list empty.
-  const page = ((await readJson(response)) ?? {}) as {
-    previousCursor?: unknown;
-    responses?: unknown;
-  };
-  return {
-    previousCursor:
-      typeof page.previousCursor === "string" ? page.previousCursor : null,
-    responses: Array.isArray(page.responses)
-      ? (page.responses as FeedPost[]).filter(
-          (post) => post && typeof post.id === "string"
-        )
-      : [],
-  };
-}
-
 // Batched view increments (800ms debounce lives in the caller, like web).
 export async function submitViewBatch(
   postIds: string[],
