@@ -4,10 +4,11 @@
 // (back to login, create an account) inside the shared auth shell.
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { AlertCircle } from "lucide-react-native";
-import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import loginBgImage from "@/assets/images/login-image.jpg";
 import { describeLoginError } from "@/features/auth/lib/auth-errors";
+import { openExternalUrl } from "@/lib/interaction/open-url";
 import { useAppTheme } from "@/theme";
 
 import { AuthPrimaryButton } from "./auth-primary-button";
@@ -97,7 +98,7 @@ export default function LoginErrorScreen() {
             accessibilityRole="link"
             hitSlop={4}
             onPress={() => {
-              void Linking.openURL(`mailto:${SUPPORT_EMAIL}`);
+              void openExternalUrl(`mailto:${SUPPORT_EMAIL}`);
             }}
           >
             <Text

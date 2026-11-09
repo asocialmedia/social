@@ -1,12 +1,3 @@
-// The first link in a text bubble, resolved into a preview card, plus the body
-// text with its links made tappable.
-//
-// Ported from apps/web/src/components/messages/message-link-embed.tsx. The body
-// is decrypted on the device; only the URL goes to the same rate-limited,
-// SSRF-guarded /api/link-preview route the feed uses. An internal post link
-// renders as the in-app post card, a YouTube link keeps its facade while the
-// metadata loads, and a failed preview falls back to a plain host card.
-import * as Linking from "expo-linking";
 import { useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { StyleProp, TextStyle } from "react-native";
@@ -23,6 +14,15 @@ import {
   splitMessageText,
   youtubeVideoIdFromUrl,
 } from "@/features/messages/lib/message-links";
+// The first link in a text bubble, resolved into a preview card, plus the body
+// text with its links made tappable.
+//
+// Ported from apps/web/src/components/messages/message-link-embed.tsx. The body
+// is decrypted on the device; only the URL goes to the same rate-limited,
+// SSRF-guarded /api/link-preview route the feed uses. An internal post link
+// renders as the in-app post card, a YouTube link keeps its facade while the
+// metadata loads, and a failed preview falls back to a plain host card.
+import { openExternalUrl } from "@/lib/interaction/open-url";
 import { logInfo, logWarn } from "@/lib/lifecycle/telemetry";
 import { PROD_API_URL } from "@/lib/network/api-base";
 import { getApiBaseUrl } from "@/lib/network/api-env";
@@ -192,7 +192,7 @@ export function LinkifiedMessageText({
             accessibilityRole="link"
             key={`${index}:${segment.url}`}
             onPress={() => {
-              void Linking.openURL(segment.url);
+              void openExternalUrl(segment.url);
             }}
             style={[styles.link, linkStyle]}
           >

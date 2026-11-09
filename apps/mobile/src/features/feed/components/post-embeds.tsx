@@ -4,7 +4,6 @@
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
 import {
   ArrowUpRight,
@@ -24,6 +23,7 @@ import { CommunityAvatar } from "@/features/communities/components/community-ava
 import { resolveCommunityAccentColor } from "@/features/communities/lib/community-accents";
 import { ConcealedMediaCover } from "@/features/feed/components/concealed-media-cover";
 import { UserBadge } from "@/features/home/components/user-badge";
+import { openExternalUrl as openUrlSafely } from "@/lib/interaction/open-url";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { SURFACE_SHADOWS, SURFACE_SHADOWS_DARK, useAppTheme } from "@/theme";
 
@@ -499,7 +499,7 @@ function openExternalUrl(url: string | undefined): void {
   }
   const safe = safeLinkUrl(url);
   if (safe) {
-    void Linking.openURL(safe);
+    void openUrlSafely(safe);
   }
 }
 

@@ -11,7 +11,6 @@
 // next. Only the hover orange wash is missing here, which is a pointer state a
 // touch surface has no equivalent for.
 import * as Clipboard from "expo-clipboard";
-import * as Linking from "expo-linking";
 import {
   Bookmark,
   Clock,
@@ -28,6 +27,7 @@ import { Pressable, Share, StyleSheet, Text, View } from "react-native";
 import { toast } from "@/components/feedback/toast";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { hnChip, hnLink, RAIL_ACTIVE } from "@/components/surface/recipes";
+import { openExternalUrl } from "@/lib/interaction/open-url";
 import { logWarn } from "@/lib/lifecycle/telemetry";
 import { useAppTheme } from "@/theme";
 
@@ -71,20 +71,9 @@ export function timeAgo(unixSeconds: number, now: number): string {
   return `${years} year${years === 1 ? "" : "s"} ago`;
 }
 
-/** Opens a link, reporting the one failure mode a reader can act on. */
+// Opens a link, reporting the one failure mode a reader can act on.
 function openExternal(url: string): void {
-  const open = async () => {
-    try {
-      await Linking.openURL(url);
-    } catch {
-      toast({
-        description: "Couldn't open that link",
-        title: "No luck",
-        variant: "destructive",
-      });
-    }
-  };
-  void open();
+  void openExternalUrl(url);
 }
 
 export const HnStoryCard = memo(

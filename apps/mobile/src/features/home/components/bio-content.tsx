@@ -10,7 +10,6 @@ import type { TextSegment } from "@asm/protocols/contracts";
 // post-meta.tsx.
 import { FontAwesome6 } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
 import { Hash } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
@@ -20,6 +19,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { externalInlineSegments } from "@/features/network/lib/source-text";
+import { openExternalUrl } from "@/lib/interaction/open-url";
 import {
   META_CHIP_SHADOWS,
   META_CHIP_SHADOWS_DARK,
@@ -75,7 +75,7 @@ function LinkChip({ title, url }: { title?: string; url: string }) {
         event.stopPropagation();
         const safe = safeLinkUrl(url);
         if (safe) {
-          void Linking.openURL(safe);
+          void openExternalUrl(safe);
         }
       }}
     >

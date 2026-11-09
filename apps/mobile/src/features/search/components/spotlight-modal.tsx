@@ -15,7 +15,6 @@ import type { TextInputInstance } from "react-native";
 import {
   Keyboard,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -42,6 +41,7 @@ import {
   learnNetworkSearch,
   useDiscoverySuggestions,
 } from "@/features/network/state/use-discovery-suggestions";
+import { openExternalUrl } from "@/lib/interaction/open-url";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import { PROD_API_URL } from "@/lib/network/api-base";
 import { getApiBaseUrl } from "@/lib/network/api-env";
@@ -304,7 +304,7 @@ export function SpotlightModal() {
     if (path) {
       router.push(path as Href);
     } else if (href.startsWith("/") && !href.startsWith("//")) {
-      void Linking.openURL(`${PROD_API_URL}${href}`);
+      void openExternalUrl(`${PROD_API_URL}${href}`);
     }
   };
 

@@ -16,7 +16,6 @@
 import { FontAwesome6 } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
 import {
   Bookmark,
@@ -51,6 +50,7 @@ import {
 } from "@/components/surface/recipes";
 import { useSessionContext } from "@/features/auth/state/session";
 import { imageCachePolicy } from "@/lib/cache/image-cache";
+import { openExternalUrl } from "@/lib/interaction/open-url";
 import { logWarn } from "@/lib/lifecycle/telemetry";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import {
@@ -455,7 +455,7 @@ export function UserProfilePopup({ onClose, userId }: UserProfilePopupProps) {
                         onPress={() => {
                           const url = safeSocialUrl(link);
                           if (url) {
-                            void Linking.openURL(url);
+                            void openExternalUrl(url);
                           }
                         }}
                         style={styles.socialBtn}
