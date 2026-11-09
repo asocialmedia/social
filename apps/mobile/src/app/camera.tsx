@@ -5,3 +5,5 @@ import { CameraScreen } from "@/features/camera/components/camera-screen";
 export default function CameraRoute() {
   return <CameraScreen />;
 }
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/feedback/route-error-boundary";

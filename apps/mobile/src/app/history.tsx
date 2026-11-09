@@ -126,3 +126,5 @@ export default function HistoryRoute() {
     </View>
   );
 }
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/feedback/route-error-boundary";

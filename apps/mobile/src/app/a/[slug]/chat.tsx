@@ -3,3 +3,5 @@ import { CommunityChatChannelsScreen } from "@/features/communities/components/c
 export default function CommunityChatChannelsRoute() {
   return <CommunityChatChannelsScreen />;
 }
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/feedback/route-error-boundary";

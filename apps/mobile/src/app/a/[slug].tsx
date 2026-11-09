@@ -3,3 +3,5 @@ import { CommunityDetailScreen } from "@/features/communities/components/communi
 export default function CommunityDetailRoute() {
   return <CommunityDetailScreen />;
 }
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/feedback/route-error-boundary";

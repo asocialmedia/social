@@ -3,3 +3,5 @@ import { NotificationsScreen } from "@/features/notifications/components/notific
 export default function NotificationsRoute() {
   return <NotificationsScreen />;
 }
+
+export { RouteErrorBoundary as ErrorBoundary } from "@/components/feedback/route-error-boundary";
