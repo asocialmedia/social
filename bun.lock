@@ -227,7 +227,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.9.46",
+      "version": "1.9.47",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
@@ -441,7 +441,7 @@
     },
     "packages/messages": {
       "name": "@asm/messages",
-      "version": "1.0.26",
+      "version": "1.0.27",
       "dependencies": {
         "@asm/media": "workspace:*",
         "emojibase-data": "^18.0.0",
