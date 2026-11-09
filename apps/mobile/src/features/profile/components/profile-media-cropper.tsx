@@ -8,6 +8,7 @@ import { toast } from "@/components/feedback/toast";
 import { SettingsCard } from "@/features/settings/components/settings-ui";
 import { useAppTheme } from "@/theme";
 
+import { cropFileType } from "../lib/crop-file-type";
 import type {
   PickedProfileImage,
   ProfileImageKind,
@@ -123,7 +124,7 @@ function ProfileMediaCropper({
     ) {
       throw new Error("The cropped image is too large. Try a smaller crop.");
     }
-    const extension = animated ? "gif" : "png";
+    const { extension, mimeType } = cropFileType(animated, result.dataUrl);
     const target = new File(
       Paths.cache,
       `${request.kind}-crop-${Date.now()}.${extension}`
@@ -134,7 +135,7 @@ function ProfileMediaCropper({
       source: {
         ...source,
         height: result.height,
-        mimeType: animated ? "image/gif" : "image/png",
+        mimeType,
         name: `${request.kind}.${extension}`,
         size: bytes.length,
         uri: target.uri,
