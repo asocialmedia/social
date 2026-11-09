@@ -75,9 +75,9 @@ import {
   useMediaActivity,
 } from "./post-media";
 
-// Content past this length collapses behind Show more, mirroring web's
-// ~6-line clamp. BioContent cuts at segment boundaries so pills never split.
-const CONTENT_CLAMP_LENGTH = 400;
+// Web's `line-clamp-6`: content past six laid-out lines collapses behind
+// Show more. BioContent cuts on word boundaries so pills never split.
+const CONTENT_CLAMP_LINES = 6;
 
 function ThreadRail({
   hasThreadChild,
@@ -453,7 +453,7 @@ export const PostCard = memo(
                         sourceSegments={post.external?.segments}
                         apiBase={apiBase}
                         bio={post.content}
-                        clampLength={CONTENT_CLAMP_LENGTH}
+                        clampLines={CONTENT_CLAMP_LINES}
                       />
                     </View>
                   ) : null}

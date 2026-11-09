@@ -299,7 +299,7 @@ export function ResponseParentRow({
               <BioContent
                 apiBase={apiBase}
                 bio={parent.content}
-                clampLength={400}
+                clampLines={6}
                 sourceSegments={external?.segments}
               />
             </View>
