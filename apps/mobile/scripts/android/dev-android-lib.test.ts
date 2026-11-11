@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   DEV_REVERSE_PORTS,
+  METRO_PORT,
   buildAdbReverseArgs,
   buildBootCompletedArgs,
   buildExpoArgs,
@@ -12,7 +13,6 @@ import {
   parseAdbDevices,
   parseDevAndroidArgs,
   pickDeviceSerial,
-  resolveExpoDeviceName,
 } from "./dev-android-lib";
 
 const ADB_OUTPUT = `List of devices attached
@@ -110,47 +110,25 @@ describe("parseDevAndroidArgs", () => {
   });
 });
 
-const ADB_LONG_OUTPUT = `List of devices attached
-emulator-5556          device product:sdk_gphone16k_x86_64 model:sdk_gphone16k_x86_64 device:emu64xa16k transport_id:12
-R58M12ABCDE            device usb:1-2 product:beyond1 model:SM_G973F device:beyond1 transport_id:4
-`;
-
-describe("resolveExpoDeviceName", () => {
-  test("emulators resolve to the AVD name Expo displays", () => {
-    expect(
-      resolveExpoDeviceName(
-        "emulator-5556",
-        ADB_LONG_OUTPUT,
-        "Pixel_10_Pro\nOK\n"
-      )
-    ).toBe("Pixel_10_Pro");
-  });
-
-  test("phones resolve to their model", () => {
-    expect(resolveExpoDeviceName("R58M12ABCDE", ADB_LONG_OUTPUT, null)).toBe(
-      "SM_G973F"
-    );
-  });
-
-  test("falls back to Expo's generic label", () => {
-    expect(resolveExpoDeviceName("ZZZ", ADB_LONG_OUTPUT, null)).toBe(
-      "Device ZZZ"
-    );
-    expect(resolveExpoDeviceName("emulator-5558", "", null)).toBe(
-      "Device emulator-5558"
-    );
-  });
-});
-
 describe("buildExpoArgs", () => {
+  test("keeps the selected ADB serial when an emulator has no console name", () => {
+    const deviceSerial = pickDeviceSerial(ADB_OUTPUT, "emulator-5556");
+    expect(deviceSerial).not.toBeNull();
+    if (!deviceSerial) {
+      throw new Error("Expected an online emulator");
+    }
+    const args = buildExpoArgs({ deviceSerial, go: false, port: METRO_PORT });
+    expect(args[args.indexOf("--device") + 1]).toBe("emulator-5556");
+  });
+
   test("dev client runs on the chosen device", () => {
     expect(
-      buildExpoArgs({ deviceName: "Pixel_10_Pro", go: false, port: 8082 })
+      buildExpoArgs({ deviceSerial: "emulator-5556", go: false, port: 8082 })
     ).toEqual([
       "expo",
       "run:android",
       "--device",
-      "Pixel_10_Pro",
+      "emulator-5556",
       "--port",
       "8082",
     ]);
@@ -158,7 +136,7 @@ describe("buildExpoArgs", () => {
 
   test("expo go fallback starts the packager only", () => {
     expect(
-      buildExpoArgs({ deviceName: "Pixel_10_Pro", go: true, port: 8082 })
+      buildExpoArgs({ deviceSerial: "emulator-5556", go: true, port: 8082 })
     ).toEqual(["expo", "start", "-p", "8082", "--go"]);
   });
 });

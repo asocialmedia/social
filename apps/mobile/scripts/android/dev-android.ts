@@ -23,7 +23,6 @@ import {
   isBootCompleted,
   parseDevAndroidArgs,
   pickDeviceSerial,
-  resolveExpoDeviceName,
 } from "./dev-android-lib";
 
 function step(message: string): void {
@@ -124,14 +123,9 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Expo matches --device against its own display name, not the serial.
-  const devicesLong = await $`adb devices -l`.text();
-  const avdName = serial.startsWith("emulator-")
-    ? await $`adb -s ${serial} emu avd name`.text()
-    : null;
-  const deviceName = resolveExpoDeviceName(serial, devicesLong, avdName);
+  // Serial selection also works when a Windows emulator's console name is unavailable in WSL.
   const expoArgs = buildExpoArgs({
-    deviceName,
+    deviceSerial: serial,
     go: options.go,
     port: METRO_PORT,
   });

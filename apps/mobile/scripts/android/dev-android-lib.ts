@@ -48,31 +48,6 @@ export function pickDeviceSerial(
   return (emulator ?? online[0])?.serial ?? null;
 }
 
-// Expo's `--device` flag matches the DISPLAY name it derives itself, not the
-// adb serial: the AVD name for emulators (`adb emu avd name`), the `model:`
-// field of `adb devices -l` for phones, else `Device <serial>`. Mirrors the
-// Expo CLI's start/platforms/android/adb.ts so the flag resolves.
-export function resolveExpoDeviceName(
-  serial: string,
-  devicesLongOutput: string,
-  avdName: string | null
-): string {
-  if (serial.startsWith("emulator-")) {
-    const name = avdName?.split("\n")[0]?.trim();
-    if (name) {
-      return name;
-    }
-  }
-  const line = devicesLongOutput
-    .split("\n")
-    .find((entry) => entry.trim().startsWith(serial));
-  const model = line
-    ?.split(/\s+/)
-    .find((field) => field.startsWith("model:"))
-    ?.slice("model:".length);
-  return model || `Device ${serial}`;
-}
-
 // A dead emulator leaves an `emulator-XXXX offline` row behind until the adb
 // server restarts. Expo's device enumeration asks every emulator for its AVD
 // name and aborts on that row, so the script must clear it first.
@@ -165,7 +140,7 @@ export function parseDevAndroidArgs(argv: string[]): DevAndroidOptions {
 
 // Arguments for `bunx expo ...` after the reverses are in place.
 export function buildExpoArgs(options: {
-  deviceName: string;
+  deviceSerial: string;
   go: boolean;
   port: number;
 }): string[] {
@@ -176,7 +151,7 @@ export function buildExpoArgs(options: {
     "expo",
     "run:android",
     "--device",
-    options.deviceName,
+    options.deviceSerial,
     "--port",
     String(options.port),
   ];
