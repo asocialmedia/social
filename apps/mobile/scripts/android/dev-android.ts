@@ -19,11 +19,10 @@ import {
   buildBootCompletedArgs,
   buildExpoArgs,
   hasAllReverses,
-  hasOfflineEmulator,
+  getAdbRecoveryMode,
   isBootCompleted,
   parseDevAndroidArgs,
   pickDeviceSerial,
-  resolveExpoDeviceName,
 } from "./dev-android-lib";
 
 function step(message: string): void {
@@ -94,12 +93,19 @@ async function main(): Promise<void> {
   step("Looking for an online Android device");
   await $`adb start-server`.quiet();
   let devices = await $`adb devices`.text();
-  if (hasOfflineEmulator(devices)) {
-    // Expo aborts on stale emulator rows; only an adb restart clears them.
+  const recoveryMode = getAdbRecoveryMode(
+    devices,
+    process.env.ADB_SERVER_SOCKET
+  );
+  if (recoveryMode === "restart-local") {
     console.log("Clearing a stale offline emulator entry (adb restart)");
     await $`adb kill-server`.quiet();
     await $`adb start-server`.quiet();
     devices = await $`adb devices`.text();
+  } else if (recoveryMode === "preserve-configured") {
+    console.log(
+      "Leaving the configured ADB server running; restart it on its host if the emulator stays offline."
+    );
   }
   const serial = pickDeviceSerial(
     devices,
@@ -124,14 +130,9 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Expo matches --device against its own display name, not the serial.
-  const devicesLong = await $`adb devices -l`.text();
-  const avdName = serial.startsWith("emulator-")
-    ? await $`adb -s ${serial} emu avd name`.text()
-    : null;
-  const deviceName = resolveExpoDeviceName(serial, devicesLong, avdName);
+  // Serial selection also works when a Windows emulator's console name is unavailable in WSL.
   const expoArgs = buildExpoArgs({
-    deviceName,
+    deviceSerial: serial,
     go: options.go,
     port: METRO_PORT,
   });

@@ -60,7 +60,7 @@ export default function CommunityPostMediaRoute() {
       postId={postId}
       postHref={{
         params: { postId, slug },
-        pathname: "/a/[slug]/posts/[postId]/index",
+        pathname: "/a/[slug]/posts/[postId]",
       }}
     />
   );

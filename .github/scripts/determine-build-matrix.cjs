@@ -44,7 +44,11 @@ const TRIGGER_ALL_FILES = new Set([
 ]);
 
 // Root dependency changes can affect mobile; release-only version stamps cannot.
-const MOBILE_TRIGGER_FILES = new Set(["package.json", "bun.lock"]);
+const MOBILE_TRIGGER_FILES = new Set([
+  "package.json",
+  "bun.lock",
+  ".github/workflows/ci.yml",
+]);
 
 function isVersionOnlyChange(file) {
   if (
