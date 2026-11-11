@@ -110,7 +110,8 @@ export function observeRequest<T>(
   request: Request,
   id: string,
   logger: ProtocolLogger,
-  read: () => Promise<T>
+  read: () => Promise<T>,
+  options: { isDeferredError?: (error: unknown) => boolean } = {}
 ): Promise<T> {
   const parent = propagation.extract(context.active(), request.headers, {
     get: (headers, key) => headers.get(key) ?? undefined,
@@ -148,7 +149,15 @@ export function observeRequest<T>(
         return result;
       } catch (error) {
         const code = error instanceof ProtocolError ? error.code : "internal";
-        span.setStatus({ code: SpanStatusCode.ERROR, message: code });
+        const deferred = options.isDeferredError?.(error) === true;
+        span.setAttribute(
+          "asm.request.outcome",
+          deferred ? "deferred" : "error"
+        );
+        span.setStatus({
+          code: deferred ? SpanStatusCode.UNSET : SpanStatusCode.ERROR,
+          message: deferred ? "deferred" : code,
+        });
         const expiredCursor =
           error instanceof ProtocolError &&
           error.code === "invalid_input" &&
@@ -156,19 +165,22 @@ export function observeRequest<T>(
             "Discovery session expired",
             "Discovery session needs refreshing",
           ].includes(error.message);
-        const log = expiredCursor ? logger.debug : logger.warn;
+        const log = expiredCursor || deferred ? logger.debug : logger.warn;
+        let reason = "Unexpected protocol failure";
+        if (deferred) {
+          reason = "Hydration durably rescheduled";
+        } else if (error instanceof ProtocolError) {
+          reason = error.message;
+        }
         log.call(
           logger,
           {
             ...correlation,
-            code,
+            code: deferred ? "deferred" : code,
             durationMs: performance.now() - startedAt,
-            reason:
-              error instanceof ProtocolError
-                ? error.message
-                : "Unexpected protocol failure",
+            reason,
           },
-          "Protocol request failed"
+          deferred ? "Protocol request deferred" : "Protocol request failed"
         );
         throw error;
       } finally {

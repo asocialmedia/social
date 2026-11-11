@@ -147,35 +147,38 @@ export function createIngestionQueue(options: {
       const request = new Request("http://protocols.internal/ingestion", {
         headers: parsed.success ? parsed.data.trace : undefined,
       });
-      try {
-        return await observeRequest(
-          "ingestion.hydrate",
-          request,
-          job.id ?? crypto.randomUUID(),
-          options.logger,
-          () => runHydrationJob(job.data, options.hydrate)
-        );
-      } catch (error) {
-        const reschedule = error instanceof HydrationRescheduleError;
-        const delay = reschedule ? 1000 : hydrationRetryDelay(error);
-        if (!delay) {
-          throw error;
-        }
-        if (reschedule) {
-          await job.updateData(error.batch);
-        }
-        // Rescheduling and cooling down do not consume failure attempts; source lifetime still bounds the job.
-        await job.moveToDelayed(Date.now() + delay, job.token);
-        options.logger.info(
-          {
-            event: "ingestion.deferred",
-            node: options.node,
-            retryAfterMs: delay,
-          },
-          "Protocol hydration waiting for read capacity"
-        );
-        throw new DelayedError();
-      }
+      return await observeRequest(
+        "ingestion.hydrate",
+        request,
+        job.id ?? crypto.randomUUID(),
+        options.logger,
+        async () => {
+          try {
+            return await runHydrationJob(job.data, options.hydrate);
+          } catch (error) {
+            const reschedule = error instanceof HydrationRescheduleError;
+            const delay = reschedule ? 1000 : hydrationRetryDelay(error);
+            if (!delay) {
+              throw error;
+            }
+            if (reschedule) {
+              await job.updateData(error.batch);
+            }
+            // Only report deferral after durable scheduling succeeds; storage failures remain errors.
+            await job.moveToDelayed(Date.now() + delay, job.token);
+            options.logger.info(
+              {
+                event: "ingestion.deferred",
+                node: options.node,
+                retryAfterMs: delay,
+              },
+              "Protocol hydration waiting for read capacity"
+            );
+            throw new DelayedError();
+          }
+        },
+        { isDeferredError: (error) => error instanceof DelayedError }
+      );
     },
     {
       autorun: false,
