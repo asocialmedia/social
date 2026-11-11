@@ -38,5 +38,4 @@ For an already installed build, run `bun run reverse`, then `bun run android`. R
 
 Shell settings and SDK installations are machine-local and are not committed.
 
-GitHub releases publish ARM64 APKs for phones and x86_64 APKs for this emulator.
-Choose the file ending in `-x86_64.apk`; `asocialmedia-latest.apk` is ARM64.
+GitHub releases publish ARM64 APKs for phones and x86_64 APKs for this emulator. Choose the file ending in `-x86_64.apk`; `asocialmedia-latest.apk` is ARM64.

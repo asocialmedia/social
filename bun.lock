@@ -111,7 +111,7 @@
     },
     "apps/mobile": {
       "name": "@asocialmedia/mobile",
-      "version": "0.3.15",
+      "version": "0.3.16",
       "dependencies": {
         "@asm/auth": "workspace:*",
         "@asm/db": "workspace:*",
