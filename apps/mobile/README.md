@@ -29,12 +29,21 @@ Persist these settings in `~/.config/fish/config.fish`. `adb devices` in WSL sho
 From `apps/mobile`, in WSL:
 
 ```sh
-bun run dev:android
+env REACT_NATIVE_PACKAGER_HOSTNAME=127.0.0.1 bun run dev:android --device emulator-5554
 ```
 
 This builds/installs the development client, reverses ports **3000, 3001, 8082**, and starts Metro. Device selection uses the ADB serial, so an unavailable emulator console name does not prevent startup.
 
-For an already installed build, run `bun run reverse`, then `bun run android`. Reapply reverses after restarting the emulator. Start the web/API and auth services separately on ports 3000 and 3001; Metro alone cannot load the feed.
+Replace `emulator-5554` with the serial from `adb devices`.
+
+For an already installed development build:
+
+```sh
+bun run reverse --device emulator-5554
+bun run start --localhost
+```
+
+Open the development app on that same device and connect to `http://127.0.0.1:8082`. Reapply reverses after restarting the emulator. Start the web/API and auth services separately on ports 3000 and 3001; Metro alone cannot load the feed.
 
 Shell settings and SDK installations are machine-local and are not committed.
 

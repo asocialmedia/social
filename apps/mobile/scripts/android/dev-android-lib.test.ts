@@ -7,6 +7,7 @@ import {
   buildBootCompletedArgs,
   buildExpoArgs,
   findNewEmulatorSerial,
+  getAdbRecoveryMode,
   hasAllReverses,
   hasOfflineEmulator,
   isBootCompleted,
@@ -44,6 +45,28 @@ describe("hasOfflineEmulator", () => {
     expect(
       hasOfflineEmulator("List of devices attached\nR58M12ABCDE\toffline\n")
     ).toBe(false);
+  });
+});
+
+describe("getAdbRecoveryMode", () => {
+  test("restarts the default local server to recover offline emulators", () => {
+    expect(getAdbRecoveryMode(ADB_OUTPUT)).toBe("restart-local");
+  });
+
+  test("preserves the Windows server and can still select an online emulator", () => {
+    expect(getAdbRecoveryMode(ADB_OUTPUT, "tcp:127.0.0.1:5037")).toBe(
+      "preserve-configured"
+    );
+    expect(pickDeviceSerial(ADB_OUTPUT)).toBe("emulator-5556");
+    expect(getAdbRecoveryMode(ADB_OUTPUT, "tcp:192.168.1.10:5037")).toBe(
+      "preserve-configured"
+    );
+  });
+
+  test("leaves healthy servers alone", () => {
+    const online = "List of devices attached\nemulator-5556\tdevice\n";
+    expect(getAdbRecoveryMode(online)).toBe("none");
+    expect(getAdbRecoveryMode(online, "tcp:127.0.0.1:5037")).toBe("none");
   });
 });
 

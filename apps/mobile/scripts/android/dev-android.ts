@@ -19,7 +19,7 @@ import {
   buildBootCompletedArgs,
   buildExpoArgs,
   hasAllReverses,
-  hasOfflineEmulator,
+  getAdbRecoveryMode,
   isBootCompleted,
   parseDevAndroidArgs,
   pickDeviceSerial,
@@ -93,12 +93,19 @@ async function main(): Promise<void> {
   step("Looking for an online Android device");
   await $`adb start-server`.quiet();
   let devices = await $`adb devices`.text();
-  if (hasOfflineEmulator(devices)) {
-    // Expo aborts on stale emulator rows; only an adb restart clears them.
+  const recoveryMode = getAdbRecoveryMode(
+    devices,
+    process.env.ADB_SERVER_SOCKET
+  );
+  if (recoveryMode === "restart-local") {
     console.log("Clearing a stale offline emulator entry (adb restart)");
     await $`adb kill-server`.quiet();
     await $`adb start-server`.quiet();
     devices = await $`adb devices`.text();
+  } else if (recoveryMode === "preserve-configured") {
+    console.log(
+      "Leaving the configured ADB server running; restart it on its host if the emulator stays offline."
+    );
   }
   const serial = pickDeviceSerial(
     devices,

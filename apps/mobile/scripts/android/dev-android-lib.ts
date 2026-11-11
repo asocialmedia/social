@@ -58,6 +58,16 @@ export function hasOfflineEmulator(output: string): boolean {
   );
 }
 
+export function getAdbRecoveryMode(
+  devicesOutput: string,
+  serverSocket?: string
+): "none" | "restart-local" | "preserve-configured" {
+  if (!hasOfflineEmulator(devicesOutput)) {
+    return "none";
+  }
+  return serverSocket?.trim() ? "preserve-configured" : "restart-local";
+}
+
 export function buildAdbReverseArgs(serial: string, port: number): string[] {
   return ["-s", serial, "reverse", `tcp:${port}`, `tcp:${port}`];
 }
