@@ -227,7 +227,7 @@
     },
     "apps/web": {
       "name": "@asm/web",
-      "version": "1.9.48",
+      "version": "1.9.49",
       "dependencies": {
         "@asm/aggregator": "workspace:*",
         "@asm/auth": "workspace:*",
