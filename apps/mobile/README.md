@@ -37,3 +37,6 @@ This builds/installs the development client, reverses ports **3000, 3001, 8082**
 For an already installed build, run `bun run reverse`, then `bun run android`. Reapply reverses after restarting the emulator. Start the web/API and auth services separately on ports 3000 and 3001; Metro alone cannot load the feed.
 
 Shell settings and SDK installations are machine-local and are not committed.
+
+GitHub releases publish ARM64 APKs for phones and x86_64 APKs for this emulator.
+Choose the file ending in `-x86_64.apk`; `asocialmedia-latest.apk` is ARM64.

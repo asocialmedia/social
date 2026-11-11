@@ -529,13 +529,21 @@ jobs:
         run: bash scripts/ci/prisma-sync-deploy.sh
 
   build-mobile-apk:
-    name: Build Android APK
+    name: Build Android APK (${{ matrix.abi }})
     needs:
       - quality
       - detect-pr-merge
       - determine-build-matrix
     if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-mobile-changes == 'true' }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - abi: arm64-v8a
+            build-mode: "--all"
+          - abi: x86_64
+            build-mode: ""
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -587,13 +595,9 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
 
-      # Prebuilds the native project, provisions the release keystore, injects
-      # release signing, builds the arm64-v8a APK, verifies the signature and
-      # packages the artifact with its checksum. A release channel must be
-      # signed with a stable production key, so a missing keystore fails the
-      # build rather than publishing an unsigned APK.
       - name: Build signed release APK
         env:
+          ASM_ANDROID_ABI: ${{ matrix.abi }}
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -632,12 +636,12 @@ jobs:
           # app needs it to run the Turnstile challenge that gates signup and
           # the install-credential bootstrap.
           EXPO_PUBLIC_TURNSTILE_SITE_KEY: ${{ vars.EXPO_PUBLIC_TURNSTILE_SITE_KEY }}
-        run: bun apps/mobile/scripts/android/build-android-apk.ts --all
+        run: bun apps/mobile/scripts/android/build-android-apk.ts ${{ matrix.build-mode }}
 
       - name: Upload mobile artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: mobile-apk
+          name: mobile-apk-${{ matrix.abi }}
           path: |
             build-artifacts/*.apk
             build-artifacts/*.aab
@@ -674,7 +678,8 @@ jobs:
         if: needs.determine-build-matrix.outputs.has-mobile-changes == 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: mobile-apk
+          pattern: mobile-apk-*
+          merge-multiple: true
           path: build-artifacts
 
       # No apps/mobile changes means no fresh APK was built. Re-attach the

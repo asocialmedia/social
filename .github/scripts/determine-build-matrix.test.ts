@@ -95,6 +95,7 @@ test.each(["pr", "push", "initial"])(
 );
 
 test.each([
+  ".github/workflows/ci.yml",
   "apps/mobile/src/app/index.tsx",
   "apps/mobile/app.config.ts",
   "apps/mobile/package.json",
