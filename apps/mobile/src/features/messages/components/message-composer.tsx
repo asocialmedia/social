@@ -752,6 +752,7 @@ export const MessageComposer = memo(
         ) : null}
         {attachments.length > 0 ? (
           <ScrollView
+            showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.strip}
             horizontal
             keyboardShouldPersistTaps="handled"

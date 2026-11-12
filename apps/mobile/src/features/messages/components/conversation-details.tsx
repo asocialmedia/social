@@ -9,7 +9,6 @@ import { Alert, Linking, Pressable, Text, View } from "react-native";
 
 import chatDoodle from "@/assets/images/chat-doodle.webp";
 import { UserAvatar } from "@/components/avatar/user-avatar";
-import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { StatusActionButton } from "@/components/feedback/status-action-button";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { uploadMedia } from "@/features/media-upload/lib/upload-client";
@@ -54,6 +53,7 @@ import { MessageMediaViewer } from "./message-media-viewer";
 import { MessagePostPreview } from "./message-post-preview";
 import { MessageSheet } from "./message-sheet";
 import { MessageImage } from "./messages-primitives";
+import { ConversationListSkeleton } from "./messages-skeleton";
 
 export function ConversationDetails({
   conversation,
@@ -1003,13 +1003,7 @@ export function ConversationDetails({
             ))}
           </View>
           {loading && references.length === 0 ? (
-            <View
-              accessibilityLabel="Loading shared items"
-              accessibilityRole="progressbar"
-              style={{ alignItems: "center", paddingVertical: 16 }}
-            >
-              <Spinner3D size={40} />
-            </View>
+            <ConversationListSkeleton rows={3} label="Loading shared items" />
           ) : null}
           {sharedHint ? (
             <Text style={{ color: theme.dividerText }}>{sharedHint}</Text>

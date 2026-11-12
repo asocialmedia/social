@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 // Shares a post into messages, ported from
 // apps/web/src/components/messages/message-share-picker.tsx. Same flow: an
-// identity gate (loading spinner, lock screen with an Open Messages entry),
+// identity gate (conversation skeleton, lock screen with an Open Messages entry),
 // a follow-only people search, recent conversation peers when idle, an
 // optional caption, and a direct encrypted send per row with its own busy
 // state. The 409 ratchet retry lives in `sendEncryptedMessage` itself; the
@@ -35,6 +35,8 @@ import { useMessagesIdentity } from "@/features/messages/state/message-identity"
 import { useProfileSearch } from "@/features/messages/state/use-profile-search";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
+
+import { ConversationListSkeleton } from "./messages-skeleton";
 
 interface ShareRecipient {
   avatarUrl: string | null;
@@ -166,7 +168,7 @@ export function MessageSharePicker({
   if (status === "loading") {
     return (
       <View style={styles.center}>
-        <ZephLoader variant="messages" accessibilityLabel="Opening share" />
+        <ConversationListSkeleton rows={4} label="Opening share" />
       </View>
     );
   }
@@ -245,11 +247,7 @@ export function MessageSharePicker({
   function renderResults() {
     if (searching) {
       if (search.loading) {
-        return (
-          <Text style={[styles.hint, { color: theme.dividerText }]}>
-            Searching…
-          </Text>
-        );
+        return <ConversationListSkeleton rows={4} label="Searching people" />;
       }
       if (search.profiles.length === 0) {
         return (

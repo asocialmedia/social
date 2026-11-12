@@ -20,7 +20,6 @@ import {
 } from "react-native";
 
 import { toast } from "@/components/feedback/toast";
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { useSessionContext } from "@/features/auth/state/session";
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
 import {
@@ -56,6 +55,7 @@ import { MessageBubble } from "./message-bubble";
 import { MessageComposer } from "./message-composer";
 import { MessageMediaViewer } from "./message-media-viewer";
 import { MessageReactionSheet } from "./message-reaction-sheet";
+import { ThreadSkeleton } from "./messages-skeleton";
 
 interface Row {
   message: IncognitoMessage;
@@ -623,18 +623,12 @@ export function NativeIncognitoThread({
       {(() => {
         if (canView) {
           if (loading && !rows.length) {
-            return (
-              <View style={{ flex: 1, justifyContent: "center" }}>
-                <ZephLoader
-                  variant="messages"
-                  color="#a1a1aa"
-                  accessibilityLabel="Opening incognito messages"
-                />
-              </View>
-            );
+            return <ThreadSkeleton label="Opening incognito messages" />;
           }
           return (
             <FlatList
+              showsVerticalScrollIndicator={false}
+              showsHorizontalScrollIndicator={false}
               ref={list}
               data={visibleRows}
               keyExtractor={(row) => row.message.id}

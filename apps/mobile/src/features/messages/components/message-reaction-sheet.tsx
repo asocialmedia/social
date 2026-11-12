@@ -22,11 +22,11 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { panel3d } from "@/features/messages/lib/message-recipes";
 import { useAppTheme } from "@/theme";
 
 import { EmojiSkinTonePicker } from "./emoji-skin-tone-picker";
+import { MessageTilesSkeleton } from "./messages-skeleton";
 
 export function MessageReactionSheet({
   onClose,
@@ -94,7 +94,7 @@ export function MessageReactionSheet({
     );
   }
   if (!catalog && !failed) {
-    empty = <ZephLoader variant="messages" style={styles.empty} />;
+    empty = <MessageTilesSkeleton label="Loading reactions" compact />;
   }
 
   return (
@@ -181,6 +181,7 @@ export function MessageReactionSheet({
                 />
               </View>
               <ScrollView
+                showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.categories}
                 horizontal
                 keyboardShouldPersistTaps="handled"
@@ -221,6 +222,8 @@ export function MessageReactionSheet({
                 ))}
               </ScrollView>
               <FlatList
+                showsVerticalScrollIndicator={false}
+                showsHorizontalScrollIndicator={false}
                 data={results}
                 initialNumToRender={48}
                 keyboardShouldPersistTaps="handled"

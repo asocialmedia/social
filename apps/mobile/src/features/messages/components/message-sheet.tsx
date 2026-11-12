@@ -66,6 +66,8 @@ export function MessageSheet({
               />
             </View>
             <ScrollView
+              showsVerticalScrollIndicator={false}
+              showsHorizontalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={{ gap: 16, padding: 20 }}
             >

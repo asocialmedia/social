@@ -163,6 +163,8 @@ export function GlobalMessageSearchResults(
 
   return (
     <FlatList
+      showsVerticalScrollIndicator={false}
+      showsHorizontalScrollIndicator={false}
       accessibilityLabel="Search results"
       contentContainerStyle={styles.content}
       data={messageQueryValid ? results : []}

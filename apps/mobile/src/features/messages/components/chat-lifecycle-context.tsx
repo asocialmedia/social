@@ -13,7 +13,6 @@ import {
 import type { ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import type { ApiCallOptions } from "@/features/feed/lib/feed-api";
@@ -29,6 +28,7 @@ import { useAppTheme } from "@/theme";
 
 import { acknowledgeNativeIncognitoIntroduction } from "../lib/incognito-introduction";
 import { ChatLifecycleContext } from "./chat-lifecycle-state";
+import { ThreadSkeleton } from "./messages-skeleton";
 
 export function NativeChatLifecycleBoundary({
   conversationId,
@@ -334,12 +334,12 @@ export function NativeChatLifecycleBoundary({
             return (
               <View
                 style={{
-                  alignItems: "center",
+                  alignItems: lifecycleError ? "center" : "stretch",
                   backgroundColor: theme.containerBg,
                   flex: 1,
                   gap: 12,
                   justifyContent: "center",
-                  padding: 24,
+                  padding: lifecycleError ? 24 : 0,
                 }}
               >
                 {lifecycleError ? (
@@ -352,11 +352,7 @@ export function NativeChatLifecycleBoundary({
                     </Pressable>
                   </>
                 ) : (
-                  <ZephLoader
-                    variant="messages"
-                    accessibilityLabel="Opening conversation"
-                    size={96}
-                  />
+                  <ThreadSkeleton label="Opening conversation" />
                 )}
               </View>
             );
