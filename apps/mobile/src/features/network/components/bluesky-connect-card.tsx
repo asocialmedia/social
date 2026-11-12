@@ -18,14 +18,7 @@ import {
 } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import {
-  Alert,
-  Linking,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { toast } from "@/components/feedback/toast";
 import { ZephLoader } from "@/components/feedback/zeph-loader";
@@ -38,6 +31,7 @@ import {
 } from "@/features/settings/components/settings-ui";
 import { SectionAnchor } from "@/features/settings/lib/settings-scroll";
 import { haptic } from "@/lib/interaction/haptics";
+import { openExternalUrl } from "@/lib/interaction/open-url";
 import { useAppTheme } from "@/theme";
 
 import { blueskyConnectionSchema } from "../lib/bluesky-connection";
@@ -425,7 +419,7 @@ export function BlueskyConnectCard({
                     icon={<ExternalLink color={BLUESKY_BLUE} size={14} />}
                     label="View Profile"
                     onPress={() => {
-                      void Linking.openURL(
+                      void openExternalUrl(
                         `https://bsky.app/profile/${cleanHandle}`
                       );
                     }}
