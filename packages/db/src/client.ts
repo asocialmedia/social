@@ -64,25 +64,35 @@ export function mapUserData(user: UserQueryData): UserData {
 }
 
 export function getPublicUserQuery(orm: PrismaOrm, loggedInUserId: string) {
-  return orm.public.Users.select(
-    "aura",
-    "avatarUrl",
-    "badge",
-    "badges",
-    "bannerUrl",
-    "bio",
-    "createdAt",
-    "customDomain",
-    "customUrls",
-    "displayName",
-    "displayUsername",
-    "githubUsername",
-    "id",
-    "linkedinUsername",
-    "redditUsername",
-    "twitterUsername",
-    "username"
-  )
+  return projectPublicUserQuery(orm.public.Users, loggedInUserId);
+}
+
+function projectPublicUserQuery(
+  users: HasRow<CollectionRowOf<PrismaOrm["public"]["Users"]>> &
+    HasTypeState<CollectionTypeStateOf<PrismaOrm["public"]["Users"]>> &
+    Pick<PrismaOrm["public"]["Users"], "select">,
+  loggedInUserId: string
+) {
+  return users
+    .select(
+      "aura",
+      "avatarUrl",
+      "badge",
+      "badges",
+      "bannerUrl",
+      "bio",
+      "createdAt",
+      "customDomain",
+      "customUrls",
+      "displayName",
+      "displayUsername",
+      "githubUsername",
+      "id",
+      "linkedinUsername",
+      "redditUsername",
+      "twitterUsername",
+      "username"
+    )
     .include("accounts", (accounts) =>
       accounts.where({ providerId: "bluesky" }).select("accountId", "issuer")
     )
@@ -333,7 +343,8 @@ function buildPostDataQuery(orm: PrismaOrm, loggedInUserId: string) {
       )
       .include("hnStoryShares")
       .include("externalParent", (parent) => parent.select("uri"))
-      .include("user", (_user) => getUserDataQuery(orm, loggedInUserId))
+      // Preserve the include's table scope so later self-relations get distinct aliases.
+      .include("user", (user) => projectPublicUserQuery(user, loggedInUserId))
   );
   return normalizeQuery(
     context.include("parentPost", (parent) =>
@@ -611,7 +622,7 @@ export interface PostsPage {
 export function getCommentDataQuery(orm: PrismaOrm, loggedInUserId: string) {
   return orm.public.Comments.include("commentVotes", (commentVotes) =>
     commentVotes.where({ userId: loggedInUserId }).select("userId", "value")
-  ).include("user", (_user) => getUserDataQuery(orm, loggedInUserId));
+  ).include("user", (user) => projectPublicUserQuery(user, loggedInUserId));
 }
 
 export type CommentQueryData = ResultType<
