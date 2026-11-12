@@ -29,7 +29,6 @@ import {
 
 import addStickerArtwork from "@/assets/images/zeph-add-sticker.webp";
 import { toast } from "@/components/feedback/toast";
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { GifPicker } from "@/components/media/gif-picker";
 import type { KlipyGif } from "@/features/composer/lib/pick-media";
 import { pickStickerSource } from "@/features/composer/lib/pick-media";
@@ -39,6 +38,8 @@ import type { PickedMedia } from "@/features/media-upload/state/attachment-store
 import type { MessagePayload } from "@/features/messages/lib/crypto";
 import { panel3d, reelsInput } from "@/features/messages/lib/message-recipes";
 import { useAppTheme } from "@/theme";
+
+import { MessageTilesSkeleton } from "./messages-skeleton";
 
 type ExpressionTab = "emoji" | "gifs" | "stickers";
 type StickerCollection = "mine" | "recent" | "favorites";
@@ -425,9 +426,7 @@ export function MessageExpressionKeyboard({
   const visibleTab = !stickersEnabled && tab === "stickers" ? "emoji" : tab;
   let emojiResults: ReactNode;
   if (!catalog) {
-    emojiResults = (
-      <ZephLoader variant="messages" color={mutedColor} style={styles.empty} />
-    );
+    emojiResults = <MessageTilesSkeleton label="Loading emojis" compact />;
   } else if (emojis.length === 0) {
     emojiResults = (
       <Text style={[styles.empty, { color: mutedColor }]}>No emojis found</Text>
@@ -435,6 +434,8 @@ export function MessageExpressionKeyboard({
   } else {
     emojiResults = (
       <FlatList
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         data={emojis}
         initialNumToRender={48}
         keyExtractor={(item) => item.emoji}
@@ -493,6 +494,8 @@ export function MessageExpressionKeyboard({
   } else {
     stickerResults = (
       <ScrollView
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         onScroll={({ nativeEvent }) => {
           if (
@@ -568,26 +571,14 @@ export function MessageExpressionKeyboard({
           ))}
         </View>
         {stickersLoading ? (
-          <ZephLoader
-            variant="messages"
-            accessibilityLabel="Loading stickers"
-            color={mutedColor}
-            style={{ marginTop: 12 }}
-          />
+          <MessageTilesSkeleton label="Loading stickers" />
         ) : null}
         {!stickersLoading && stickerPage.items.length === 0 && canCreate ? (
           <Text style={{ color: mutedColor, fontSize: 12, marginTop: 12 }}>
             Make a sticker from an image or GIF.
           </Text>
         ) : null}
-        {loadingMore ? (
-          <ZephLoader
-            variant="messages"
-            accessibilityLabel="Loading stickers"
-            color={mutedColor}
-            size="small"
-          />
-        ) : null}
+        {loadingMore ? <MessageTilesSkeleton label="Loading stickers" /> : null}
       </ScrollView>
     );
   }
@@ -654,6 +645,7 @@ export function MessageExpressionKeyboard({
           />
           {emojiQuery.trim() ? null : (
             <ScrollView
+              showsVerticalScrollIndicator={false}
               horizontal
               showsHorizontalScrollIndicator={false}
               style={styles.categoryScroll}
@@ -695,6 +687,7 @@ export function MessageExpressionKeyboard({
         <View style={{ flex: 1, minHeight: 0 }}>
           <View style={styles.stickerToolbar}>
             <ScrollView
+              showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.collectionRow}
               horizontal
               showsHorizontalScrollIndicator={false}

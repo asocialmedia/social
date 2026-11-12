@@ -108,6 +108,7 @@ export function ResponsePreview({
           </View>
           {replyTo.content ? (
             <ScrollView
+              showsHorizontalScrollIndicator={false}
               nestedScrollEnabled
               style={styles.contentScroll}
               showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}

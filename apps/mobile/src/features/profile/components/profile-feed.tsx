@@ -1191,7 +1191,11 @@ export function ProfileFeed({
   const renderScrollComponent = useCallback(
     (props: ComponentProps<typeof ScrollView>) => (
       <GestureDetector gesture={pull.nativeScrollGesture}>
-        <ScrollView {...props} />
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          showsHorizontalScrollIndicator={false}
+          {...props}
+        />
       </GestureDetector>
     ),
     [pull.nativeScrollGesture]
@@ -1420,6 +1424,7 @@ export function ProfileFeed({
     <GestureDetector gesture={outerGestures}>
       <View style={styles.rootContainer}>
         <FlashList
+          showsHorizontalScrollIndicator={false}
           ItemSeparatorComponent={renderSeparator}
           ListEmptyComponent={
             showEmpty ? (

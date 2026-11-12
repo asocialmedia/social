@@ -55,6 +55,7 @@ export function DialogPanel({
           style={StyleSheet.absoluteFill}
         />
         <ScrollView
+          showsHorizontalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.scroll}
           showsVerticalScrollIndicator={false}

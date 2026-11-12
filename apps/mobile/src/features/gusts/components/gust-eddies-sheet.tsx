@@ -325,6 +325,7 @@ function OpenGustEddiesSheet({
             </Pressable>
           </View>
           <ScrollView
+            showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.body}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}

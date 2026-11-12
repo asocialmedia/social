@@ -1,6 +1,7 @@
 import "temporal-polyfill/full/global";
 import postgres from "@prisma/orm-postgres/runtime";
 import type { PostgresClient } from "@prisma/orm-postgres/runtime";
+import { contractFromJson } from "@prisma/orm-postgres/static";
 
 import type { Contract } from "../generated/prisma/contract";
 import contractJson from "../generated/prisma/contract.json" with { type: "json" };
@@ -11,8 +12,8 @@ declare global {
 }
 
 function createPrismaClient(): PrismaClient {
-  return postgres<Contract>({
-    contractJson,
+  return postgres({
+    contract: contractFromJson<Contract>(contractJson),
     poolOptions: {
       connectionTimeoutMillis: 30_000,
       idleTimeoutMillis: 60_000,

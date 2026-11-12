@@ -169,6 +169,7 @@ export function TranscriptDrawer({
   } else if (cues.length === 0 && rawTranscript?.trim()) {
     body = (
       <ScrollView
+        showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.rawWrap}
         showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
       >
@@ -192,6 +193,7 @@ export function TranscriptDrawer({
   } else {
     body = (
       <ScrollView
+        showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}

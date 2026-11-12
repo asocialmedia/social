@@ -804,6 +804,7 @@ export function MediaPreview({ request }: { request: MediaPreviewRequest }) {
                   />
                 </View>
                 <ScrollView
+                  showsHorizontalScrollIndicator={false}
                   style={{ flex: 1 }}
                   nestedScrollEnabled
                   showsVerticalScrollIndicator={false}

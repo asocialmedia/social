@@ -139,3 +139,25 @@ test("areTimelineRowsIdentical compares order and identity", () => {
     areTimelineRowsIdentical(first, stableTimelineRows(first, rebuilt))
   ).toBe(true);
 });
+
+test("ranked first batches interleave networks while latest merges by date", () => {
+  const native: FeedRow[] = ["16", "14"].map((day) => ({
+    hasThreadChild: false,
+    hasThreadParent: false,
+    post: {
+      createdAt: `2026-10-${day}T00:00:00Z`,
+      id: day,
+      userId: "author",
+    },
+  }));
+  const remote = [
+    external,
+    { ...external, createdAt: "2026-10-13T00:00:00Z", id: "second" },
+  ];
+  expect(
+    mixedFeedRows(native, remote, "all", false).map((row) => row.kind)
+  ).toEqual(["asm", "bluesky", "bluesky", "asm"]);
+  expect(
+    mixedFeedRows(native, remote, "all", true).map((row) => row.id)
+  ).toEqual(["asm:16", `bluesky:${external.id}`, "asm:14", "bluesky:second"]);
+});

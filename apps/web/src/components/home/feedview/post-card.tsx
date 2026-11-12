@@ -22,7 +22,6 @@ import {
   CommunityShareCard,
 } from "@/components/communities/card/community-attribution";
 import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
-import FollowButton from "@/components/layouts/user/follow-button";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import UserTooltip from "@/components/layouts/user/user-tooltip";
@@ -221,18 +220,6 @@ const PostHeader: React.FC<PostHeaderProps> = ({
                 @{authorUsername}
               </Link>
             </PostAuthorTooltip>
-            {post.external ||
-            !post.user ||
-            post.user.id === currentUserId ? null : (
-              <FollowButton
-                className="h-7 px-3 text-xs"
-                initialState={{
-                  followers: post.user.followers.length,
-                  isFollowedByUser: post.user.followers.length > 0,
-                }}
-                userId={post.user.id}
-              />
-            )}
           </div>
         </div>
 

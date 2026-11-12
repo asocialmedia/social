@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  cleanCustomUrls,
   createCommentSchema,
   createGustSchema,
   createPostSchema,
@@ -8,6 +9,7 @@ import {
   GUST_CAPTION_MAX_WORDS,
   loginSchema,
   newPasswordSchema,
+  normalizeCustomUrl,
   signUpSchema,
   updateUserProfileSchema,
 } from "./schemas";
@@ -352,6 +354,54 @@ describe("schemas", () => {
         githubUsername: "bad user!",
       });
       expect(result.success).toBe(false);
+    });
+
+    test("accepts http(s) custom urls and blank rows", () => {
+      const result = updateUserProfileSchema.safeParse({
+        bio: "",
+        customUrls: ["https://example.com", "  ", "http://shop.example.com/a"],
+        displayName: "Name",
+      });
+      expect(result.success).toBe(true);
+    });
+
+    test("normalizes and cleans custom urls", () => {
+      expect(normalizeCustomUrl(" example.com ")).toBe("https://example.com");
+      expect(normalizeCustomUrl("https://a.io")).toBe("https://a.io");
+      expect(normalizeCustomUrl("")).toBe("");
+      expect(cleanCustomUrls([" https://a.io ", "", "  "])).toEqual([
+        "https://a.io",
+      ]);
+    });
+
+    test("rejects more than three custom urls", () => {
+      const result = updateUserProfileSchema.safeParse({
+        bio: "",
+        customUrls: [
+          "https://a.com",
+          "https://b.com",
+          "https://c.com",
+          "https://d.com",
+        ],
+        displayName: "Name",
+      });
+      expect(result.success).toBe(false);
+    });
+
+    test("rejects non-http custom urls", () => {
+      for (const link of [
+        // oxlint-disable-next-line eslint/no-script-url -- Regression fixture for rejecting script URLs.
+        "javascript:alert(1)",
+        "ftp://files.example.com",
+        "example.com",
+      ]) {
+        const result = updateUserProfileSchema.safeParse({
+          bio: "",
+          customUrls: [link],
+          displayName: "Name",
+        });
+        expect(result.success).toBe(false);
+      }
     });
   });
 

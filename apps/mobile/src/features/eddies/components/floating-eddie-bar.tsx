@@ -302,6 +302,7 @@ export function FloatingEddieBar({
         ]}
       >
         <ScrollView
+          showsHorizontalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           style={{

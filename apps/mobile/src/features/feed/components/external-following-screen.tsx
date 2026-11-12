@@ -137,6 +137,8 @@ function ExternalFollowingContent() {
       </Text>
       {user ? (
         <FlatList
+          showsVerticalScrollIndicator={false}
+          showsHorizontalScrollIndicator={false}
           data={authors}
           keyExtractor={(author) => author.did}
           ListEmptyComponent={

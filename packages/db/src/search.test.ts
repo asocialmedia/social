@@ -172,8 +172,8 @@ describe("search", () => {
     ).text();
     const indexedColumns = [
       "username gin_trgm_ops",
-      '\\"displayName\\" gin_trgm_ops',
-      '\\"displayUsername\\" gin_trgm_ops',
+      '"displayName" gin_trgm_ops',
+      '"displayUsername" gin_trgm_ops',
       "content gin_trgm_ops",
       "description gin_trgm_ops",
       "name gin_trgm_ops",
@@ -181,7 +181,7 @@ describe("search", () => {
     ];
 
     for (const expression of indexedColumns) {
-      expect(contract).toContain(expression);
+      expect(contract).toContain(`@@index(expression: sql\`${expression}\``);
     }
   });
 });

@@ -49,7 +49,6 @@ import { useMediaPreviewStore } from "../state/media-preview-store";
 import { useVideoCaptionsStore } from "../state/video-captions-store";
 import { CommunityAttribution } from "./community-attribution";
 import { useExternalAuthorPreview } from "./external-author-preview";
-import { FeedFollowButton } from "./feed-follow-button";
 import type { MenuAnchor } from "./more-menu";
 import {
   BookmarkToggle,
@@ -419,18 +418,13 @@ export const PostCard = memo(
                     <Text style={[styles.date, { color: theme.dividerText }]}>
                       {cachedFormatRelativeDate(post.createdAt)}
                     </Text>
-                    {/* Web shows Follow beside the handle on other people's
-                        native posts, to guests too (a tap goes to login). */}
-                    {post.external ||
-                    !author ||
-                    author.id === viewerId ? null : (
-                      <FeedFollowButton post={post} viewerId={viewerId} />
-                    )}
                   </View>
                   {/* Web's header buttons carry -my-1 so the text row sets the row
                 height and the name stays top-aligned with the avatar. */}
                   <View style={styles.moreFix}>
-                    {post.external || hasOverflow ? (
+                    {post.external ||
+                    (author && author.id !== viewerId) ||
+                    hasOverflow ? (
                       <MoreButton onPress={(anchor) => onMore(post, anchor)} />
                     ) : (
                       <View

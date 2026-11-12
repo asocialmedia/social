@@ -19,6 +19,7 @@ const ClientFollowButton = dynamic(
 );
 
 interface FollowButtonProps {
+  menu?: boolean;
   className?: string;
   initialState: {
     followers: number;
@@ -44,10 +45,12 @@ const FollowButton: React.FC<FollowButtonProps> = ({
   userId,
   initialState,
   className,
+  menu,
   onFollowed,
 }) => (
   <WrappedClientFollowButton
     className={className}
+    menu={menu}
     initialState={initialState}
     onFollowed={onFollowed}
     userId={userId}

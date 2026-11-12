@@ -227,7 +227,7 @@ test("mixed sources stage a page-sized arrival until both peers finish, then int
     source: "all",
     sourcesPending: true,
   });
-  expect(feed.ids()).toEqual(["native-0"]);
+  expect(feed.ids()).toEqual([]);
   await feed.render(native, key, false, {
     external,
     source: "all",
@@ -280,7 +280,7 @@ test("a slow or continually paging peer cannot keep successfully loaded posts st
     source: "all",
     sourcesPending: true,
   });
-  expect(feed.ids()).toHaveLength(1);
+  expect(feed.ids()).toHaveLength(0);
   await act(async () => {
     await Bun.sleep(650);
   });
@@ -312,7 +312,7 @@ test("Following keeps a slow first page staged beyond the discovery grace period
   await act(async () => {
     await Bun.sleep(750);
   });
-  expect(feed.ids()).toEqual(["followed-native-0"]);
+  expect(feed.ids()).toEqual([]);
   await feed.render(native, key, false, {
     external: remote,
     source: "all",
@@ -355,7 +355,7 @@ test("a custom source deadline releases posts even if a request never settles", 
     sourceWaitMs: 30,
     sourcesPending: true,
   });
-  expect(feed.ids()).toEqual(["deadline-1"]);
+  expect(feed.ids()).toEqual([]);
   await act(async () => {
     await Bun.sleep(60);
   });
@@ -371,11 +371,11 @@ test("a parent-managed stage releases only when its companion loading UI is read
     sourceWaitMs: null,
     sourcesPending: true,
   });
-  expect(feed.ids()).toEqual(["managed-first"]);
+  expect(feed.ids()).toEqual([]);
   await act(async () => {
     await Bun.sleep(680);
   });
-  expect(feed.ids()).toEqual(["managed-first"]);
+  expect(feed.ids()).toEqual([]);
   await feed.render(native, key, false, {
     source: "all",
     sourceWaitMs: null,

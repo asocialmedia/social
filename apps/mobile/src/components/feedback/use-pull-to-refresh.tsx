@@ -28,7 +28,7 @@ import {
 } from "@/features/feed/components/pull-loader";
 import { REFRESH_TIMING } from "@/lib/lifecycle/refresh-timing";
 
-import { pullDistance, pullGestureDecision } from "./android-pull";
+import { pullDistance } from "./android-pull";
 
 // Where the Android list parks while refreshing: the 44px loader chip at
 // top 12 plus breathing room.
@@ -37,8 +37,8 @@ const PULL_PARK = 64;
 // Android pull, on native gestures: a JS responder loses the drag to the
 // native scroll view the moment it starts, so the pull is a gesture-handler
 // Pan running simultaneously with the list's own native scroll gesture. It
-// only activates for a downward drag that starts at the top of the list.
-// Scrolling back up from the middle never becomes a refresh. Horizontal drags fail it and
+// measures only the extra drag made once the list reaches the top, so
+// scrolling back up and continuing into a deliberate pull works. Horizontal drags fail it and
 // stay with whatever horizontal gesture the screen owns (a pager, a
 // swipe-back). Built once; the handlers only read refs.
 function createNativeScrollGesture() {
@@ -59,8 +59,6 @@ function createPullGestures(refs: {
   scrollOffset?: Pick<SharedValue<number>, "get">;
 }) {
   let baseline: number | null = null;
-  let activated = false;
-  let touchStart: { x: number; y: number } | null = null;
   const offset = () => refs.scrollOffset?.get() ?? refs.scrollOffsetRef.current;
   const resetPull = () => {
     baseline = null;
@@ -71,48 +69,14 @@ function createPullGestures(refs: {
   const pull = Gesture.Pan()
     .enabled(refs.enabled)
     .runOnJS(true)
-    .manualActivation(true)
+    .activeOffsetY(8)
+    .failOffsetX([-16, 16])
+    .maxPointers(1)
     .simultaneousWithExternalGesture(nativeScroll)
-    .onTouchesDown((event, manager) => {
-      activated = false;
-      const [touch] = event.allTouches;
-      touchStart = touch ? { x: touch.absoluteX, y: touch.absoluteY } : null;
-      // A drag that starts down the feed belongs to scrolling for its entire lifetime.
-      if (
-        !touchStart ||
-        offset() > 0 ||
-        refs.refreshingRef.current ||
-        event.numberOfTouches !== 1
-      ) {
-        touchStart = null;
-        manager.fail();
-      }
-    })
-    .onTouchesMove((event, manager) => {
-      if (activated) {
-        return;
-      }
-      const [touch] = event.allTouches;
-      if (!touchStart || !touch) {
-        manager.fail();
-        return;
-      }
-      const decision = pullGestureDecision({
-        offset: offset(),
-        refreshing: refs.refreshingRef.current,
-        touches: event.numberOfTouches,
-        x: touch.absoluteX - touchStart.x,
-        y: touch.absoluteY - touchStart.y,
-      });
-      if (decision === "fail") {
-        manager.fail();
-      } else if (decision === "activate") {
-        activated = true;
-        manager.activate();
-      }
-    })
+    .onBegin(resetPull)
     .onUpdate((event) => {
       if (refs.refreshingRef.current || offset() > 0) {
+        baseline = null;
         if (refs.pullRef.current > 0) {
           resetPull();
           refs.pullShift.setValue(0);
@@ -135,8 +99,6 @@ function createPullGestures(refs: {
         offset() <= 0 &&
         !refs.refreshingRef.current &&
         refs.pullRef.current > PULL_THRESHOLD;
-      touchStart = null;
-      activated = false;
       if (!trigger && refs.pullRef.current === 0) {
         baseline = null;
         return;

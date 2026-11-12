@@ -182,6 +182,7 @@ export function CommunityChatStrip() {
       ]}
     >
       <ScrollView
+        showsHorizontalScrollIndicator={false}
         contentContainerStyle={[
           styles.scroll,
           { paddingBottom: 96 + insets.bottom },
@@ -268,7 +269,11 @@ function CommunityChatShortcut({ entry }: { entry: CommunityChatInboxEntry }) {
               },
             ]}
           >
-            <ScrollView bounces={false}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              showsHorizontalScrollIndicator={false}
+              bounces={false}
+            >
               <CommunityCard
                 community={community}
                 onPress={() => {

@@ -578,6 +578,7 @@ export function AccountTab({
 
   return (
     <ScrollView
+      showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
       ref={scrollRef}
@@ -642,6 +643,15 @@ export function AccountTab({
             placeholder="yourname"
             value={username}
           />
+          {/* Web mobile: the field, then a full-width 40px button with a
+              12px radius, then the helper copy. */}
+          <SettingsButton
+            block
+            disabled={savingUsername}
+            label={savingUsername ? "Updating…" : "Update Username"}
+            onPress={submitUsername}
+            radius={12}
+          />
           <Text style={[styles.note, { color: theme.dividerText }]}>
             {usernameSavedAt
               ? `Your previous username redirects here until ${new Date(
@@ -649,14 +659,6 @@ export function AccountTab({
                 ).toLocaleDateString()}. You can make up to 5 username changes every 30 days.`
               : "Your previous username stays reserved and redirects here for 30 days. You can make up to 5 username changes every 30 days."}
           </Text>
-          <View style={styles.actionEnd}>
-            <SettingsButton
-              disabled={savingUsername}
-              label={savingUsername ? "Updating…" : "Update Username"}
-              onPress={submitUsername}
-              size="sm"
-            />
-          </View>
         </SectionAnchor>
 
         <View style={[styles.divider, { backgroundColor: theme.cardBorder }]} />
@@ -688,14 +690,13 @@ export function AccountTab({
                 placeholder="you@example.com"
                 value={email}
               />
-              <View style={styles.actionEnd}>
-                <SettingsButton
-                  disabled={emailBusy}
-                  label={emailBusy ? "Sending…" : "Update Email"}
-                  onPress={beginEmailChange}
-                  size="sm"
-                />
-              </View>
+              <SettingsButton
+                block
+                disabled={emailBusy}
+                label={emailBusy ? "Sending…" : "Update Email"}
+                onPress={beginEmailChange}
+                radius={12}
+              />
             </>
           ) : null}
 
@@ -773,6 +774,13 @@ export function AccountTab({
         </SectionAnchor>
       </SettingsCard>
 
+      {/* Web order: identity, Bluesky connection, the Bluesky follows card,
+          then sign-in methods. */}
+      <BlueskyConnectCard
+        emailVerified={facts.emailVerified}
+        onChanged={onChanged}
+      />
+
       <SectionAnchor id="settings-linked-accounts" tab="account">
         <View style={styles.section}>
           <SettingsCardHeading
@@ -849,10 +857,6 @@ export function AccountTab({
           </SettingsCard>
         </SectionAnchor>
       )}
-      <BlueskyConnectCard
-        emailVerified={facts.emailVerified}
-        onChanged={onChanged}
-      />
       <Modal
         animationType="fade"
         onRequestClose={() => setProviderToConfirm(null)}
@@ -1015,7 +1019,7 @@ const styles = StyleSheet.create({
   // The card's own `gap` cannot reach children wrapped in a SectionAnchor, so
   // each anchored section carries the same 12px rhythm the card uses.
   cardSection: { gap: 12 },
-  content: { flexGrow: 1, gap: 18, padding: 16, paddingBottom: 96 },
+  content: { flexGrow: 1, gap: 18, padding: 16, paddingBottom: 0 },
   dialog: {
     borderCurve: "continuous",
     borderRadius: 16,
@@ -1045,7 +1049,7 @@ const styles = StyleSheet.create({
   dialogProviderName: { fontFamily: "SofiaProMed", fontSize: 14 },
   dialogTitle: { fontFamily: "SofiaProBold", fontSize: 16 },
   dialogTitleRow: { alignItems: "center", flexDirection: "row", gap: 8 },
-  divider: { height: 1, marginVertical: 6 },
+  divider: { height: 1, marginVertical: 12 },
   fieldLabel: { fontFamily: "SofiaProMed", fontSize: 13 },
   minWidthZero: { flexShrink: 1, minWidth: 0 },
   note: { fontFamily: "SofiaProReg", fontSize: 12, lineHeight: 17 },

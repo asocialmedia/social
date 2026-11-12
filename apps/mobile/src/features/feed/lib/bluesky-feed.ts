@@ -21,6 +21,7 @@ interface DiscoveryState {
   newItems: ExternalPost[];
   error: string | null;
   loadingMore: boolean;
+  refreshing: boolean;
   pages: DiscoveryPage[];
   status: "loading" | "success" | "error";
 }
@@ -38,6 +39,7 @@ export function createBlueskyFeed(
     loadingMore: false,
     newItems: [],
     pages: [],
+    refreshing: false,
     status: "loading",
   };
   let controller: AbortController | null = null;
@@ -70,6 +72,7 @@ export function createBlueskyFeed(
     update({
       error: null,
       loadingMore: !replace,
+      refreshing: replace && state.pages.length > 0,
       status: state.pages.length === 0 ? "loading" : state.status,
     });
     try {
@@ -148,7 +151,7 @@ export function createBlueskyFeed(
       clearTimeout(timer);
       if (controller === current) {
         controller = null;
-        update({ loadingMore: false });
+        update({ loadingMore: false, refreshing: false });
       }
     }
   }
@@ -247,7 +250,7 @@ export function createBlueskyFeed(
     // reshuffle the mixed rows on return.
     pause: () => {
       cancel();
-      update({ loadingMore: false });
+      update({ loadingMore: false, refreshing: false });
     },
     probe,
     recover: () => {

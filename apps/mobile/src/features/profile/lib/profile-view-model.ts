@@ -20,6 +20,7 @@ export interface ProfileHeaderProfile {
   communityMemberships: CommunityRoleLike[];
   createdAt: string;
   customDomain: string | null;
+  customUrls: string[];
   displayName: string | null;
   followers: { followerId: string }[];
   mutuals?: ProfileMutuals;

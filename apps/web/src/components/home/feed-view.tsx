@@ -387,7 +387,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
     if (!sourcesPending) {
       return mixedGroups;
     }
-    return mixedGroups.slice(0, 1);
+    return [];
   }, [mixedGroups, sourcesPending]);
   const [orderedFeed, setOrderedFeed] = useState({
     input: stagedGroups,

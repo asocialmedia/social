@@ -5,9 +5,9 @@ import { X } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
 
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import type { Attachment } from "@/components/posts/editor/attachment-store";
 import { ALT_TEXT_MAX_LENGTH } from "@/lib/media/media-upload-client";
-import { cn } from "@/lib/utils";
 
 interface AltTextPanelProps {
   attachment: Attachment;
@@ -143,16 +143,17 @@ const AltTextPanel = ({
             onClick={handleAutoAltText}
             type="button"
           >
-            <Image
-              alt=""
-              className={cn(
-                "size-3.5 object-contain",
-                isAutoGenerating && "motion-safe:animate-pulse"
-              )}
-              height={20}
-              src={zephImage}
-              width={20}
-            />
+            {isAutoGenerating ? (
+              <Spinner3D className="size-3.5" />
+            ) : (
+              <Image
+                alt=""
+                className="size-3.5 object-contain"
+                height={20}
+                src={zephImage}
+                width={20}
+              />
+            )}
             <span>{isAutoGenerating ? "Analyzing..." : "Auto"}</span>
           </button>
         ) : null}
@@ -182,16 +183,17 @@ const AltTextPanel = ({
           onClick={handleAutoAltText}
           type="button"
         >
-          <Image
-            alt=""
-            className={cn(
-              "size-3.5 object-contain",
-              isAutoGenerating && "motion-safe:animate-pulse"
-            )}
-            height={20}
-            src={zephImage}
-            width={20}
-          />
+          {isAutoGenerating ? (
+            <Spinner3D className="size-3.5" />
+          ) : (
+            <Image
+              alt=""
+              className="size-3.5 object-contain"
+              height={20}
+              src={zephImage}
+              width={20}
+            />
+          )}
           <span>{isAutoGenerating ? "Analyzing..." : "Auto"}</span>
         </button>
       ) : null}

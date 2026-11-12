@@ -283,6 +283,8 @@ export function CommunityNavigationDrawer({
             </Pressable>
           ) : null}
           <ScrollView
+            showsVerticalScrollIndicator={false}
+            showsHorizontalScrollIndicator={false}
             ref={scrollRef}
             keyboardShouldPersistTaps="handled"
             style={{ flex: 1 }}

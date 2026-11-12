@@ -10,6 +10,7 @@ import { useCallback, useMemo, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { FeedErrorState } from "@/components/feeds/feed-error-state";
+import { FeedPullStatus } from "@/components/feeds/feed-pull-status";
 import { NewContentPill } from "@/components/feeds/new-content-pill";
 import { FeedView } from "@/components/home/feed-view";
 import FeedEnd from "@/components/home/feedview/feed-end";
@@ -27,10 +28,9 @@ import {
   revealFeedHead,
 } from "@/lib/posts/feed-cache";
 import { feedContinuationDelay } from "@/lib/posts/feed-pagination";
+import type { PresentedPost } from "@/lib/posts/presentation";
+import { externalPostView } from "@/lib/posts/presentation";
 import { useFeedSourceStore } from "@/store/feed-source-store";
-
-// Match the remote read deadline so a slower first page is mixed before the native batch is committed.
-const FOLLOWING_INITIAL_SOURCE_WAIT_MS = 18_000;
 
 export default function FollowingFeed() {
   const network = useNetworkSettings();
@@ -131,22 +131,40 @@ export default function FollowingFeed() {
       external.showNewItems();
     }
   }, [clearNewItems, newItems, queryClient, queryKey, external, source]);
-  const showNewPosts = useCallback(() => {
-    revealFeedHead(feedRootRef.current, mergeNewPosts);
-  }, [mergeNewPosts]);
-  useSeamlessFeedHead({
+
+  const headNotice = useSeamlessFeedHead<PresentedPost>({
     count:
       (source === "bluesky" ? 0 : newItems.length) +
       (source === "asm" ? 0 : external.newItems.length),
     enabled: network.ready,
     merge: mergeNewPosts,
+    paging: isFetchingNextPage || external.isFetchingNextPage,
+    pendingItems: [
+      ...(source === "bluesky" ? [] : newItems),
+      ...(source === "asm" ? [] : external.newItems.map(externalPostView)),
+    ],
     probe: () =>
       Promise.all([
         source === "bluesky" ? Promise.resolve() : probeNow(),
         source === "asm" ? Promise.resolve() : external.probeNow(),
       ]),
+    refreshing:
+      (isFetching && !isFetchingNextPage) ||
+      (external.isFetching && !external.isFetchingNextPage),
     root: feedRootRef,
+    scope: `${JSON.stringify(queryKey)}:${source}`,
   });
+
+  const showNewPosts = useCallback(() => {
+    revealFeedHead(feedRootRef.current, () => {
+      headNotice.acknowledge();
+      mergeNewPosts();
+    });
+  }, [mergeNewPosts, headNotice]);
+  const unreadNative = headNotice.unreadItems.filter((post) => !post.external);
+  const unreadExternal = headNotice.unreadItems.flatMap((post) =>
+    post.external ? [post.external] : []
+  );
 
   const nativeHasMore = source !== "bluesky" && hasNextPage;
   const externalHasMore = source !== "asm" && external.hasNextPage;
@@ -231,12 +249,13 @@ export default function FollowingFeed() {
 
   return (
     <div className="relative" ref={feedRootRef}>
-      {source !== "bluesky" && newItems.length > 0 ? (
+      <FeedPullStatus state={headNotice.pullState} />
+      {source !== "bluesky" && unreadNative.length > 0 ? (
         <div className="pointer-events-none sticky top-3 z-20 flex justify-center">
           <NewContentPill
             authors={[
               ...new Map(
-                newItems.map((post) => [
+                unreadNative.map((post) => [
                   post.userId,
                   {
                     avatarUrl: post.user?.avatarUrl,
@@ -246,21 +265,21 @@ export default function FollowingFeed() {
                 ])
               ).values(),
             ]}
-            count={newItems.length}
+            count={unreadNative.length}
             noun="post"
             onClick={showNewPosts}
           />
         </div>
       ) : null}
-      {source !== "asm" && external.newItems.length ? (
+      {source !== "asm" && unreadExternal.length ? (
         <div className="pointer-events-none sticky top-3 z-20 -mb-10 flex justify-center">
           <NewContentPill
-            authors={external.newItems.map((post) => ({
+            authors={unreadExternal.map((post) => ({
               avatarUrl: post.author.avatarUrl,
               id: post.author.id,
               username: post.author.handle,
             }))}
-            count={external.newItems.length}
+            count={unreadExternal.length}
             noun="post"
             onClick={showNewPosts}
           />
@@ -314,7 +333,7 @@ export default function FollowingFeed() {
           sourcesPending={
             source === "all" && (status === "pending" || external.isPending)
           }
-          sourceWaitMs={FOLLOWING_INITIAL_SOURCE_WAIT_MS}
+          sourceWaitMs={null}
         />
         {isFetchingNextPage ||
         external.isFetchingNextPage ||

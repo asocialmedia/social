@@ -7,6 +7,7 @@ import Animated, { useAnimatedStyle } from "react-native-reanimated";
 
 import zephImage from "@/assets/images/zeph.png";
 import { UserAvatar } from "@/components/avatar/user-avatar";
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { toast } from "@/components/feedback/toast";
 import { useSkeletonPulse } from "@/components/feedback/use-skeleton-pulse";
 import {
@@ -567,7 +568,15 @@ export function GustEditor({
           }}
           style={styles.auto}
         >
-          <Image contentFit="contain" source={zephImage} style={styles.zeph} />
+          {analyzing ? (
+            <Spinner3D size={16} />
+          ) : (
+            <Image
+              contentFit="contain"
+              source={zephImage}
+              style={styles.zeph}
+            />
+          )}
           <Text style={styles.autoText}>
             {analyzing ? "Analyzing…" : "Auto"}
           </Text>

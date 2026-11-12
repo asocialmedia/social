@@ -34,6 +34,8 @@ export function MessageSearchResults({
       style={{ backgroundColor: theme.containerBg }}
     >
       <FlatList
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         data={results}
         keyboardShouldPersistTaps="handled"
         keyExtractor={(item) => item.id}

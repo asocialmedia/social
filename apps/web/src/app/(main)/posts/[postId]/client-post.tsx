@@ -13,6 +13,7 @@ import { CommentsRealtimeProvider } from "@/components/comments/thread/comments-
 import PostCard from "@/components/home/feedview/post-card";
 import HomeFeed from "@/components/home/home-feed";
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
+import { PostAuthorFollow } from "@/components/posts/actions/post-author-follow";
 import PostAuthorSidebar from "@/components/posts/views/post-author-sidebar";
 import { useBlueskyProfile } from "@/components/protocols/use-bluesky-profile";
 import { useFeedScrollMemory } from "@/hooks/feed/use-feed-scroll-memory";
@@ -312,6 +313,7 @@ const ClientPost: React.FC<ClientPostProps> = ({
                   </p>
                 ) : null}
               </div>
+              <PostAuthorFollow post={post} />
             </div>
             <div className="flex flex-col">
               {(() => {

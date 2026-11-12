@@ -30,7 +30,10 @@ describe("BullMQ worker failure boundaries", () => {
     });
     try {
       const fields = await reported.promise;
-      expect(fields.errorCode).toBe("ECONNREFUSED");
+      // The connection deadline can fire before the OS reports the refused port.
+      expect(
+        fields.errorCode === "ECONNREFUSED" || fields.errorCode === "ETIMEDOUT"
+      ).toBe(true);
       expect(Object.keys(fields).toSorted()).toEqual(["errorCode", "queue"]);
       expect(worker.listenerCount("error")).toBeGreaterThan(0);
     } finally {

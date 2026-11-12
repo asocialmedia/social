@@ -284,6 +284,7 @@ export function ProfileUserListScreen({
       <GestureDetector gesture={swipe}>
         <View style={styles.root}>
           <FlatList
+            showsHorizontalScrollIndicator={false}
             ref={listRef}
             onScroll={(event) =>
               scrollOffsets.current.set(

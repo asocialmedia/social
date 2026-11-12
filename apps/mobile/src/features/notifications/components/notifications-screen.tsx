@@ -518,6 +518,7 @@ export function NotificationsScreen() {
           style={styles.slide}
         >
           <FlatList
+            showsHorizontalScrollIndicator={false}
             {...LIST_VIRTUALIZATION_PROPS}
             // flexGrow lets the empty/loading/error slot centre vertically instead
             // of collapsing to the top; harmless once rows exist.

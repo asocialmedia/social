@@ -61,7 +61,7 @@ export function useFollowUserMutation() {
 
   return useMutation<FollowResponseData, Error, string, MutationContext>({
     mutationFn: followUser,
-
+    mutationKey: ["author-follow"],
     onError: (error, userId, context) => {
       debugLog.mutation("Follow mutation error:", error);
       if (context?.previousData) {
@@ -89,7 +89,6 @@ export function useFollowUserMutation() {
         variant: "destructive",
       });
     },
-
     onMutate: async (userId): Promise<MutationContext> => {
       debugLog.mutation("Starting follow mutation for user:", userId);
 
@@ -138,7 +137,6 @@ export function useFollowUserMutation() {
 
       return { previousData };
     },
-
     onSettled: async (_, __, userId) => {
       debugLog.mutation("Follow mutation settled, invalidating queries");
       await Promise.all([
@@ -153,7 +151,6 @@ export function useFollowUserMutation() {
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.followStates }),
       ]);
     },
-
     onSuccess: (data, userId) => {
       debugLog.mutation("Follow mutation succeeded:", { data, userId });
       queryClient.setQueryData(QUERY_KEYS.followerInfo(userId), data);
@@ -164,7 +161,6 @@ export function useFollowUserMutation() {
         title: "Followed",
       });
     },
-
     retry: 2,
   });
 }
@@ -175,7 +171,7 @@ export function useUnfollowUserMutation() {
 
   return useMutation<FollowResponseData, Error, string, MutationContext>({
     mutationFn: unfollowUser,
-
+    mutationKey: ["author-follow"],
     onError: (error, userId, context) => {
       debugLog.mutation("Unfollow mutation error:", error);
       if (context?.previousData) {
@@ -209,7 +205,6 @@ export function useUnfollowUserMutation() {
         variant: "destructive",
       });
     },
-
     onMutate: async (userId): Promise<MutationContext> => {
       debugLog.mutation("Starting unfollow mutation for user:", userId);
 
@@ -251,7 +246,6 @@ export function useUnfollowUserMutation() {
 
       return { previousData };
     },
-
     onSettled: async (data, error, userId) => {
       debugLog.mutation("Unfollow mutation settled:", { data, error });
 
@@ -268,7 +262,6 @@ export function useUnfollowUserMutation() {
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.followStates }),
       ]);
     },
-
     onSuccess: (data, userId) => {
       debugLog.mutation("Unfollow mutation succeeded:", { data, userId });
 
@@ -288,7 +281,6 @@ export function useUnfollowUserMutation() {
         });
       }
     },
-
     retry: 2,
   });
 }

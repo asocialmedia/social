@@ -435,7 +435,7 @@ export function SettingsInput({
   autoCapitalize?: "none" | "sentences" | "words";
   editable?: boolean;
   hideLabel?: boolean;
-  keyboardType?: "default" | "email-address" | "numeric";
+  keyboardType?: "default" | "email-address" | "numeric" | "url";
   label: string;
   leading?: ReactNode;
   leadingIcon?: IconComponent;

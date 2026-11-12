@@ -5,6 +5,7 @@ import {
   Repeat2,
   ShieldCheck,
   Trash2,
+  UserPlus,
 } from "lucide-react-native";
 // Post overflow menu: 1:1 native port of web's PostMoreButton dropdown
 // (posts/actions/post-more-button.tsx on the shadcn DropdownMenu). A
@@ -41,6 +42,10 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Gradient3D } from "@/components/surface/gradient-3d";
+import { useSessionContext } from "@/features/auth/state/session";
+import { blueskyConnectionSchema } from "@/features/network/lib/bluesky-connection";
+import { networkRequest } from "@/features/network/lib/network-api";
+import { useProtocolResource } from "@/features/network/state/use-protocol-resource";
 import {
   APPLE_PANEL_SHADOWS,
   APPLE_PANEL_SHADOWS_DARK,
@@ -53,6 +58,7 @@ import type {
   MoreAction,
   MoreMenuEntry as MoreMenuEntryData,
 } from "../lib/more-entries";
+import { PostAuthorFollow } from "./post-author-follow";
 
 export type { MoreAction } from "../lib/more-entries";
 
@@ -74,6 +80,7 @@ export interface MoreMenuEntry<Action = MoreAction> extends Omit<
   "action"
 > {
   action: Action;
+  followPost?: FeedPost;
   icon: ComponentType<{ color?: string; size?: number }>;
 }
 
@@ -86,6 +93,7 @@ export const ACTION_ICONS: Record<
 > = {
   delete: Trash2,
   "edit-tags": Pencil,
+  follow: UserPlus,
   hide: EyeOff,
   moderate: ShieldCheck,
   "share-to-feed": Repeat2,
@@ -102,10 +110,19 @@ export function buildMoreEntries(options: {
   viewerId?: string | null;
   viewerRole?: string | null;
 }): MoreMenuEntry[] {
-  return buildEntryList(options).map((entry) => ({
+  const entries: MoreMenuEntry[] = buildEntryList(options).map((entry) => ({
     ...entry,
     icon: ACTION_ICONS[entry.action.type],
   }));
+  if (options.post.user && options.post.user.id !== options.viewerId) {
+    entries.unshift({
+      action: { type: "follow" },
+      followPost: options.post,
+      icon: UserPlus,
+      label: "Follow",
+    });
+  }
+  return entries;
 }
 
 // `.panel-3d` on hsl(var(--background-alt)).
@@ -159,6 +176,11 @@ function MenuItem<Action>({
   isDark: boolean;
   onSelect: () => void;
 }) {
+  if (entry.followPost) {
+    return (
+      <PostAuthorFollow post={entry.followPost} menu onSelected={onSelect} />
+    );
+  }
   const pressedTone = isDark ? ITEM_PRESSED_DARK : ITEM_PRESSED_LIGHT;
   let restingText: string = isDark ? ITEM_TEXT_DARK : ITEM_TEXT_LIGHT;
   if (entry.destructive) {
@@ -202,7 +224,7 @@ function MenuItem<Action>({
 export function MoreMenu<Action extends { type: string } = MoreAction>({
   align = "end",
   anchor,
-  entries,
+  entries: providedEntries,
   onAction,
   onClose,
   minWidth = 128,
@@ -214,6 +236,35 @@ export function MoreMenu<Action extends { type: string } = MoreAction>({
   onClose: () => void;
   minWidth?: number;
 }) {
+  const { user } = useSessionContext();
+  const connection = useProtocolResource(
+    `bluesky-connection:${user?.id ?? "guest"}`,
+    async (signal) =>
+      blueskyConnectionSchema.parse(
+        await networkRequest("/api/protocols/bluesky/likes", { signal })
+      ),
+    Boolean(
+      anchor &&
+      user &&
+      providedEntries.some((entry) => entry.followPost?.external)
+    )
+  );
+  const entries = providedEntries.filter((entry) => {
+    const post = entry.followPost;
+    if (!post) {
+      return true;
+    }
+    if (post.user?.id === user?.id) {
+      return false;
+    }
+    return (
+      !post.external ||
+      !user ||
+      Boolean(
+        connection.data && connection.data.did !== post.external.author.id
+      )
+    );
+  });
   const { isDark } = useAppTheme();
   const window = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -346,7 +397,11 @@ export function MoreMenu<Action extends { type: string } = MoreAction>({
               // Web runs the item's handler on click while the menu animates
               // out; here the action lands once the exit finishes so the
               // list update never re-renders under a half-closed panel.
-              dismiss(() => onAction(entry.action));
+              dismiss(() => {
+                if (!entry.followPost) {
+                  onAction(entry.action);
+                }
+              });
             }}
           />
         ))}

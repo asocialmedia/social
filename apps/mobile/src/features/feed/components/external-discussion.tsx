@@ -29,6 +29,7 @@ import {
 } from "@/features/eddies/components/eddie-thread";
 import type { RowHandlers } from "@/features/eddies/components/eddie-thread";
 import { buildEddieTree } from "@/features/eddies/lib/eddie-tree";
+import { SettingsButton } from "@/features/settings/components/settings-ui";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
@@ -170,53 +171,78 @@ export function ExternalDiscussion({
     <View
       style={[
         eddieThreadStyles.section,
-        { borderTopColor: theme.cardBorder, marginTop: isReels ? 0 : 16 },
+        {
+          borderTopColor: theme.cardBorder,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          marginTop: 0,
+        },
         isReels && eddieThreadStyles.sectionReels,
       ]}
     >
-      {user ? (
-        <View style={[styles.composer, isReels && styles.composerReels]}>
-          <TextInput
-            accessibilityLabel="Write an eddy"
-            maxLength={1500}
-            multiline
-            onBlur={() => setFocused(false)}
-            onChangeText={(text) => {
-              setContent(text);
-              requestId.current = randomUUID();
-            }}
-            onFocus={() => setFocused(true)}
-            placeholder="Write an eddy…"
-            placeholderTextColor={theme.dividerText}
-            ref={composerRef}
-            style={[
-              styles.field,
-              fieldSurface,
-              { color: textStyle.foreground },
-            ]}
-            value={content}
-          />
-          <View style={styles.submit}>
-            <StatusActionButton
-              disabled={interaction.pending || !content.trim()}
-              label={interaction.pending ? "Posting…" : "Post eddy"}
-              onPress={() => {
-                void submit();
+      {status !== "loading" &&
+        (user ? (
+          <View style={[styles.composer, isReels && styles.composerReels]}>
+            <TextInput
+              accessibilityLabel="Write an eddy"
+              maxLength={1500}
+              multiline
+              onBlur={() => setFocused(false)}
+              onChangeText={(text) => {
+                setContent(text);
+                requestId.current = randomUUID();
               }}
+              onFocus={() => setFocused(true)}
+              placeholder="Write an eddy…"
+              placeholderTextColor={theme.dividerText}
+              ref={composerRef}
+              style={[
+                styles.field,
+                fieldSurface,
+                { color: textStyle.foreground },
+              ]}
+              value={content}
+            />
+            <View style={styles.submit}>
+              <StatusActionButton
+                disabled={interaction.pending || !content.trim()}
+                label={interaction.pending ? "Posting…" : "Post eddy"}
+                onPress={() => {
+                  void submit();
+                }}
+              />
+            </View>
+          </View>
+        ) : (
+          <View
+            className="mx-4 my-3 flex-row items-center justify-between gap-2 rounded-xl px-3 py-2.5"
+            style={{
+              backgroundColor: theme.cardBg,
+              borderColor: theme.cardBorder,
+              borderWidth: 1,
+              boxShadow: isDark
+                ? "inset 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 2px rgba(255,255,255,0.06), inset 0 -2px 4px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.06)"
+                : "inset 0 0 0 1px rgba(255,255,255,0.7), inset 0 1px 2px rgba(255,255,255,0.9), inset 0 -2px 4px rgba(0,0,0,0.03), 0 1px 3px rgba(0,0,0,0.06)",
+            }}
+          >
+            <Text
+              className="flex-1 text-sm"
+              style={{
+                color: theme.dividerText,
+                fontFamily: "SofiaProReg",
+                fontSize: 14,
+                lineHeight: 20,
+              }}
+            >
+              Log in to join the conversation
+            </Text>
+            <SettingsButton
+              label="Log in"
+              size="sm"
+              tone="gray"
+              onPress={() => router.push("/(auth)/login")}
             />
           </View>
-        </View>
-      ) : (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push("/(auth)/login")}
-          style={[styles.composer, isReels && styles.composerReels]}
-        >
-          <Text style={[styles.signIn, { color: theme.inputText }]}>
-            Sign in to join the discussion
-          </Text>
-        </Pressable>
-      )}
+        ))}
 
       {status === "loading" ? (
         <View style={eddieThreadStyles.stateWrap}>
@@ -270,7 +296,10 @@ export function ExternalDiscussion({
             key={node.comment.id}
             style={[
               index > 0 && eddieThreadStyles.divider,
-              index > 0 && { borderTopColor: theme.cardBorder },
+              index > 0 && {
+                borderTopColor: theme.cardBorder,
+                borderTopWidth: StyleSheet.hairlineWidth,
+              },
             ]}
           >
             <EddieRow

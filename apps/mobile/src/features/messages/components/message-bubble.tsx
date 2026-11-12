@@ -883,6 +883,7 @@ function ReactionPills({
   );
   return (
     <ScrollView
+      showsVerticalScrollIndicator={false}
       contentContainerStyle={{
         flexGrow: 1,
         gap: 3,

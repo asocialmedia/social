@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   createCommunity,
+  communityVisibilityWhere,
   getPostDataQuery,
   mapPostData,
   prisma,
@@ -134,6 +135,12 @@ describe("embedded parent visibility", () => {
   });
 
   test("the owner (a member) still sees the parent, so threads render", async () => {
+    expect(
+      await prisma.orm.public.Posts.where({ id: _privateParentId })
+        .where(communityVisibilityWhere(OWNER_ID))
+        .select("id")
+        .first()
+    ).toEqual({ id: _privateParentId });
     const reply = await getPostDataQuery(prisma.orm, OWNER_ID)
       .where((post) => post.id.eq(globalReplyId))
       .first();

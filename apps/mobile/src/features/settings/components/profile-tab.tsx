@@ -6,9 +6,13 @@
 // through the same pipeline the profile edit modal uses, so the hero reflects a
 // saved image without a second round-trip; Save submits the text fields through
 // PATCH /api/users/[userId]/profile, exactly like web.
-import { updateUserProfileSchema } from "@asm/auth/validation";
+import {
+  MAX_CUSTOM_URLS,
+  normalizeCustomUrl,
+  updateUserProfileSchema,
+} from "@asm/auth/validation";
 import type { UpdateUserProfileValues } from "@asm/auth/validation";
-import { Link2, UserRound } from "lucide-react-native";
+import { Globe, Link2, Plus, UserRound, X } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { ScrollViewInstance } from "react-native";
@@ -38,6 +42,7 @@ import { SocialBrandIcon } from "./settings-social-icons";
 import {
   SettingsButton,
   SettingsCard,
+  SettingsIconButton,
   SettingsInput,
   SettingsSectionHeader,
 } from "./settings-ui";
@@ -85,6 +90,7 @@ const SOCIAL_FIELDS: SocialFieldConfig[] = [
 
 interface ProfileDraft {
   bio: string;
+  customUrls: string[];
   displayName: string;
   githubUsername: string;
   linkedinUsername: string;
@@ -95,6 +101,7 @@ interface ProfileDraft {
 function draftFromProfile(profile: ProfileHeaderProfile): ProfileDraft {
   return {
     bio: profile.bio ?? "",
+    customUrls: [...profile.customUrls],
     displayName: profile.displayName ?? "",
     githubUsername: profile.githubUsername ?? "",
     linkedinUsername: profile.linkedinUsername ?? "",
@@ -128,6 +135,71 @@ function errorMessageOf(body: unknown, fallback: string): string {
   return fallback;
 }
 
+// Web's custom links: up to three rows under the social usernames, each with a
+// remove button, then "Add custom link" while there is room. A bare domain
+// gains https:// on save through the shared `normalizeCustomUrl`.
+function CustomUrlsField({
+  links,
+  onChange,
+}: {
+  links: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const { theme } = useAppTheme();
+  return (
+    <View style={styles.customUrls}>
+      <Text style={[styles.customUrlsTitle, { color: theme.inputText }]}>
+        Custom links
+      </Text>
+      {links.map((link, index) => (
+        <View key={`custom-url-${index}`} style={styles.customUrlRow}>
+          <View style={styles.customUrlInput}>
+            <SettingsInput
+              hideLabel
+              keyboardType="url"
+              label={`Custom link ${index + 1}`}
+              leading={<Globe color={theme.dividerText} size={16} />}
+              maxLength={200}
+              onChangeText={(value) =>
+                onChange(
+                  links.map((entry, position) =>
+                    position === index ? value : entry
+                  )
+                )
+              }
+              placeholder="https://yourwebsite.com"
+              value={link}
+            />
+          </View>
+          <SettingsIconButton
+            accessibilityLabel={`Remove custom link ${index + 1}`}
+            icon={X}
+            iconSize={16}
+            onPress={() =>
+              onChange(links.filter((_, position) => position !== index))
+            }
+            size={40}
+          />
+        </View>
+      ))}
+      {links.length < MAX_CUSTOM_URLS ? (
+        <View style={styles.customUrlAdd}>
+          <SettingsButton
+            label="Add custom link"
+            leadingIcon={Plus}
+            onPress={() => onChange([...links, ""])}
+            size="sm"
+            tone="gray"
+          />
+        </View>
+      ) : null}
+      <Text style={[styles.customUrlsHint, { color: theme.dividerText }]}>
+        Add up to {MAX_CUSTOM_URLS} links, like a portfolio, shop or blog.
+      </Text>
+    </View>
+  );
+}
+
 export function ProfileTab({
   onChanged,
   onNavigateToAccount,
@@ -145,6 +217,7 @@ export function ProfileTab({
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<ProfileDraft>({
     bio: "",
+    customUrls: [],
     displayName: "",
     githubUsername: "",
     linkedinUsername: "",
@@ -204,9 +277,11 @@ export function ProfileTab({
     if (!profile || saving) {
       return;
     }
+    const customUrls = draft.customUrls.map(normalizeCustomUrl);
     const values: UpdateUserProfileValues = {
       bio: draft.bio,
       customDomain: profile.customDomain ?? "",
+      customUrls,
       displayName: draft.displayName,
       githubUsername: draft.githubUsername,
       linkedinUsername: draft.linkedinUsername,
@@ -229,7 +304,9 @@ export function ProfileTab({
       parsed.data.githubUsername !== (profile.githubUsername ?? "") ||
       parsed.data.linkedinUsername !== (profile.linkedinUsername ?? "") ||
       parsed.data.twitterUsername !== (profile.twitterUsername ?? "") ||
-      parsed.data.redditUsername !== (profile.redditUsername ?? "");
+      parsed.data.redditUsername !== (profile.redditUsername ?? "") ||
+      JSON.stringify(customUrls.filter(Boolean)) !==
+        JSON.stringify(profile.customUrls);
     if (!hasChanges) {
       toast({
         description: "Looks like nothing changed, make a tweak and save!",
@@ -286,8 +363,10 @@ export function ProfileTab({
       });
       return;
     }
+    const savedUrls = customUrls.filter(Boolean);
+    setDraft((current) => ({ ...current, customUrls: savedUrls }));
     setProfile((current) =>
-      current ? { ...current, ...parsed.data } : current
+      current ? { ...current, ...parsed.data, customUrls: savedUrls } : current
     );
     toast({
       description: "Your profile is looking fresh!",
@@ -299,6 +378,7 @@ export function ProfileTab({
   if (!user) {
     return (
       <ScrollView
+        showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.content}
         ref={scrollRef}
         showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
@@ -319,6 +399,7 @@ export function ProfileTab({
 
   return (
     <ScrollView
+      showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
       ref={scrollRef}
@@ -424,6 +505,10 @@ export function ProfileTab({
                     />
                   ))}
                 </View>
+                <CustomUrlsField
+                  links={draft.customUrls}
+                  onChange={(next) => setField("customUrls", next)}
+                />
               </View>
             </SettingsCard>
           </View>
@@ -447,8 +532,14 @@ export function ProfileTab({
 const styles = StyleSheet.create({
   avatarSlot: { marginTop: -56 },
   bioBlock: { gap: 6 },
-  content: { flexGrow: 1, gap: 18, padding: 16, paddingBottom: 96 },
+  content: { flexGrow: 1, gap: 18, padding: 16, paddingBottom: 0 },
   counterRow: { alignItems: "flex-end" },
+  customUrlAdd: { alignItems: "flex-start" },
+  customUrlInput: { flex: 1, minWidth: 0 },
+  customUrlRow: { alignItems: "center", flexDirection: "row", gap: 8 },
+  customUrls: { gap: 8 },
+  customUrlsHint: { fontFamily: "SofiaProReg", fontSize: 12 },
+  customUrlsTitle: { fontFamily: "SofiaProMed", fontSize: 14 },
   heroCard: { overflow: "hidden" },
   heroHint: {
     fontFamily: "SofiaProReg",

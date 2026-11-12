@@ -1119,6 +1119,7 @@ export default function PostEditor({
           hasUploadError ||
           (isGust && gustCaptionExceeded)
         }
+        indicator="spinner"
         loading={mutation.isPending}
         onClick={onSubmit}
         size="sm"

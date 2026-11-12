@@ -11,6 +11,7 @@ import { useEffect, useMemo } from "react";
 import { AppState } from "react-native";
 import { create } from "zustand";
 
+import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 
@@ -38,6 +39,9 @@ export const GUEST_NETWORK_SETTINGS: NetworkSettings = {
 };
 interface NetworkEntry {
   settings?: NetworkSettings;
+  // The latest unconfirmed preferences, shown by optimistic readers (the
+  // settings screen) while the queued save is in flight, like web's draft.
+  draft?: NetworkPreferences;
   error?: string;
   loading: boolean;
   saving: boolean;
@@ -114,7 +118,179 @@ export function refreshNetworkSettings(
   return request;
 }
 
-export function useNetworkSettings() {
+// Saves for one viewer run strictly in order, so rapid toggles queue instead of
+// being dropped (web serializes them through a mutation scope). Each queued
+// save reads the newest confirmed revision when it runs. A failure bumps the
+// viewer's epoch, and saves queued before the failure are discarded, because
+// they were built on preferences that never landed.
+const saveQueues = new Map<string, Promise<unknown>>();
+const saveSequence = new Map<string, number>();
+const saveEpoch = new Map<string, number>();
+const pendingSaves = new Map<string, number>();
+
+function adjustPending(viewer: string, delta: number) {
+  const next = Math.max(0, (pendingSaves.get(viewer) ?? 0) + delta);
+  pendingSaves.set(viewer, next);
+  useNetworkStore.getState().patch(viewer, { saving: next > 0 });
+}
+
+function enqueue<Result>(
+  viewer: string,
+  job: () => Promise<Result>
+): Promise<Result> {
+  const previous = saveQueues.get(viewer) ?? Promise.resolve();
+  const run = (async () => {
+    await previous;
+    return job();
+  })();
+  saveQueues.set(
+    viewer,
+    (async () => {
+      try {
+        await run;
+      } catch {
+        // The queue only orders jobs; each job reports its own failure.
+      }
+    })()
+  );
+  return run;
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function savePreferences(
+  viewer: string,
+  preferences: NetworkPreferences
+): Promise<boolean> {
+  const store = useNetworkStore.getState();
+  if (!store.entries[viewer]?.settings) {
+    return Promise.resolve(false);
+  }
+  const parsed = networkPreferencesSchema.safeParse(preferences);
+  if (!parsed.success) {
+    const message = parsed.error.issues[0]?.message ?? "Invalid preferences";
+    store.patch(viewer, { error: message });
+    toast({
+      description: message,
+      title: "Couldn't save Network settings",
+      variant: "destructive",
+    });
+    return Promise.resolve(false);
+  }
+  const sequence = (saveSequence.get(viewer) ?? 0) + 1;
+  saveSequence.set(viewer, sequence);
+  const epoch = saveEpoch.get(viewer) ?? 0;
+  store.patch(viewer, { draft: parsed.data, error: undefined });
+  adjustPending(viewer, 1);
+  return enqueue(viewer, async () => {
+    const current = useNetworkStore.getState();
+    const confirmed = current.entries[viewer]?.settings;
+    try {
+      if ((saveEpoch.get(viewer) ?? 0) !== epoch || !confirmed) {
+        return false;
+      }
+      const cookie = await authClient.getCookie();
+      const next = networkSettingsSchema.parse(
+        await networkRequest(
+          "/api/network/preferences",
+          {
+            body: JSON.stringify({
+              preferences: parsed.data,
+              revision: confirmed.revision,
+            }),
+            method: "PUT",
+          },
+          cookie
+        )
+      );
+      const latest = saveSequence.get(viewer) === sequence;
+      current.patch(viewer, {
+        ...(latest ? { draft: undefined } : {}),
+        settings: next,
+        updatedAt: Date.now(),
+      });
+      current.changed();
+      if (latest) {
+        toast({
+          description: "Your feeds will use these preferences.",
+          title: "Network settings saved",
+        });
+      }
+      return true;
+    } catch (error) {
+      saveEpoch.set(viewer, epoch + 1);
+      const message = errorMessage(error, "Couldn't save network preferences");
+      current.patch(viewer, { draft: undefined, error: message });
+      toast({
+        description: message,
+        title: "Couldn't save Network settings",
+        variant: "destructive",
+      });
+      await refreshNetworkSettings(viewer, true);
+      return false;
+    } finally {
+      adjustPending(viewer, -1);
+    }
+  });
+}
+
+function clearRecentActivity(viewer: string): Promise<boolean> {
+  if (!useNetworkStore.getState().entries[viewer]?.settings) {
+    return Promise.resolve(false);
+  }
+  adjustPending(viewer, 1);
+  return enqueue(viewer, async () => {
+    const current = useNetworkStore.getState();
+    const confirmed = current.entries[viewer]?.settings;
+    try {
+      if (!confirmed) {
+        return false;
+      }
+      const cookie = await authClient.getCookie();
+      const next = networkSettingsSchema.parse(
+        await networkRequest(
+          "/api/network/preferences",
+          {
+            body: JSON.stringify({
+              profileId: confirmed.preferences.activeProfileId,
+              revision: confirmed.revision,
+            }),
+            method: "DELETE",
+          },
+          cookie
+        )
+      );
+      current.patch(viewer, { settings: next, updatedAt: Date.now() });
+      current.changed();
+      toast({
+        description: "This profile can start learning again.",
+        title: "Recent activity cleared",
+      });
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof NetworkRequestError && error.status === 409
+          ? "Settings changed. Refresh and try again."
+          : "Couldn't clear recent activity. Please try again.";
+      toast({ title: message, variant: "destructive" });
+      if (error instanceof NetworkRequestError && error.status === 409) {
+        await refreshNetworkSettings(viewer, true);
+      }
+      return false;
+    } finally {
+      adjustPending(viewer, -1);
+    }
+  });
+}
+
+// `optimistic` mirrors web's `useNetworkSettings({ optimistic: true })`: the
+// settings screen shows a queued change at once, while feeds keep reading the
+// confirmed preferences so they do not refetch on every tap.
+export function useNetworkSettings({
+  optimistic = false,
+}: { optimistic?: boolean } = {}) {
   const { user } = useSessionContext();
   const viewer = user?.id ?? "guest";
   const entry = useNetworkStore(
@@ -124,80 +300,32 @@ export function useNetworkSettings() {
   useEffect(() => {
     void refreshNetworkSettings(viewer);
   }, [viewer]);
-  const settings = user
+  const confirmed = user
     ? (entry.settings ?? GUEST_NETWORK_SETTINGS)
     : GUEST_NETWORK_SETTINGS;
-  const mutate = async (preferences?: NetworkPreferences) => {
-    const store = useNetworkStore.getState();
-    const current = store.entries[viewer];
-    if (!user || !current?.settings || current.saving) {
-      return false;
-    }
-    const confirmed = current.settings;
-    const parsed = preferences
-      ? networkPreferencesSchema.safeParse(preferences)
-      : null;
-    if (parsed && !parsed.success) {
-      store.patch(viewer, {
-        error: parsed.error.issues[0]?.message ?? "Invalid preferences",
-      });
-      return false;
-    }
-    store.patch(viewer, { error: undefined, saving: true });
-    try {
-      const cookie = await authClient.getCookie();
-      const next = networkSettingsSchema.parse(
-        await networkRequest(
-          "/api/network/preferences",
-          {
-            body: JSON.stringify(
-              parsed?.success
-                ? { preferences: parsed.data, revision: confirmed.revision }
-                : {
-                    profileId: confirmed.preferences.activeProfileId,
-                    revision: confirmed.revision,
-                  }
-            ),
-            method: preferences ? "PUT" : "DELETE",
-          },
-          cookie
-        )
-      );
-      store.patch(viewer, { settings: next, updatedAt: Date.now() });
-      store.changed();
-      store.patch(viewer, { saving: false });
-      return true;
-    } catch (error) {
-      if (error instanceof NetworkRequestError && error.status === 409) {
-        await refreshNetworkSettings(viewer, true);
-      }
-      store.patch(viewer, {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Couldn't save Network settings",
-      });
-      store.patch(viewer, { saving: false });
-      return false;
-    }
-  };
-  const scope = `${networkPreferenceScope(settings)}:${generation}`;
-  const locale = discoveryLocale(settings.preferences);
-  const profile = settings.preferences.activeProfileId;
+  const settings =
+    optimistic && user && entry.draft
+      ? { ...confirmed, preferences: entry.draft }
+      : confirmed;
+  const scope = `${networkPreferenceScope(confirmed)}:${generation}`;
+  const locale = discoveryLocale(confirmed.preferences);
+  const profile = confirmed.preferences.activeProfileId;
   const request = useMemo(
     () => ({ locale, profile, scope }),
     [locale, profile, scope]
   );
   return {
-    clearActivity: () => mutate(),
+    clearActivity: () =>
+      user ? clearRecentActivity(viewer) : Promise.resolve(false),
     error: entry.error,
     isFetching: entry.loading,
     isSaving: entry.saving,
-    locale: discoveryLocale(settings.preferences),
+    locale,
     ready: !user || Boolean(entry.settings),
     refetch: () => refreshNetworkSettings(viewer, true),
     request,
-    save: (preferences: NetworkPreferences) => mutate(preferences),
+    save: (preferences: NetworkPreferences) =>
+      user ? savePreferences(viewer, preferences) : Promise.resolve(false),
     scope,
     settings,
     viewer,

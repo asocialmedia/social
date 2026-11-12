@@ -44,7 +44,6 @@ import type { FeedComment } from "@/features/feed/lib/feed-api";
 import { fetchCommentsPage } from "@/features/feed/lib/feed-api";
 import { formatRelativeDate } from "@/features/feed/lib/feed-types";
 import { BioContent } from "@/features/home/components/bio-content";
-import { UserBadge } from "@/features/home/components/user-badge";
 import { applyCountDelta } from "@/features/post/lib/comment-count-deltas";
 import { usePostStream } from "@/features/post/lib/use-post-stream";
 import { imageCachePolicy } from "@/lib/cache/image-cache";
@@ -71,6 +70,7 @@ import {
 import type { EddieNode } from "../lib/eddie-tree";
 import { useEddieComposerStore } from "../state/eddie-composer-store";
 import { DeleteEddieDialog } from "./delete-eddie-dialog";
+import { EddieAuthorLine } from "./eddie-author-line";
 import { EddieComposer } from "./eddie-composer";
 import { EddieLinkEmbeds } from "./eddie-link-previews";
 
@@ -318,7 +318,9 @@ export function EddieRow({
           accessibilityLabel={`Open ${name}'s profile`}
           accessibilityRole="link"
           disabled={!username || username === "unknown"}
-          onPress={() => onOpenAuthor(username)}
+          onPress={() =>
+            onOpenAuthor(isBluesky ? (commentUser?.id ?? username) : username)
+          }
           style={styles.avatarWrap}
           // The rail is drawn from this wrapper's measured box, so the layout
           // pass has to stay on the wrapper rather than moving inside it.
@@ -328,54 +330,19 @@ export function EddieRow({
         </Pressable>
         <View style={styles.commentBody}>
           <View style={styles.commentHeadRow}>
-            <View style={styles.commentHead}>
-              {showDeletedLabel ? (
-                <Text
-                  style={[styles.deletedLabel, { color: theme.dividerText }]}
-                >
-                  [deleted]
-                </Text>
-              ) : (
-                <>
-                  <Text
-                    numberOfLines={1}
-                    onPress={() => onOpenAuthor(username)}
-                    style={[styles.commentName, { color: theme.inputText }]}
-                  >
-                    {name}
-                  </Text>
-                  {isBluesky ? (
-                    <Text
-                      style={{
-                        color: "#0285FF",
-                        fontFamily: "SofiaProBold",
-                        fontSize: 11,
-                      }}
-                    >
-                      Bluesky
-                    </Text>
-                  ) : (
-                    <UserBadge
-                      badge={commentUser?.badge}
-                      badges={commentUser?.badges}
-                      communityRoles={commentUser?.communityMemberships}
-                    />
-                  )}
-                  <Text
-                    numberOfLines={1}
-                    style={[styles.commentHandle, { color: theme.dividerText }]}
-                  >
-                    @{username}
-                  </Text>
-                </>
-              )}
-              <Text style={[styles.commentDate, { color: theme.dividerText }]}>
-                ·
-              </Text>
-              <Text style={[styles.commentDate, { color: theme.dividerText }]}>
-                {formatRelativeDate(comment.createdAt)}
-              </Text>
-            </View>
+            <EddieAuthorLine
+              name={name}
+              username={username}
+              date={formatRelativeDate(comment.createdAt)}
+              bluesky={isBluesky}
+              deleted={showDeletedLabel}
+              user={commentUser}
+              onOpenAuthor={() =>
+                onOpenAuthor(
+                  isBluesky ? (commentUser?.id ?? username) : username
+                )
+              }
+            />
             {isOwn && !isDeleted ? (
               <MoreButton
                 onPress={(anchor) => handlers.onMore(comment.id, anchor)}
@@ -389,7 +356,11 @@ export function EddieRow({
           ) : null}
           {!isDeleted && comment.content ? (
             <View style={styles.commentBio}>
-              <BioContent apiBase={apiBase} bio={comment.content} />
+              <BioContent
+                apiBase={apiBase}
+                bio={comment.content}
+                textSize={{ fontSize: 15, lineHeight: 22 }}
+              />
             </View>
           ) : null}
           {isDeleted
@@ -400,7 +371,7 @@ export function EddieRow({
           {isDeleted ? null : (
             <EddieLinkEmbeds apiBase={apiBase} content={comment.content} />
           )}
-          {isDeleted ? null : (
+          {!isDeleted && (!isExternal || isOwn) ? (
             <View style={styles.commentActions}>
               {isExternal ? null : (
                 <VoteCluster
@@ -430,7 +401,7 @@ export function EddieRow({
                 </Pressable>
               )}
             </View>
-          )}
+          ) : null}
         </View>
       </View>
 
@@ -992,7 +963,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   divider: {
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   emptyArt: {
     height: 160,
@@ -1092,7 +1063,7 @@ const styles = StyleSheet.create({
     textDecorationLine: "underline",
   },
   section: {
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   sectionReels: {
     borderTopWidth: 0,

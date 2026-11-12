@@ -1,7 +1,7 @@
 // use prisma-8
 namespace public {
   model Communities {
-    id                     String                   @id(map: "communities_pkey") @default(uuid())
+    id                     String                   @id(map: "communities_pkey") @onCreate(uuid())
     slug                   String
     name                   String
     description            String
@@ -16,8 +16,8 @@ namespace public {
     bannerUrl              String?
     bannerKey              String?
     bannerMediaId          String?
-    createdAt              Timestamp(3)             @default(now())
-    updatedAt              Timestamp(3)             @default(now())
+    createdAt              TimestampTemporal(3)             @default(now())
+    updatedAt              TimestampTemporal(3)             @default(now())
     activeMemberCount      Int                      @default(0)
     communityJoinBonuses   CommunityJoinBonuses[]
     communityChatRooms     CommunityChatRooms[]
@@ -38,10 +38,10 @@ namespace public {
     @@unique([avatarMediaId], map: "communities_avatarMediaId_key")
     @@unique([bannerMediaId], map: "communities_bannerMediaId_key")
     @@index([createdAt], map: "communities_createdAt_idx")
-    @@index(expression: "description gin_trgm_ops", name: "communities_description_trgm_idx", type: "gin")
-    @@index(expression: "name gin_trgm_ops", name: "communities_name_trgm_idx", type: "gin")
+    @@index(expression: sql`description gin_trgm_ops`, name: "communities_description_trgm_idx", type: "gin")
+    @@index(expression: sql`name gin_trgm_ops`, name: "communities_name_trgm_idx", type: "gin")
     @@index([ownerId], map: "communities_ownerId_idx")
-    @@index(expression: "slug gin_trgm_ops", name: "communities_slug_trgm_idx", type: "gin")
+    @@index(expression: sql`slug gin_trgm_ops`, name: "communities_slug_trgm_idx", type: "gin")
     @@unique([slug], map: "communities_slug_key")
     @@index([topics], map: "communities_topics_idx", type: "gin")
     @@index([_type], map: "communities_type_idx")
@@ -53,7 +53,7 @@ namespace public {
     handle String
     displayName String
     status String @default("active")
-    nextCheckAt Timestamp(3) @default(now())
+    nextCheckAt TimestampTemporal(3) @default(now())
     follows ExternalFollows[]
 
     @@index([nextCheckAt])
@@ -63,7 +63,7 @@ namespace public {
   model ExternalFollows {
     userId String
     authorDid String
-    createdAt Timestamp(3) @default(now())
+    createdAt TimestampTemporal(3) @default(now())
     user Users @relation(fields: [userId], references: [id], onDelete: Cascade)
     author ExternalAuthors @relation(fields: [authorDid], references: [did], onDelete: Cascade)
 
@@ -79,8 +79,8 @@ namespace public {
     authorId String
     snapshot Jsonb?
     available Boolean @default(true)
-    checkedAt Timestamp(3) @default(now())
-    createdAt Timestamp(3) @default(now())
+    checkedAt TimestampTemporal(3) @default(now())
+    createdAt TimestampTemporal(3) @default(now())
     engagements ExternalEngagements[]
     comments ExternalComments[]
     responses Posts[]
@@ -95,9 +95,9 @@ namespace public {
     externalPostId String
     bookmarked Boolean @default(false)
     amplified Boolean @default(false)
-    amplifiedAt Timestamp(3) @default(now())
-    createdAt Timestamp(3) @default(now())
-    updatedAt Timestamp(3) @default(now())
+    amplifiedAt TimestampTemporal(3) @default(now())
+    createdAt TimestampTemporal(3) @default(now())
+    updatedAt TimestampTemporal(3) @default(now())
     user Users @relation(fields: [userId], references: [id], onDelete: Cascade)
     externalPost ExternalPosts @relation(fields: [externalPostId], references: [id], onDelete: Cascade)
 
@@ -110,13 +110,13 @@ namespace public {
   }
 
   model ExternalComments {
-    id String @id @default(uuid())
+    id String @id @onCreate(uuid())
     userId String
     externalPostId String
     requestId String
     content String
     deleted Boolean @default(false)
-    createdAt Timestamp(3) @default(now())
+    createdAt TimestampTemporal(3) @default(now())
     user Users @relation(fields: [userId], references: [id], onDelete: Cascade)
     externalPost ExternalPosts @relation(fields: [externalPostId], references: [id], onDelete: Cascade)
 
@@ -126,7 +126,7 @@ namespace public {
   }
 
   model Posts {
-    id                                     String                 @id(map: "posts_pkey") @default(uuid())
+    id                                     String                 @id(map: "posts_pkey") @onCreate(uuid())
     content                                String
     userId                                 String
     aura                                   Int                    @default(0)
@@ -138,7 +138,7 @@ namespace public {
     moderated                              Boolean                @default(false)
     explicitContent                        Boolean                @default(false)
     embeds                                 Jsonb?
-    createdAt                              Timestamp(3)           @default(now())
+    createdAt                              TimestampTemporal(3)           @default(now())
     embedding                              Float[]?
     embeddingModel                         String?
     embeddingFingerprint                   String?
@@ -170,7 +170,7 @@ namespace public {
 
     @@index([communityId, aura], map: "posts_communityId_aura_idx")
     @@index([communityId, createdAt], map: "posts_communityId_createdAt_idx")
-    @@index(expression: "content gin_trgm_ops", name: "posts_content_trgm_idx", type: "gin")
+    @@index(expression: sql`content gin_trgm_ops`, name: "posts_content_trgm_idx", type: "gin")
     @@index([isGust, aura, id], map: "posts_isGust_aura_id_idx")
     @@index([isGust, createdAt], map: "posts_isGust_createdAt_idx")
     @@index([isGust, trendingScore, id], map: "posts_isGust_trendingScore_id_idx")
@@ -182,7 +182,7 @@ namespace public {
   }
 
   model Comments {
-    id               String          @id(map: "comments_pkey") @default(uuid())
+    id               String          @id(map: "comments_pkey") @onCreate(uuid())
     content          String
     userId           String
     postId           String
@@ -193,7 +193,7 @@ namespace public {
     receivedAura     Int             @default(0)
     postReceivedAura Int             @default(0)
     deleted          Boolean         @default(false)
-    createdAt        Timestamp(3)    @default(now())
+    createdAt        TimestampTemporal(3)    @default(now())
     auraLogs         AuraLogs[]
     commentVotes     CommentVotes[]
     notifications    Notifications[]
@@ -212,7 +212,7 @@ namespace public {
   }
 
   model MessageConversations {
-    id                                  String                                @id(map: "message_conversations_pkey") @default(uuid())
+    id                                  String                                @id(map: "message_conversations_pkey") @onCreate(uuid())
     retentionSeconds                    Int                                   @default(0)
     retentionVersion                    Int                                   @default(0)
     incognitoSessions                   MessageIncognitoSessions[]
@@ -228,13 +228,13 @@ namespace public {
     ownerId                             String?
     createdById                         String?
     inviteCode                          String?
-    inviteExpiresAt                     Timestamp(3)?
+    inviteExpiresAt                     TimestampTemporal(3)?
     inviteDurationDays                  Int?
     inviteShortCode                     String?
-    inviteShortCodeExpiresAt            Timestamp(3)?
+    inviteShortCodeExpiresAt            TimestampTemporal(3)?
     inviteShortCodeDurationDays         Int?
-    createdAt                           Timestamp(3)                          @default(now())
-    updatedAt                           Timestamp(3)                          @default(now())
+    createdAt                           TimestampTemporal(3)                          @default(now())
+    updatedAt                           TimestampTemporal(3)                          @default(now())
     membershipSeq                       Int                                   @default(0)
     changeSeq                           Int                                   @default(0)
     messageConversationInviteCodes      MessageConversationInviteCodes[]
@@ -256,12 +256,12 @@ namespace public {
     @@unique([pairKey], map: "message_conversations_pairKey_key")
     @@index([ownerId], map: "message_conversations_ownerId_idx")
     @@index([_type, updatedAt], map: "message_conversations_type_updatedAt_idx")
-    @@check(expression: "name IS NULL OR char_length(name) BETWEEN 1 AND 64", name: "message_conversations_name_length")
+    @@check(expression: sql`name IS NULL OR char_length(name) BETWEEN 1 AND 64`, name: "message_conversations_name_length")
     @@map("message_conversations")
   }
 
   model PostMedia {
-    id                         String                       @id(map: "post_media_pkey") @default(uuid())
+    id                         String                       @id(map: "post_media_pkey") @onCreate(uuid())
     postId                     String?
     commentId                  String?
     userId                     String?
@@ -282,7 +282,7 @@ namespace public {
     thumbnailHeight            Int?
     customThumbnailKey         String?
     hasHls                     Boolean                      @default(false)
-    createdAt                  Timestamp(3)                 @default(now())
+    createdAt                  TimestampTemporal(3)                 @default(now())
     status                     pg.enum(MediaStatus)         @default("UPLOADING")
     visibility                 pg.enum(MediaVisibility)     @default("PUBLIC")
     originalKey                String?
@@ -306,9 +306,9 @@ namespace public {
     aiGenerated                Boolean?
     aiProvenance               Jsonb?
     pipelineVersion            String?
-    processedAt                Timestamp(3)?
+    processedAt                TimestampTemporal(3)?
     audioOverlayId             String?
-    updatedAt                  Timestamp(3)                 @default(now())
+    updatedAt                  TimestampTemporal(3)                 @default(now())
     blurDataUrl                String?
     platform                   String                       @default("asocialmedia.cc")
     uploaderDisplayName        String?
@@ -349,12 +349,12 @@ namespace public {
     @@index([sha256], map: "post_media_sha256_idx")
     @@index([status], map: "post_media_status_idx")
     @@index([userId, createdAt], map: "post_media_userId_createdAt_idx")
-    @@index([id], where: "(\"failureCode\" = 'CHAT_LIFECYCLE_ERASURE')", name: "media_lifecycle_erasure_due")
+    @@index([id], where: sql`("failureCode" = 'CHAT_LIFECYCLE_ERASURE')`, name: "media_lifecycle_erasure_due")
     @@map("post_media")
   }
 
   model Users {
-    id                                String                       @id(map: "users_pkey") @default(uuid())
+    id                                String                       @id(map: "users_pkey") @onCreate(uuid())
     aura                              Int                          @default(0)
     username                          String
     displayName                       String
@@ -378,8 +378,9 @@ namespace public {
     twitterUsername                   String?
     redditUsername                    String?
     customDomain                      String?
+    customUrls                        String[]?
     emailVerified                     Boolean                      @default(false)
-    emailVerifiedAt                   Timestamp(3)?
+    emailVerifiedAt                   TimestampTemporal(3)?
     image                             String?
     name                              String?
     role                              String                       @default("user")
@@ -387,9 +388,9 @@ namespace public {
     badges                            String[]?
     banned                            Boolean                      @default(false)
     banReason                         String?
-    banExpires                        Timestamp(3)?
-    createdAt                         Timestamp(3)                 @default(now())
-    updatedAt                         Timestamp(3)                 @default(now())
+    banExpires                        TimestampTemporal(3)?
+    createdAt                         TimestampTemporal(3)                 @default(now())
+    updatedAt                         TimestampTemporal(3)                 @default(now())
     lastLoginMethod                   String?
     twoFactorEnabled                  Boolean                      @default(false)
     groupAddPolicy                    pg.enum(GroupAddPolicy)      @default("FOLLOWING_ONLY")
@@ -466,44 +467,50 @@ namespace public {
     avatarMedia                       PostMedia?                   @relation(name: "users_avatarMediaId_fkey", fields: [avatarMediaId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "users_avatarMediaId_fkey")
     bannerMedia                       PostMedia?                   @relation(name: "users_bannerMediaId_fkey", fields: [bannerMediaId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "users_bannerMediaId_fkey")
 
-    @@index([role], name: "users_admin_role_unique", where: "(role = 'admin'::text)", unique: true)
+    @@index([role], name: "users_admin_role_unique", where: sql`(role = 'admin'::text)`, unique: true)
     @@index([aura], map: "users_aura_idx")
-    @@index(expression: "(\nCASE\n    WHEN 'author'::text = ANY (badges) THEN 'author'::text\n    ELSE NULL::text\nEND)", name: "users_author_array_unique", unique: true)
-    @@index([badge], name: "users_author_badge_unique", where: "(badge = 'author'::text)", unique: true)
+    @@index(expression: sql`
+(
+CASE
+    WHEN 'author'::text = ANY (badges) THEN 'author'::text
+    ELSE NULL::text
+END)
+`, name: "users_author_array_unique", unique: true)
+    @@index([badge], name: "users_author_badge_unique", where: sql`(badge = 'author'::text)`, unique: true)
     @@unique([avatarMediaId], map: "users_avatarMediaId_key")
     @@index([badges], map: "users_badges_idx", type: "gin")
     @@index([banExpires], map: "users_banExpires_idx")
     @@index([banned], map: "users_banned_idx")
     @@unique([bannerMediaId], map: "users_bannerMediaId_key")
     @@unique([discordId], map: "users_discordId_key")
-    @@index(expression: "\"displayName\" gin_trgm_ops", name: "users_display_name_trgm_idx", type: "gin")
-    @@index(expression: "\"displayUsername\" gin_trgm_ops", name: "users_display_username_trgm_idx", type: "gin")
+    @@index(expression: sql`"displayName" gin_trgm_ops`, name: "users_display_name_trgm_idx", type: "gin")
+    @@index(expression: sql`"displayUsername" gin_trgm_ops`, name: "users_display_username_trgm_idx", type: "gin")
     @@unique([email], map: "users_email_key")
     @@unique([githubId], map: "users_githubId_key")
     @@unique([googleId], map: "users_googleId_key")
     @@unique([redditId], map: "users_redditId_key")
     @@unique([twitterId], map: "users_twitterId_key")
     @@unique([username], map: "users_username_key")
-    @@index(expression: "username gin_trgm_ops", name: "users_username_trgm_idx", type: "gin")
-    @@index(expression: "lower(username)", name: "users_username_lower_unique", unique: true)
+    @@index(expression: sql`username gin_trgm_ops`, name: "users_username_trgm_idx", type: "gin")
+    @@index(expression: sql`lower(username)`, name: "users_username_lower_unique", unique: true)
     @@map("users")
   }
 
   model Accounts {
-    id                    String        @id(map: "accounts_pkey") @default(uuid())
+    id                    String        @id(map: "accounts_pkey") @onCreate(uuid())
     userId                String
     accountId             String
     providerId            String
     issuer                String        @default("")
     accessToken           String?
     refreshToken          String?
-    accessTokenExpiresAt  Timestamp(3)?
-    refreshTokenExpiresAt Timestamp(3)?
+    accessTokenExpiresAt  TimestampTemporal(3)?
+    refreshTokenExpiresAt TimestampTemporal(3)?
     scope                 String?
     idToken               String?
     password              String?
-    createdAt             Timestamp(3)  @default(now())
-    updatedAt             Timestamp(3)  @default(now())
+    createdAt             TimestampTemporal(3)  @default(now())
+    updatedAt             TimestampTemporal(3)  @default(now())
     user                  Users         @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "accounts_userId_fkey", index: false)
 
     @@index([issuer, accountId], map: "accounts_issuer_accountId_idx")
@@ -512,7 +519,7 @@ namespace public {
   }
 
   model AuraLogs {
-    id           String            @id(map: "aura_logs_pkey") @default(uuid())
+    id           String            @id(map: "aura_logs_pkey") @onCreate(uuid())
     userId       String
     issuerId     String
     amount       Int
@@ -520,7 +527,7 @@ namespace public {
     postId       String?
     commentId    String?
     targetUserId String?
-    createdAt    Timestamp(3)      @default(now())
+    createdAt    TimestampTemporal(3)      @default(now())
     comment      Comments?         @relation(fields: [commentId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "aura_logs_commentId_fkey", index: false)
     issuer       Users             @relation(name: "aura_logs_issuerId_fkey", fields: [issuerId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "aura_logs_issuerId_fkey", index: false)
     post         Posts?            @relation(fields: [postId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "aura_logs_postId_fkey", index: false)
@@ -534,7 +541,7 @@ namespace public {
   model Blocks {
     blockerId String
     blockedId String
-    createdAt Timestamp(3) @default(now())
+    createdAt TimestampTemporal(3) @default(now())
     blocked   Users        @relation(name: "blocks_blockedId_fkey", fields: [blockedId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "blocks_blockedId_fkey")
     blocker   Users        @relation(name: "blocks_blockerId_fkey", fields: [blockerId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "blocks_blockerId_fkey", index: false)
 
@@ -544,12 +551,12 @@ namespace public {
   }
 
   model Bookmarks {
-    id             String       @id(map: "bookmarks_pkey") @default(uuid())
+    id             String       @id(map: "bookmarks_pkey") @onCreate(uuid())
     userId         String
     postId         String
     bookmarkerAura Int          @default(0)
     authorAura     Int          @default(0)
-    createdAt      Timestamp(3) @default(now())
+    createdAt      TimestampTemporal(3) @default(now())
     post           Posts        @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "bookmarks_postId_fkey")
     user           Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "bookmarks_userId_fkey", index: false)
 
@@ -565,7 +572,7 @@ namespace public {
     value          Int
     awardedAura    Int          @default(0)
     mutingCostAura Int          @default(0)
-    createdAt      Timestamp(3) @default(now())
+    createdAt      TimestampTemporal(3) @default(now())
     comment        Comments     @relation(fields: [commentId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "comment_votes_commentId_fkey", index: false)
     user           Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "comment_votes_userId_fkey", index: false)
 
@@ -575,12 +582,12 @@ namespace public {
   }
 
   model CommunityJoinBonuses {
-    id          String       @id(map: "community_join_bonuses_pkey") @default(uuid())
+    id          String       @id(map: "community_join_bonuses_pkey") @onCreate(uuid())
     communityId String
     userId      String
     joinerAura  Int
     ownerAura   Int
-    createdAt   Timestamp(3) @default(now())
+    createdAt   TimestampTemporal(3) @default(now())
     community   Communities  @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_join_bonuses_communityId_fkey", index: false)
     user        Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_join_bonuses_userId_fkey", index: false)
 
@@ -590,12 +597,12 @@ namespace public {
   }
 
   model CommunityMembers {
-    id          String                         @id(map: "community_members_pkey") @default(uuid())
+    id          String                         @id(map: "community_members_pkey") @onCreate(uuid())
     communityId String
     userId      String
     role        pg.enum(CommunityRole)         @default("PARTICIPANT")
     status      pg.enum(CommunityMemberStatus) @default("ACTIVE")
-    createdAt   Timestamp(3)                   @default(now())
+    createdAt   TimestampTemporal(3)                   @default(now())
     community   Communities                    @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_members_communityId_fkey", index: false)
     user        Users                          @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_members_userId_fkey")
     chatRoomMemberships CommunityChatRoomMembers[]
@@ -610,7 +617,7 @@ namespace public {
   }
 
   model CommunityChatRooms {
-    id               String                      @id(map: "community_chat_rooms_pkey") @default(uuid())
+    id               String                      @id(map: "community_chat_rooms_pkey") @onCreate(uuid())
     communityId      String
     parentRoomId     String?
     sourceMessageId  String?
@@ -627,8 +634,8 @@ namespace public {
     creatorId        String
     nextSequence     BigInt                      @default(0)
     changeSequence   BigInt                      @default(0)
-    createdAt        Timestamp(3)                @default(now())
-    updatedAt        Timestamp(3)                @default(now())
+    createdAt        TimestampTemporal(3)                @default(now())
+    updatedAt        TimestampTemporal(3)                @default(now())
     community        Communities                 @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_rooms_communityId_fkey", index: false)
     creator          Users                       @relation(name: "community_chat_room_creator", fields: [creatorId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_rooms_creatorId_fkey")
     parent           CommunityChatRooms?         @relation(name: "community_chat_room_parent", fields: [parentRoomId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_rooms_parentRoomId_fkey")
@@ -644,14 +651,14 @@ namespace public {
     @@unique([communityId, slug], map: "community_chat_rooms_communityId_slug_key")
     @@index([communityId, kind, archived, sortOrder], map: "community_chat_rooms_listing_idx")
     @@index([parentRoomId, kind, visibility, archived], map: "community_chat_rooms_children_idx")
-    @@check(expression: "char_length(\"name\") BETWEEN 1 AND 64", name: "community_chat_rooms_name_length")
-    @@check(expression: "\"slowModeSeconds\" BETWEEN 0 AND 21600", name: "community_chat_rooms_slow_mode_range")
-    @@check(expression: "(\"kind\" = 'CHANNEL' AND \"parentRoomId\" IS NULL AND \"channelType\" IS NOT NULL AND \"sourceMessageId\" IS NULL AND \"visibility\" = 'PUBLIC') OR (\"kind\" = 'THREAD' AND \"parentRoomId\" IS NOT NULL AND \"channelType\" IS NULL)", name: "community_chat_rooms_shape")
+    @@check(expression: sql`char_length("name") BETWEEN 1 AND 64`, name: "community_chat_rooms_name_length")
+    @@check(expression: sql`"slowModeSeconds" BETWEEN 0 AND 21600`, name: "community_chat_rooms_slow_mode_range")
+    @@check(expression: sql`("kind" = 'CHANNEL' AND "parentRoomId" IS NULL AND "channelType" IS NOT NULL AND "sourceMessageId" IS NULL AND "visibility" = 'PUBLIC') OR ("kind" = 'THREAD' AND "parentRoomId" IS NOT NULL AND "channelType" IS NULL)`, name: "community_chat_rooms_shape")
     @@map("community_chat_rooms")
   }
 
   model CommunityChatMessages {
-    id             String                   @id(map: "community_chat_messages_pkey") @default(uuid())
+    id             String                   @id(map: "community_chat_messages_pkey") @onCreate(uuid())
     roomId         String
     senderId       String
     sequence       BigInt
@@ -660,9 +667,9 @@ namespace public {
     payload        Jsonb
     replyToId      String?
     revision       Int                      @default(1)
-    createdAt      Timestamp(3)             @default(now())
-    editedAt       Timestamp(3)?
-    deletedAt      Timestamp(3)?
+    createdAt      TimestampTemporal(3)             @default(now())
+    editedAt       TimestampTemporal(3)?
+    deletedAt      TimestampTemporal(3)?
     room           CommunityChatRooms       @relation(name: "community_chat_room_messages", fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_messages_roomId_fkey", index: false)
     sender         Users                    @relation(fields: [senderId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_messages_senderId_fkey", index: false)
     replyTo        CommunityChatMessages?   @relation(name: "community_chat_message_replies", fields: [replyToId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "community_chat_messages_replyToId_fkey")
@@ -677,7 +684,7 @@ namespace public {
     @@index([roomId, createdAt, id], map: "community_chat_messages_cursor_idx")
     @@index([roomId, changeSequence], map: "community_chat_messages_changes_idx")
     @@index([senderId, createdAt], map: "community_chat_messages_sender_idx")
-    @@check(expression: "\"revision\" >= 1", name: "community_chat_messages_revision_positive")
+    @@check(expression: sql`"revision" >= 1`, name: "community_chat_messages_revision_positive")
     @@map("community_chat_messages")
   }
 
@@ -685,7 +692,7 @@ namespace public {
     roomId            String
     communityMemberId String
     invitedById       String
-    createdAt         Timestamp(3)              @default(now())
+    createdAt         TimestampTemporal(3)              @default(now())
     room              CommunityChatRooms        @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_room_members_roomId_fkey", index: false)
     communityMember   CommunityMembers          @relation(fields: [communityMemberId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_room_members_communityMemberId_fkey", index: false)
     invitedBy         Users                     @relation(name: "community_chat_room_inviter", fields: [invitedById], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_room_members_invitedById_fkey", index: false)
@@ -699,7 +706,7 @@ namespace public {
     roomId       String
     userId       String
     readSequence BigInt                      @default(0)
-    updatedAt    Timestamp(3)                @default(now())
+    updatedAt    TimestampTemporal(3)                @default(now())
     room         CommunityChatRooms          @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_read_states_roomId_fkey", index: false)
     user         Users                       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_read_states_userId_fkey", index: false)
 
@@ -711,8 +718,8 @@ namespace public {
   model CommunityChatPreferences {
     communityId String
     userId      String
-    mutedAt     Timestamp(3)?
-    updatedAt   Timestamp(3)       @default(now())
+    mutedAt     TimestampTemporal(3)?
+    updatedAt   TimestampTemporal(3)       @default(now())
     community   Communities        @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_preferences_communityId_fkey", index: false)
     user        Users              @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_preferences_userId_fkey", index: false)
 
@@ -725,7 +732,7 @@ namespace public {
     roomId     String
     userId     String
     following  Boolean              @default(false)
-    updatedAt  Timestamp(3)         @default(now())
+    updatedAt  TimestampTemporal(3)         @default(now())
     room       CommunityChatRooms    @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_subscriptions_roomId_fkey", index: false)
     user       Users                 @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_subscriptions_userId_fkey", index: false)
 
@@ -738,14 +745,14 @@ namespace public {
     messageId String
     userId    String
     emoji     String
-    createdAt Timestamp(3)                @default(now())
+    createdAt TimestampTemporal(3)                @default(now())
     message   CommunityChatMessages       @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_reactions_messageId_fkey", index: false)
     user      Users                       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_reactions_userId_fkey", index: false)
 
     @@id([messageId, userId, emoji], map: "community_chat_reactions_pkey")
     @@index([messageId, emoji], map: "community_chat_reactions_summary_idx")
     @@index([userId, createdAt], map: "community_chat_reactions_userId_createdAt_idx")
-    @@check(expression: "char_length(\"emoji\") BETWEEN 1 AND 32", name: "community_chat_reactions_emoji_length")
+    @@check(expression: sql`char_length("emoji") BETWEEN 1 AND 32`, name: "community_chat_reactions_emoji_length")
     @@map("community_chat_reactions")
   }
 
@@ -753,7 +760,7 @@ namespace public {
     roomId     String
     messageId  String
     pinnedById String
-    createdAt  Timestamp(3)             @default(now())
+    createdAt  TimestampTemporal(3)             @default(now())
     room       CommunityChatRooms       @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_pins_roomId_fkey", index: false)
     message    CommunityChatMessages    @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_pins_messageId_fkey", index: false)
     pinnedBy   Users                    @relation(fields: [pinnedById], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_pins_pinnedById_fkey", index: false)
@@ -764,14 +771,14 @@ namespace public {
   }
 
   model CommunityChatOutbox {
-    id             String                   @id(map: "community_chat_outbox_pkey") @default(uuid())
+    id             String                   @id(map: "community_chat_outbox_pkey") @onCreate(uuid())
     roomId         String
     sequence       BigInt
     kind           String
     messageId      String?
     payload        Jsonb?
-    createdAt      Timestamp(3)             @default(now())
-    publishedAt    Timestamp(3)?
+    createdAt      TimestampTemporal(3)             @default(now())
+    publishedAt    TimestampTemporal(3)?
     room           CommunityChatRooms       @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_outbox_roomId_fkey", index: false)
 
     @@unique([roomId, sequence], map: "community_chat_outbox_roomId_sequence_key")
@@ -780,14 +787,14 @@ namespace public {
   }
 
   model CommunityChatSanctions {
-    id          String                       @id(map: "community_chat_sanctions_pkey") @default(uuid())
+    id          String                       @id(map: "community_chat_sanctions_pkey") @onCreate(uuid())
     communityId String
     userId      String
     actorId     String
     kind        pg.enum(CommunityChatSanctionKind)
     reason      String?
-    expiresAt   Timestamp(3)?
-    createdAt   Timestamp(3)                  @default(now())
+    expiresAt   TimestampTemporal(3)?
+    createdAt   TimestampTemporal(3)                  @default(now())
     community   Communities                   @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_sanctions_communityId_fkey", index: false)
     user        Users                        @relation(name: "community_chat_sanction_target", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_sanctions_userId_fkey", index: false)
     actor       Users                        @relation(name: "community_chat_sanction_actor", fields: [actorId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_sanctions_actorId_fkey", index: false)
@@ -798,7 +805,7 @@ namespace public {
   }
 
   model CommunityChatReports {
-    id          String                       @id(map: "community_chat_reports_pkey") @default(uuid())
+    id          String                       @id(map: "community_chat_reports_pkey") @onCreate(uuid())
     communityId String
     messageId   String
     reporterId  String
@@ -806,8 +813,8 @@ namespace public {
     status      pg.enum(CommunityChatReportStatus) @default("OPEN")
     reviewedById String?
     reviewNote  String?
-    createdAt   Timestamp(3)                  @default(now())
-    reviewedAt  Timestamp(3)?
+    createdAt   TimestampTemporal(3)                  @default(now())
+    reviewedAt  TimestampTemporal(3)?
     community   Communities                   @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_reports_communityId_fkey", index: false)
     reporter    Users                        @relation(name: "community_chat_reporter", fields: [reporterId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_reports_reporterId_fkey", index: false)
     reviewer    Users?                       @relation(name: "community_chat_reviewer", fields: [reviewedById], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "community_chat_reports_reviewedById_fkey")
@@ -819,13 +826,13 @@ namespace public {
   }
 
   model CommunityChatAudit {
-    id          String                       @id(map: "community_chat_audit_pkey") @default(uuid())
+    id          String                       @id(map: "community_chat_audit_pkey") @onCreate(uuid())
     communityId String
     actorId     String
     action      String
     targetId    String?
     details     Jsonb?
-    createdAt   Timestamp(3)                  @default(now())
+    createdAt   TimestampTemporal(3)                  @default(now())
     community   Communities                   @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_audit_communityId_fkey", index: false)
     actor       Users                        @relation(name: "community_chat_audit_actor", fields: [actorId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_chat_audit_actorId_fkey", index: false)
 
@@ -834,11 +841,11 @@ namespace public {
   }
 
   model CommunityPostShares {
-    id           String       @id(map: "community_post_shares_pkey") @default(uuid())
+    id           String       @id(map: "community_post_shares_pkey") @onCreate(uuid())
     postId       String
     sourcePostId String
     communityId  String
-    createdAt    Timestamp(3) @default(now())
+    createdAt    TimestampTemporal(3) @default(now())
     community    Communities  @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_post_shares_communityId_fkey")
     post         Posts        @relation(name: "community_post_shares_postId_fkey", fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_post_shares_postId_fkey")
     sourcePost   Posts        @relation(name: "community_post_shares_sourcePostId_fkey", fields: [sourcePostId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_post_shares_sourcePostId_fkey")
@@ -850,10 +857,10 @@ namespace public {
   }
 
   model CommunitySubscriptions {
-    id          String       @id(map: "community_subscriptions_pkey") @default(uuid())
+    id          String       @id(map: "community_subscriptions_pkey") @onCreate(uuid())
     communityId String
     userId      String
-    createdAt   Timestamp(3) @default(now())
+    createdAt   TimestampTemporal(3) @default(now())
     community   Communities  @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_subscriptions_communityId_fkey")
     user        Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_subscriptions_userId_fkey", index: false)
 
@@ -864,10 +871,10 @@ namespace public {
   }
 
   model CommunityVisits {
-    id          String       @id(map: "community_visits_pkey") @default(uuid())
+    id          String       @id(map: "community_visits_pkey") @onCreate(uuid())
     communityId String
     userId      String
-    visitedAt   Timestamp(3) @default(now())
+    visitedAt   TimestampTemporal(3) @default(now())
     community   Communities  @relation(fields: [communityId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_visits_communityId_fkey", index: false)
     user        Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "community_visits_userId_fkey", index: false)
 
@@ -878,13 +885,13 @@ namespace public {
   }
 
   model DevicePushTokens {
-    id        String       @id(map: "device_push_tokens_pkey") @default(uuid())
+    id        String       @id(map: "device_push_tokens_pkey") @onCreate(uuid())
     userId    String
     token     String
     provider  String       @default("fcm")
     platform  String
-    createdAt Timestamp(3) @default(now())
-    updatedAt Timestamp(3) @default(now())
+    createdAt TimestampTemporal(3) @default(now())
+    updatedAt TimestampTemporal(3) @default(now())
     user      Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "device_push_tokens_userId_fkey")
 
     @@unique([token], map: "device_push_tokens_token_key")
@@ -906,10 +913,10 @@ namespace public {
   }
 
   model HNBookmark {
-    id        String       @id(map: "HNBookmark_pkey") @default(uuid())
+    id        String       @id(map: "HNBookmark_pkey") @onCreate(uuid())
     userId    String
     storyId   Int
-    createdAt Timestamp(3) @default(now())
+    createdAt TimestampTemporal(3) @default(now())
     user      Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "HNBookmark_userId_fkey")
 
     @@index([userId, createdAt], map: "HNBookmark_userId_createdAt_idx")
@@ -919,7 +926,7 @@ namespace public {
   }
 
   model HnStoryShares {
-    id          String       @id(map: "hn_story_shares_pkey") @default(uuid())
+    id          String       @id(map: "hn_story_shares_pkey") @onCreate(uuid())
     postId      String
     storyId     Int
     title       String
@@ -928,7 +935,7 @@ namespace public {
     time        Int
     score       Int
     descendants Int
-    createdAt   Timestamp(3) @default(now())
+    createdAt   TimestampTemporal(3) @default(now())
     post        Posts        @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "hn_story_shares_postId_fkey")
 
     @@unique([postId], map: "hn_story_shares_postId_key")
@@ -936,23 +943,23 @@ namespace public {
   }
 
   model Jwks {
-    id         String        @id(map: "jwks_pkey") @default(uuid())
+    id         String        @id(map: "jwks_pkey") @onCreate(uuid())
     publicKey  String
     privateKey String
-    createdAt  Timestamp(3)  @default(now())
-    updatedAt  Timestamp(3)  @default(now())
+    createdAt  TimestampTemporal(3)  @default(now())
+    updatedAt  TimestampTemporal(3)  @default(now())
     alg        String?
     crv        String?
-    expiresAt  Timestamp(3)?
+    expiresAt  TimestampTemporal(3)?
 
     @@map("jwks")
   }
 
   model Mentions {
-    id        String       @id(map: "mentions_pkey") @default(uuid())
+    id        String       @id(map: "mentions_pkey") @onCreate(uuid())
     postId    String
     userId    String
-    createdAt Timestamp(3) @default(now())
+    createdAt TimestampTemporal(3) @default(now())
     post      Posts        @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "mentions_postId_fkey", index: false)
     user      Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "mentions_userId_fkey")
 
@@ -964,7 +971,7 @@ namespace public {
   model MessageConversationInviteCodes {
     code           String
     conversationId String
-    retiredAt      Timestamp(3)
+    retiredAt      TimestampTemporal(3)
     conversation   MessageConversations @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_invite_codes_conversationId_fkey", index: false)
 
     @@id([code], map: "message_conversation_invite_codes_pkey")
@@ -977,7 +984,7 @@ namespace public {
     userId         String
     bannedById     String?
     reason         String?
-    createdAt      Timestamp(3)         @default(now())
+    createdAt      TimestampTemporal(3)         @default(now())
     conversation   MessageConversations @relation(name: "message_den_bans_conversationId_fkey", fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_den_bans_conversationId_fkey", index: false)
     user           Users                @relation(name: "message_den_bans_userId_fkey", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_den_bans_userId_fkey", index: false)
     bannedBy       Users?               @relation(name: "message_den_bans_bannedById_fkey", fields: [bannedById], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "message_den_bans_bannedById_fkey", index: false)
@@ -989,14 +996,14 @@ namespace public {
   }
 
   model MessageConversationMembershipEvents {
-    id             String                            @id(map: "message_conversation_membership_events_pkey") @default(uuid())
+    id             String                            @id(map: "message_conversation_membership_events_pkey") @onCreate(uuid())
     conversationId String
     actorId        String?
     actorName      String?
     targetUserId   String?
     targetName     String?
     action         pg.enum(DenMembershipEventAction)
-    createdAt      Timestamp(3)                      @default(now())
+    createdAt      TimestampTemporal(3)                      @default(now())
     conversation   MessageConversations              @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_membership_events_conversationId_fkey", index: false)
 
     @@index([conversationId, createdAt], map: "mcme_conversationId_createdAt_idx")
@@ -1004,7 +1011,7 @@ namespace public {
   }
 
   model MessageConversationKeys {
-    id               String               @id(map: "message_conversation_keys_pkey") @default(uuid())
+    id               String               @id(map: "message_conversation_keys_pkey") @onCreate(uuid())
     conversationId   String
     ownerUserId      String
     wrapper          Users?               @relation(name: "message_conversation_keys_wrapperUserId_fkey", fields: [wrapperUserId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversation_keys_wrapperUserId_fkey")
@@ -1014,7 +1021,7 @@ namespace public {
     wrapperUserId    String?
     wrapperPublicKey String?
     ratchetCounter   Int                  @default(0)
-    createdAt        Timestamp(3)         @default(now())
+    createdAt        TimestampTemporal(3)         @default(now())
     conversation     MessageConversations @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_keys_conversationId_fkey", index: false)
     ownerUser        Users                @relation(name: "message_conversation_keys_ownerUserId_fkey", fields: [ownerUserId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_keys_ownerUserId_fkey", index: false)
 
@@ -1029,20 +1036,20 @@ namespace public {
     userId           String
     role             pg.enum(DenRole)     @default("MEMBER")
     invitedById      String?
-    leftAt           Timestamp(3)?
-    lastReadAt       Timestamp(3)?
-    clearedAt        Timestamp(3)?
+    leftAt           TimestampTemporal(3)?
+    lastReadAt       TimestampTemporal(3)?
+    clearedAt        TimestampTemporal(3)?
     clearedThroughSequence Int @default(0)
-    inboxHiddenAt    Timestamp(3)?
+    inboxHiddenAt    TimestampTemporal(3)?
     lastReadSequence Int?
     unreadCount      Int?
-    lastDeliveredAt  Timestamp(3)?
-    mutedAt          Timestamp(3)?
+    lastDeliveredAt  TimestampTemporal(3)?
+    mutedAt          TimestampTemporal(3)?
     themeKey         String?
     wallpaperKey     String?
     wallpaperDim     Int?
     wallpaperMediaId String?
-    createdAt        Timestamp(3)         @default(now())
+    createdAt        TimestampTemporal(3)         @default(now())
     conversation     MessageConversations @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_members_conversationId_fkey", index: false)
     user             Users                @relation(name: "message_conversation_members_userId_fkey", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_conversation_members_userId_fkey")
     invitedBy        Users?               @relation(name: "message_conversation_members_invitedById_fkey", fields: [invitedById], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "message_conversation_members_invitedById_fkey")
@@ -1065,15 +1072,15 @@ namespace public {
     masterKeyHash       String?
     salt                String
     kdfIterations       Int
-    createdAt           Timestamp(3) @default(now())
-    updatedAt           Timestamp(3) @default(now())
+    createdAt           TimestampTemporal(3) @default(now())
+    updatedAt           TimestampTemporal(3) @default(now())
     user                Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_identities_userId_fkey")
 
     @@map("message_identities")
   }
 
   model Messages {
-    id               String               @id(map: "messages_pkey") @default(uuid())
+    id               String               @id(map: "messages_pkey") @onCreate(uuid())
     conversationId   String
     senderId         String
     ciphertext       String
@@ -1082,11 +1089,11 @@ namespace public {
     revision         Int                  @default(1)
     keyEpoch         Int?
     creationSequence Int                  @default(0)
-    createdAt        Timestamp(3)         @default(now())
-    expiresAt        Timestamp(3)?
+    createdAt        TimestampTemporal(3)         @default(now())
+    expiresAt        TimestampTemporal(3)?
     mediaLinks       MessageMediaLinks[]
-    deletedAt        Timestamp(3)?
-    editedAt         Timestamp(3)?
+    deletedAt        TimestampTemporal(3)?
+    editedAt         TimestampTemporal(3)?
     conversation     MessageConversations @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "messages_conversationId_fkey", index: false)
     sender           Users                @relation(fields: [senderId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "messages_senderId_fkey")
     hiddenFor        MessageHiddens[]
@@ -1097,24 +1104,24 @@ namespace public {
     @@index([conversationId, createdAt], map: "messages_conversationId_createdAt_idx")
     @@index([conversationId, id], map: "messages_conversationId_id_idx")
     @@unique([conversationId, senderId, ratchetIndex], map: "messages_conversationId_senderId_ratchetIndex_key")
-    @@index([expiresAt, id], where: "(\"expiresAt\" IS NOT NULL AND \"deletedAt\" IS NULL)", name: "messages_expiry_due_idx")
-    @@index([expiresAt, id], where: "(\"expiresAt\" IS NOT NULL AND ciphertext <> '')", name: "messages_lifecycle_erasure_due")
+    @@index([expiresAt, id], where: sql`("expiresAt" IS NOT NULL AND "deletedAt" IS NULL)`, name: "messages_expiry_due_idx")
+    @@index([expiresAt, id], where: sql`("expiresAt" IS NOT NULL AND ciphertext <> '')`, name: "messages_lifecycle_erasure_due")
     @@index([senderId], map: "messages_senderId_idx")
     @@map("messages")
   }
 
   model MessageIncognitoSessions {
-    id String @id @default(uuid())
+    id String @id @onCreate(uuid())
     conversationId String
     startedById String?
     startedByName String
     endedById String?
     endedByName String?
-    startedAt Timestamp(3) @default(now())
-    expiresAt Timestamp(3)?
-    endedAt Timestamp(3)?
+    startedAt TimestampTemporal(3) @default(now())
+    expiresAt TimestampTemporal(3)?
+    endedAt TimestampTemporal(3)?
     endReason String?
-    purgedAt Timestamp(3)?
+    purgedAt TimestampTemporal(3)?
     nextSequence Int @default(0)
     conversation MessageConversations @relation(fields: [conversationId], references: [id], onDelete: Cascade, onUpdate: Cascade, index: false)
     starter Users? @relation(name: "incognito_started_by", fields: [startedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
@@ -1122,10 +1129,10 @@ namespace public {
     messages MessageIncognitoMessages[]
     stagedMedia PostMedia[]
 
-    @@index([conversationId], unique: true, where: "(\"endedAt\" IS NULL)", name: "message_incognito_one_active")
+    @@index([conversationId], unique: true, where: sql`("endedAt" IS NULL)`, name: "message_incognito_one_active")
     @@index([conversationId, startedAt, id], name: "incognito_conversation_started")
-    @@index([endedAt, id], where: "(\"endedAt\" IS NOT NULL AND \"purgedAt\" IS NULL)", name: "incognito_purge_due")
-    @@index([expiresAt], where: "(\"endedAt\" IS NULL)", name: "message_incognito_due")
+    @@index([endedAt, id], where: sql`("endedAt" IS NOT NULL AND "purgedAt" IS NULL)`, name: "incognito_purge_due")
+    @@index([expiresAt], where: sql`("endedAt" IS NULL)`, name: "message_incognito_due")
     @@map("message_incognito_sessions")
   }
 
@@ -1138,7 +1145,7 @@ namespace public {
     keyEpoch Int
     ratchetIndex Int
     sequence Int
-    createdAt Timestamp(3) @default(now())
+    createdAt TimestampTemporal(3) @default(now())
     session MessageIncognitoSessions @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade, index: false)
     sender Users @relation(fields: [senderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
     mediaLinks MessageMediaLinks[]
@@ -1153,12 +1160,12 @@ namespace public {
   }
 
   model MessageMediaLinks {
-    id String @id @default(uuid())
+    id String @id @onCreate(uuid())
     messageId String?
     incognitoMessageId String?
     mediaId String
     viewOnce Boolean @default(false)
-    deliveryExpiresAt Timestamp(3)?
+    deliveryExpiresAt TimestampTemporal(3)?
     message Messages? @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
     incognitoMessage MessageIncognitoMessages? @relation(fields: [incognitoMessageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
     media PostMedia @relation(fields: [mediaId], references: [id], onDelete: Cascade, onUpdate: Cascade)
@@ -1167,27 +1174,27 @@ namespace public {
     @@unique([messageId, mediaId])
     @@unique([incognitoMessageId, mediaId], map: "message_media_incognito_unique")
     @@index([mediaId])
-    @@index([mediaId], unique: true, where: "(\"viewOnce\")", name: "message_media_viewonce_media_unique")
-    @@index([deliveryExpiresAt, id], where: "(\"viewOnce\" AND \"deliveryExpiresAt\" IS NOT NULL)", name: "message_media_viewonce_due")
-    @@check(expression: "(\"messageId\" IS NULL) <> (\"incognitoMessageId\" IS NULL)", name: "message_media_exact_source")
+    @@index([mediaId], unique: true, where: sql`("viewOnce")`, name: "message_media_viewonce_media_unique")
+    @@index([deliveryExpiresAt, id], where: sql`("viewOnce" AND "deliveryExpiresAt" IS NOT NULL)`, name: "message_media_viewonce_due")
+    @@check(expression: sql`("messageId" IS NULL) <> ("incognitoMessageId" IS NULL)`, name: "message_media_exact_source")
     @@map("message_media_links")
   }
 
   model MessageExportJobs {
-    id String @id @default(uuid())
+    id String @id @onCreate(uuid())
     conversationId String
     userId String
     status String @default("pending")
     includeMedia Boolean @default(false)
     membershipSequence Int @default(0)
-    fromDate Timestamp(3)?
-    toDate Timestamp(3)?
+    fromDate TimestampTemporal(3)?
+    toDate TimestampTemporal(3)?
     snapshotSequence Int
     clearedThroughSequence Int
     recoveryGeneration Int
-    createdAt Timestamp(3) @default(now())
-    expiresAt Timestamp(3)
-    leaseUntil Timestamp(3)?
+    createdAt TimestampTemporal(3) @default(now())
+    expiresAt TimestampTemporal(3)
+    leaseUntil TimestampTemporal(3)?
     objectKey String?
     artifactKey String?
     errorCode String?
@@ -1203,7 +1210,7 @@ namespace public {
   model MessageHiddens {
     messageId String
     userId    String
-    createdAt Timestamp(3) @default(now())
+    createdAt TimestampTemporal(3) @default(now())
     message   Messages     @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_hidden_messageId_fkey", index: false)
     user      Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_hidden_userId_fkey")
 
@@ -1213,12 +1220,12 @@ namespace public {
   }
 
   model MessageReactions {
-    id                 String                    @id(map: "message_reactions_pkey") @default(uuid())
+    id                 String                    @id(map: "message_reactions_pkey") @onCreate(uuid())
     messageId          String?
     incognitoMessageId String?
     userId             String
     emoji              String
-    createdAt          Timestamp(3)              @default(now())
+    createdAt          TimestampTemporal(3)              @default(now())
     message            Messages?                 @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_reactions_messageId_fkey", index: false)
     incognitoMessage   MessageIncognitoMessages? @relation(fields: [incognitoMessageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_reactions_incognitoMessageId_fkey", index: false)
     user               Users                     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_reactions_userId_fkey")
@@ -1229,13 +1236,13 @@ namespace public {
     @@index([messageId, emoji], map: "message_reactions_message_emoji_idx")
     @@index([incognitoMessageId, emoji], map: "message_reactions_incognito_emoji_idx")
     @@index([userId], map: "message_reactions_userId_idx")
-    @@check(expression: "(\"messageId\" IS NULL) <> (\"incognitoMessageId\" IS NULL)", name: "message_reactions_exact_source")
-    @@check(expression: "char_length(\"emoji\") BETWEEN 1 AND 32", name: "message_reactions_emoji_length")
+    @@check(expression: sql`("messageId" IS NULL) <> ("incognitoMessageId" IS NULL)`, name: "message_reactions_exact_source")
+    @@check(expression: sql`char_length("emoji") BETWEEN 1 AND 32`, name: "message_reactions_emoji_length")
     @@map("message_reactions")
   }
 
   model MessageReactionCounts {
-    id                 String                    @id(map: "message_reaction_counts_pkey") @default(uuid())
+    id                 String                    @id(map: "message_reaction_counts_pkey") @onCreate(uuid())
     messageId          String?
     incognitoMessageId String?
     emoji              String
@@ -1245,17 +1252,17 @@ namespace public {
 
     @@unique([messageId, emoji], map: "message_reaction_counts_message_emoji_unique")
     @@unique([incognitoMessageId, emoji], map: "message_reaction_counts_incognito_emoji_unique")
-    @@check(expression: "(\"messageId\" IS NULL) <> (\"incognitoMessageId\" IS NULL)", name: "message_reaction_counts_exact_source")
-    @@check(expression: "\"count\" >= 1", name: "message_reaction_counts_positive")
-    @@check(expression: "char_length(\"emoji\") BETWEEN 1 AND 32", name: "message_reaction_counts_emoji_length")
+    @@check(expression: sql`("messageId" IS NULL) <> ("incognitoMessageId" IS NULL)`, name: "message_reaction_counts_exact_source")
+    @@check(expression: sql`"count" >= 1`, name: "message_reaction_counts_positive")
+    @@check(expression: sql`char_length("emoji") BETWEEN 1 AND 32`, name: "message_reaction_counts_emoji_length")
     @@map("message_reaction_counts")
   }
 
   model MessageViewOnceRecipients {
-    id          String              @id(map: "message_view_once_recipients_pkey") @default(uuid())
+    id          String              @id(map: "message_view_once_recipients_pkey") @onCreate(uuid())
     mediaLinkId String
     userId      String
-    createdAt   Timestamp(3)        @default(now())
+    createdAt   TimestampTemporal(3)        @default(now())
     mediaLink   MessageMediaLinks   @relation(fields: [mediaLinkId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_view_once_recipients_mediaLinkId_fkey", index: false)
     user        Users               @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_view_once_recipients_userId_fkey")
     grants      MessageViewOnceGrants[]
@@ -1271,8 +1278,8 @@ namespace public {
     userId String
     messageId String?
     incognitoMessageId String?
-    openedAt Timestamp(3) @default(now())
-    seenAt Timestamp(3)?
+    openedAt TimestampTemporal(3) @default(now())
+    seenAt TimestampTemporal(3)?
     message Messages? @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "view_once_receipts_message_fkey", index: false)
     incognitoMessage MessageIncognitoMessages? @relation(fields: [incognitoMessageId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "view_once_receipts_incognito_fkey", index: false)
     user Users @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "view_once_receipts_user_fkey")
@@ -1281,37 +1288,37 @@ namespace public {
     @@index([messageId], map: "view_once_receipts_message_idx")
     @@index([incognitoMessageId], map: "view_once_receipts_incognito_idx")
     @@index([userId], map: "view_once_receipts_user_idx")
-    @@check(expression: "(\"messageId\" IS NULL) <> (\"incognitoMessageId\" IS NULL)", name: "view_once_receipts_exact_source")
+    @@check(expression: sql`("messageId" IS NULL) <> ("incognitoMessageId" IS NULL)`, name: "view_once_receipts_exact_source")
     @@map("message_view_once_receipts")
   }
 
   model MessageViewOnceGrants {
-    id          String                    @id(map: "message_view_once_grants_pkey") @default(uuid())
+    id          String                    @id(map: "message_view_once_grants_pkey") @onCreate(uuid())
     recipientId String
     status      pg.enum(ViewOnceGrantStatus) @default("RESERVED")
-    reservedAt  Timestamp(3)              @default(now())
-    activatedAt Timestamp(3)?
-    closedAt    Timestamp(3)?
-    expiresAt   Timestamp(3)?
+    reservedAt  TimestampTemporal(3)              @default(now())
+    activatedAt TimestampTemporal(3)?
+    closedAt    TimestampTemporal(3)?
+    expiresAt   TimestampTemporal(3)?
     recipient   MessageViewOnceRecipients @relation(fields: [recipientId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "message_view_once_grants_recipientId_fkey", index: false)
 
     // At most one live grant per recipient; closed history may repeat.
-    @@index([recipientId], unique: true, where: "(\"status\" IN ('RESERVED', 'ACTIVE'))", name: "message_view_once_grants_live_unique")
+    @@index([recipientId], unique: true, where: sql`("status" IN ('RESERVED', 'ACTIVE'))`, name: "message_view_once_grants_live_unique")
     @@index([status, expiresAt], map: "message_view_once_grants_status_expiry_idx")
     @@map("message_view_once_grants")
   }
 
   model MessageSearchOutbox {
-    id              String        @id(map: "message_search_outbox_pkey") @default(uuid())
+    id              String        @id(map: "message_search_outbox_pkey") @onCreate(uuid())
     conversationId  String
     messageId       String
     revision        Int
     changeSequence  Int
     kind            String
     audienceUserIds String[]      @default([])
-    createdAt       Timestamp(3)  @default(now())
+    createdAt       TimestampTemporal(3)  @default(now())
     attempts        Int           @default(0)
-    completedAt     Timestamp(3)?
+    completedAt     TimestampTemporal(3)?
 
     @@index([conversationId, changeSequence], map: "message_search_outbox_conversation_sequence_idx")
     @@index([completedAt, createdAt], map: "message_search_outbox_pending_created_idx")
@@ -1320,14 +1327,14 @@ namespace public {
   }
 
   model MessageConversationChanges {
-    id              String       @id(map: "message_conversation_changes_pkey") @default(uuid())
+    id              String       @id(map: "message_conversation_changes_pkey") @onCreate(uuid())
     conversationId  String
     sequence        Int
     messageId       String?
     revision        Int?
     kind            String
     audienceUserIds String[]     @default([])
-    createdAt       Timestamp(3) @default(now())
+    createdAt       TimestampTemporal(3) @default(now())
 
     @@unique([conversationId, sequence], map: "message_conversation_changes_conversation_sequence_key")
     @@index([conversationId, createdAt], map: "message_conversation_changes_conversation_created_idx")
@@ -1343,7 +1350,7 @@ namespace public {
 
     @@unique([conversationId, normalized], map: "message_search_terms_conversation_normalized_key")
     @@index([conversationId, id], map: "message_search_terms_conversation_id_idx")
-    @@index([conversationId], where: "(\"documentFrequency\" = 0)", name: "message_search_terms_orphaned")
+    @@index([conversationId], where: sql`("documentFrequency" = 0)`, name: "message_search_terms_orphaned")
     @@index([gramKeys], map: "message_search_terms_gram_keys_idx", type: "gin")
     @@map("message_search_terms")
   }
@@ -1352,7 +1359,7 @@ namespace public {
     messageId      String       @id(map: "message_search_documents_pkey")
     conversationId String
     revision       Int
-    createdAt      Timestamp(3)
+    createdAt      TimestampTemporal(3)
     termIds        Int[]        @default([])
 
     @@index([conversationId, createdAt, messageId], map: "message_search_documents_conversation_created_message_idx")
@@ -1365,7 +1372,7 @@ namespace public {
     conversationId String
     kind           String
     ordinal        Int
-    createdAt      Timestamp(3)
+    createdAt      TimestampTemporal(3)
     revision       Int
     mediaKind      String?
     requiredId     String?
@@ -1385,11 +1392,11 @@ namespace public {
     completedChangeSeq      Int           @default(0)
     recoveryGeneration      Int           @default(0)
     backfillThroughSequence Int?
-    backfillCursorCreatedAt Timestamp(3)?
+    backfillCursorCreatedAt TimestampTemporal(3)?
     backfillCursorMessageId String?
-    backfillStartedAt       Timestamp(3)?
-    backfillCompletedAt     Timestamp(3)?
-    updatedAt               Timestamp(3)  @default(now())
+    backfillStartedAt       TimestampTemporal(3)?
+    backfillCompletedAt     TimestampTemporal(3)?
+    updatedAt               TimestampTemporal(3)  @default(now())
 
     @@index([backfillCompletedAt, backfillStartedAt], map: "message_search_coverage_backfill_idx")
 
@@ -1411,7 +1418,7 @@ namespace public {
   model MessageSearchAccountState {
     userId             String       @id(map: "message_search_account_state_pkey")
     recoveryGeneration Int          @default(0)
-    updatedAt          Timestamp(3) @default(now())
+    updatedAt          TimestampTemporal(3) @default(now())
 
     @@map("message_search_account_state")
   }
@@ -1425,14 +1432,14 @@ namespace public {
     recoveryGeneration Int
     sourceFingerprint  String
     readable           Boolean
-    verifiedAt         Timestamp(3)            @default(now())
+    verifiedAt         TimestampTemporal(3)            @default(now())
 
     @@index([conversationId, userId, keyEpoch], map: "message_search_epoch_readability_scope_idx")
     @@map("message_search_epoch_readability")
   }
 
   model MessageSearchCountRequests {
-    id                   String        @id(map: "message_search_count_requests_pkey") @default(uuid())
+    id                   String        @id(map: "message_search_count_requests_pkey") @onCreate(uuid())
     requestKey           String        @unique(map: "message_search_count_requests_request_key_key")
     userId               String
     conversationId       String
@@ -1446,11 +1453,11 @@ namespace public {
     state                String        @default("pending")
     exactCount           Int?
     attempts             Int           @default(0)
-    expiresAt            Timestamp(3)
-    leaseUntil           Timestamp(3)?
-    completedAt          Timestamp(3)?
-    createdAt            Timestamp(3)  @default(now())
-    updatedAt            Timestamp(3)  @default(now())
+    expiresAt            TimestampTemporal(3)
+    leaseUntil           TimestampTemporal(3)?
+    completedAt          TimestampTemporal(3)?
+    createdAt            TimestampTemporal(3)  @default(now())
+    updatedAt            TimestampTemporal(3)  @default(now())
 
     @@index([state, createdAt], map: "message_search_count_requests_state_created_idx")
     @@index([userId, conversationId, createdAt], map: "message_search_count_requests_scope_created_idx")
@@ -1459,14 +1466,14 @@ namespace public {
   }
 
   model Notifications {
-    id             String                    @id(map: "notifications_pkey") @default(uuid())
+    id             String                    @id(map: "notifications_pkey") @onCreate(uuid())
     recipientId    String
     issuerId       String
     postId         String?
     commentId      String?
     _type          pg.enum(NotificationType) @map("type")
     read           Boolean                   @default(false)
-    createdAt      Timestamp(3)              @default(now())
+    createdAt      TimestampTemporal(3)              @default(now())
     communityId    String?
     conversationId String?
     membershipRequestId String?
@@ -1488,7 +1495,7 @@ namespace public {
   }
 
   model Passkey {
-    id           String       @id(map: "passkey_pkey") @default(uuid())
+    id           String       @id(map: "passkey_pkey") @onCreate(uuid())
     name         String?
     publicKey    String
     userId       String
@@ -1497,7 +1504,7 @@ namespace public {
     deviceType   String
     backedUp     Boolean
     transports   String?
-    createdAt    Timestamp(3) @default(now())
+    createdAt    TimestampTemporal(3) @default(now())
     aaguid       String?
     user         Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "passkey_userId_fkey")
 
@@ -1507,11 +1514,11 @@ namespace public {
   }
 
   model PasswordResetTokens {
-    id        String       @id(map: "password_reset_tokens_pkey") @default(uuid())
+    id        String       @id(map: "password_reset_tokens_pkey") @onCreate(uuid())
     token     String
     userId    String
-    createdAt Timestamp(3) @default(now())
-    expiresAt Timestamp(3)
+    createdAt TimestampTemporal(3) @default(now())
+    expiresAt TimestampTemporal(3)
     user      Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "password_reset_tokens_userId_fkey", index: false)
 
     @@unique([token], map: "password_reset_tokens_token_key")
@@ -1519,7 +1526,7 @@ namespace public {
   }
 
   model PostMediaDerivatives {
-    id              String       @id(map: "post_media_derivatives_pkey") @default(uuid())
+    id              String       @id(map: "post_media_derivatives_pkey") @onCreate(uuid())
     mediaId         String
     kind            String
     variant         String       @default("default")
@@ -1530,7 +1537,7 @@ namespace public {
     sizeBytes       Int?
     durationMs      Int?
     pipelineVersion String
-    createdAt       Timestamp(3) @default(now())
+    createdAt       TimestampTemporal(3) @default(now())
     media           PostMedia    @relation(fields: [mediaId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "post_media_derivatives_mediaId_fkey", index: false)
 
     @@index([key], map: "post_media_derivatives_key_idx")
@@ -1539,15 +1546,15 @@ namespace public {
   }
 
   model UserStickers {
-    id         String       @id(map: "user_stickers_pkey") @default(uuid())
+    id         String       @id(map: "user_stickers_pkey") @onCreate(uuid())
     userId     String
     mediaId    String       @unique(map: "user_stickers_mediaId_key")
     name       String       @default("")
     animated   Boolean
     byteSize   Int
     favorite   Boolean      @default(false)
-    createdAt  Timestamp(3) @default(now())
-    lastUsedAt Timestamp(3)?
+    createdAt  TimestampTemporal(3) @default(now())
+    lastUsedAt TimestampTemporal(3)?
     user       Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "user_stickers_userId_fkey", index: false)
     media      PostMedia    @relation(fields: [mediaId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "user_stickers_mediaId_fkey", index: false)
 
@@ -1560,8 +1567,8 @@ namespace public {
   model Tag {
     id         String       @id(map: "Tag_pkey")
     name       String
-    createdAt  Timestamp(3) @default(now())
-    updatedAt  Timestamp(3) @default(now())
+    createdAt  TimestampTemporal(3) @default(now())
+    updatedAt  TimestampTemporal(3) @default(now())
     postToTags PostToTag[]
 
     @@unique([name], map: "Tag_name_key")
@@ -1580,10 +1587,10 @@ namespace public {
   }
 
   model PostVisits {
-    id        String       @id(map: "post_visits_pkey") @default(uuid())
+    id        String       @id(map: "post_visits_pkey") @onCreate(uuid())
     userId    String
     postId    String
-    visitedAt Timestamp(3) @default(now())
+    visitedAt TimestampTemporal(3) @default(now())
     post      Posts        @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "post_visits_postId_fkey")
     user      Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "post_visits_userId_fkey", index: false)
 
@@ -1594,14 +1601,14 @@ namespace public {
   }
 
   model PushSubscriptions {
-    id        String       @id(map: "push_subscriptions_pkey") @default(uuid())
+    id        String       @id(map: "push_subscriptions_pkey") @onCreate(uuid())
     userId    String
     endpoint  String
     p256dh    String
     auth      String
     userAgent String?
-    createdAt Timestamp(3) @default(now())
-    updatedAt Timestamp(3) @default(now())
+    createdAt TimestampTemporal(3) @default(now())
+    updatedAt TimestampTemporal(3) @default(now())
     user      Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "push_subscriptions_userId_fkey")
 
     @@unique([endpoint], map: "push_subscriptions_endpoint_key")
@@ -1611,14 +1618,14 @@ namespace public {
 
   model RecommendationEvents {
     rankingContext Json?
-    id         String       @id(map: "recommendation_events_pkey") @default(uuid())
+    id         String       @id(map: "recommendation_events_pkey") @onCreate(uuid())
     userId     String
     postId     String
     eventType  String
     durationMs Int?
     value      Float?
     sessionId  String?
-    createdAt  Timestamp(3) @default(now())
+    createdAt  TimestampTemporal(3) @default(now())
     dedupeKey  String?
     post       Posts        @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "recommendation_events_postId_fkey", index: false)
     user       Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "recommendation_events_userId_fkey", index: false)
@@ -1631,15 +1638,15 @@ namespace public {
   }
 
   model Sessions {
-    id             String       @id(map: "sessions_pkey") @default(uuid())
+    id             String       @id(map: "sessions_pkey") @onCreate(uuid())
     userId         String
     token          String
-    expiresAt      Timestamp(3)
+    expiresAt      TimestampTemporal(3)
     ipAddress      String?
     userAgent      String?
     impersonatedBy String?
-    createdAt      Timestamp(3) @default(now())
-    updatedAt      Timestamp(3) @default(now())
+    createdAt      TimestampTemporal(3) @default(now())
+    updatedAt      TimestampTemporal(3) @default(now())
     country        String?
     users          Users?       @relation(name: "sessions_impersonatedBy_fkey", fields: [impersonatedBy], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "sessions_impersonatedBy_fkey", index: false)
     user           Users        @relation(name: "sessions_userId_fkey", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "sessions_userId_fkey", index: false)
@@ -1649,13 +1656,13 @@ namespace public {
   }
 
   model ShareStats {
-    id        String       @id(map: "share_stats_pkey") @default(uuid())
+    id        String       @id(map: "share_stats_pkey") @onCreate(uuid())
     postId    String
     platform  String
     shares    Int          @default(0)
     clicks    Int          @default(0)
-    createdAt Timestamp(3) @default(now())
-    updatedAt Timestamp(3) @default(now())
+    createdAt TimestampTemporal(3) @default(now())
+    updatedAt TimestampTemporal(3) @default(now())
     post      Posts        @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "share_stats_postId_fkey", index: false)
 
     @@unique([postId, platform], map: "share_stats_postId_platform_key")
@@ -1663,15 +1670,15 @@ namespace public {
   }
 
   model TwoFactor {
-    id                      String        @id(map: "twoFactor_pkey") @default(uuid())
+    id                      String        @id(map: "twoFactor_pkey") @onCreate(uuid())
     secret                  String
     backupCodes             String
     userId                  String
     verified                Boolean       @default(true)
     failedVerificationCount Int           @default(0)
-    lockedUntil             Timestamp(3)?
-    createdAt               Timestamp(3)  @default(now())
-    updatedAt               Timestamp(3)  @default(now())
+    lockedUntil             TimestampTemporal(3)?
+    createdAt               TimestampTemporal(3)  @default(now())
+    updatedAt               TimestampTemporal(3)  @default(now())
     user                    Users         @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "twoFactor_userId_fkey")
 
     @@index([secret], map: "twoFactor_secret_idx")
@@ -1680,28 +1687,28 @@ namespace public {
   }
 
   model UsernameAliases {
-    id        String       @id(map: "username_aliases_pkey") @default(uuid())
+    id        String       @id(map: "username_aliases_pkey") @onCreate(uuid())
     username  String
     userId    String
-    expiresAt Timestamp(3)
-    createdAt Timestamp(3) @default(now())
+    expiresAt TimestampTemporal(3)
+    createdAt TimestampTemporal(3) @default(now())
     user      Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "username_aliases_userId_fkey", index: false)
 
     @@index([expiresAt], map: "username_aliases_expiresAt_idx")
     @@index([userId, createdAt], map: "username_aliases_userId_createdAt_idx")
     @@unique([username], map: "username_aliases_username_key")
-    @@index(expression: "username gin_trgm_ops", name: "username_aliases_username_trgm_idx", type: "gin")
+    @@index(expression: sql`username gin_trgm_ops`, name: "username_aliases_username_trgm_idx", type: "gin")
     @@map("username_aliases")
   }
 
   model Verification {
-    id         String       @id(map: "verification_pkey") @default(uuid())
+    id         String       @id(map: "verification_pkey") @onCreate(uuid())
     identifier String
     value      String
-    expiresAt  Timestamp(3)
+    expiresAt  TimestampTemporal(3)
     userId     String?
-    createdAt  Timestamp(3) @default(now())
-    updatedAt  Timestamp(3) @default(now())
+    createdAt  TimestampTemporal(3) @default(now())
+    updatedAt  TimestampTemporal(3) @default(now())
     user       Users?       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "verification_userId_fkey", index: false)
 
     @@index([expiresAt], map: "verification_expiresAt_idx")
@@ -1715,7 +1722,7 @@ namespace public {
     value          Int
     awardedAura    Int          @default(0)
     mutingCostAura Int          @default(0)
-    createdAt      Timestamp(3) @default(now())
+    createdAt      TimestampTemporal(3) @default(now())
     post           Posts        @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "votes_postId_fkey")
     user           Users        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "votes_userId_fkey", index: false)
 

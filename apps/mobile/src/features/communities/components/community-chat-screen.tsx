@@ -281,6 +281,8 @@ function CommunityChatChannelsContent() {
           </View>
         ) : (
           <FlatList
+            showsVerticalScrollIndicator={false}
+            showsHorizontalScrollIndicator={false}
             {...LIST_VIRTUALIZATION_PROPS}
             contentContainerStyle={styles.channelList}
             data={channels}
@@ -1662,6 +1664,7 @@ function CommunityChatTimelineScreen() {
       ) : (
         <>
           <FlatList
+            showsHorizontalScrollIndicator={false}
             {...LIST_VIRTUALIZATION_PROPS}
             inverted
             contentContainerStyle={styles.messageList}

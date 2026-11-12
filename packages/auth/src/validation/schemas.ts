@@ -293,6 +293,49 @@ const customDomain = z
   .optional()
   .or(z.literal(""));
 
+export const MAX_CUSTOM_URLS = 3;
+
+const schemePrefixRegex = /^[a-z][a-z0-9+.-]*:\/\//i;
+
+const httpUrl = z.url({
+  hostname: z.regexes.domain,
+  protocol: /^https?$/,
+});
+
+// Gives a bare "example.com" an https:// scheme so it validates as a link.
+// Forms call this when a custom link field loses focus or before submit.
+export function normalizeCustomUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || schemePrefixRegex.test(trimmed)) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+}
+
+// The stored list: trimmed, blank rows dropped. Write paths store `null` for
+// an empty result, like the other optional profile fields.
+export function cleanCustomUrls(links: readonly string[]): string[] {
+  return links.map((link) => link.trim()).filter(Boolean);
+}
+
+// Up to three personal links (portfolio, shop, blog). A form may submit a
+// blank row it has not filled yet; every filled row must be an absolute
+// http(s) URL. The schema only validates, so a form's input and output types
+// stay identical for react-hook-form's resolver.
+const customUrls = z
+  .array(
+    z
+      .string()
+      .trim()
+      .max(200, "That link is too long, keep it under 200 characters")
+      .refine(
+        (link) => link === "" || httpUrl.safeParse(link).success,
+        "Enter a valid link like https://example.com"
+      )
+  )
+  .max(MAX_CUSTOM_URLS, `You can add up to ${MAX_CUSTOM_URLS} links`)
+  .optional();
+
 export const updateUserProfileSchema = z.object({
   bio: z
     .string()
@@ -303,6 +346,7 @@ export const updateUserProfileSchema = z.object({
       "Bio must not exceed 400 words"
     ),
   customDomain,
+  customUrls,
   displayName: safeDisplayString,
   githubUsername: socialUsername,
   linkedinUsername: socialUsername,

@@ -1,4 +1,4 @@
-import { updateUserProfileSchema } from "@asm/auth/validation";
+import { cleanCustomUrls, updateUserProfileSchema } from "@asm/auth/validation";
 import { fromPrismaDateTime, getPrivateUserQuery, prisma } from "@asm/db";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
@@ -51,6 +51,14 @@ export async function POST(request: Request) {
     await prisma.orm.public.Users.where({ id: userId }).update({
       bio: parsedValues.bio,
       customDomain: parsedValues.customDomain || null,
+      // Left untouched when the form did not send the field.
+      ...(parsedValues.customUrls === undefined
+        ? {}
+        : {
+            customUrls: cleanCustomUrls(parsedValues.customUrls).length
+              ? cleanCustomUrls(parsedValues.customUrls)
+              : null,
+          }),
       displayName: parsedValues.displayName,
       githubUsername: parsedValues.githubUsername || null,
       linkedinUsername: parsedValues.linkedinUsername || null,

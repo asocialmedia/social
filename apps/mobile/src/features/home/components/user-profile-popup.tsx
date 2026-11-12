@@ -23,6 +23,7 @@ import {
   FileText,
   Flame,
   Globe,
+  Link2,
   LogOut,
   Settings2,
   UserPlus,
@@ -89,7 +90,10 @@ const CARD_WIDTH = Math.min(336, Dimensions.get("window").width - 24);
 
 type BrandIconName = "bluesky" | "github" | "linkedin" | "reddit" | "x-twitter";
 
-const BRAND_ICONS: Record<Exclude<SocialLinkKind, "website">, BrandIconName> = {
+const BRAND_ICONS: Record<
+  Exclude<SocialLinkKind, "link" | "website">,
+  BrandIconName
+> = {
   bluesky: "bluesky",
   github: "github",
   linkedin: "linkedin",
@@ -139,6 +143,9 @@ function BannerContent({
 function SocialIcon({ color, kind }: { color: string; kind: SocialLinkKind }) {
   if (kind === "website") {
     return <Globe color={color} size={16} />;
+  }
+  if (kind === "link") {
+    return <Link2 color={color} size={16} />;
   }
   return <FontAwesome6 color={color} name={BRAND_ICONS[kind]} size={15} />;
 }

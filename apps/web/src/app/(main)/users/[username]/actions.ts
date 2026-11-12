@@ -1,6 +1,6 @@
 "use server";
 
-import { updateUserProfileSchema } from "@asm/auth/validation";
+import { cleanCustomUrls, updateUserProfileSchema } from "@asm/auth/validation";
 import type { UpdateUserProfileValues } from "@asm/auth/validation";
 import { getUserDataQuery, mapUserData, prisma } from "@asm/db";
 
@@ -17,6 +17,13 @@ export async function updateUserProfile(values: UpdateUserProfileValues) {
   await prisma.orm.public.Users.where({ id: session.user.id }).update({
     bio: validatedValues.bio,
     customDomain: validatedValues.customDomain || null,
+    ...(validatedValues.customUrls === undefined
+      ? {}
+      : {
+          customUrls: cleanCustomUrls(validatedValues.customUrls).length
+            ? cleanCustomUrls(validatedValues.customUrls)
+            : null,
+        }),
     displayName: validatedValues.displayName,
     githubUsername: validatedValues.githubUsername || null,
     linkedinUsername: validatedValues.linkedinUsername || null,

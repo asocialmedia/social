@@ -730,6 +730,7 @@ export function CommunitiesScreen() {
               </Animated.View>
               <GestureDetector gesture={pull.nativeScrollGesture}>
                 <Animated.FlatList
+                  showsHorizontalScrollIndicator={false}
                   {...LIST_VIRTUALIZATION_PROPS}
                   ListFooterComponent={
                     loadingMore ? (

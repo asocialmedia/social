@@ -582,6 +582,7 @@ export function SecurityTab({
 
   return (
     <ScrollView
+      showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
       ref={scrollRef}
@@ -1612,7 +1613,7 @@ const styles = StyleSheet.create({
     gap: 8,
     padding: 12,
   },
-  content: { flexGrow: 1, gap: 18, padding: 16, paddingBottom: 96 },
+  content: { flexGrow: 1, gap: 18, padding: 16, paddingBottom: 0 },
   dialog: {
     borderCurve: "continuous",
     borderRadius: 16,

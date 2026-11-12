@@ -168,6 +168,8 @@ export function MessagePeoplePanel({
         </Text>
       ) : null}
       <ScrollView
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         style={{ maxHeight: 256 }}
       >

@@ -23,7 +23,7 @@ import { useSubmitCommentMutation } from "@/components/comments/data/mutations";
 import { useCommentsRealtimeValue } from "@/components/comments/thread/comments-realtime-context";
 import { useCommentsRealtime } from "@/components/comments/thread/use-comments-realtime";
 import type { LiveCommentStore } from "@/components/comments/thread/use-comments-realtime";
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { InlineRichEditor } from "@/components/posts/editor/inline-rich-editor";
 import LinkEmbedComposer from "@/components/posts/editor/link-embed-composer";
@@ -316,7 +316,7 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
                 type="button"
               >
                 {mutation.isPending ? (
-                  <ZephLoader variant="general" className="size-4" />
+                  <Spinner3D className="size-4" />
                 ) : (
                   <SendHorizonal className="size-4" />
                 )}
@@ -365,10 +365,7 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
                       <div className="pointer-events-none absolute inset-0 rounded-xl shadow-[inset_0_0_0_1px_rgba(255,255,255,0.25),inset_0_1px_2px_rgba(255,255,255,0.3)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1),inset_0_1px_2px_rgba(255,255,255,0.06)]" />
                       {attachment.isUploading ? (
                         <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-xs">
-                          <ZephLoader
-                            variant="general"
-                            className="size-5 text-white"
-                          />
+                          <Spinner3D className="size-5" />
                         </div>
                       ) : (
                         <button
@@ -442,7 +439,7 @@ const FloatingPostEditor: React.FC<FloatingPostEditorProps> = ({ post }) => {
                   type="button"
                 >
                   {mutation.isPending ? (
-                    <ZephLoader variant="general" className="size-4" />
+                    <Spinner3D className="size-4" />
                   ) : (
                     <SendHorizonal className="size-4" />
                   )}

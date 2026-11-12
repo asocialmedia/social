@@ -28,6 +28,7 @@ export function OnlineFriendsStrip({
   const busy = creating !== null;
   return (
     <ScrollView
+      showsVerticalScrollIndicator={false}
       accessibilityLabel="Online people you follow"
       horizontal
       showsHorizontalScrollIndicator={false}

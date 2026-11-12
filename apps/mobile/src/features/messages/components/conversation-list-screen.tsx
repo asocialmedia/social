@@ -560,12 +560,15 @@ export function ConversationListScreen({
             ((identity.status !== "loading" && !list.loading) ||
               list.rows.length > 0) ? (
               <FlatList
+                showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.listContent}
                 data={rows}
                 onEndReached={handleLoadMore}
                 onEndReachedThreshold={0.5}
                 ListFooterComponent={
-                  list.loadingMore ? <ConversationListSkeleton /> : undefined
+                  list.loadingMore ? (
+                    <ConversationListSkeleton rows={3} />
+                  ) : undefined
                 }
                 ListEmptyComponent={
                   messageError ? undefined : (

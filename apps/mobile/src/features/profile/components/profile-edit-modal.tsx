@@ -291,6 +291,7 @@ export function ProfileEditModal({
             )}
           </View>
           <ScrollView
+            showsHorizontalScrollIndicator={false}
             ref={scrollRef}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}

@@ -68,6 +68,7 @@ export function MessageMediaViewer({
   return (
     <View style={styles.root}>
       <ScrollView
+        showsVerticalScrollIndicator={false}
         horizontal
         onMomentumScrollEnd={handleMomentumEnd}
         pagingEnabled

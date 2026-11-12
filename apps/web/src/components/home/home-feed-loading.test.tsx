@@ -67,7 +67,7 @@ test("a cold mixed feed keeps a full-height skeleton after an empty asocialmedia
   client.clear();
 });
 
-test("a pending Bluesky source leaves loaded asocialmedia posts ahead of its placeholder", () => {
+test("a pending Bluesky source holds asocialmedia posts behind the initial skeleton", () => {
   const client = new QueryClient();
   const native = {
     ...externalPostView(source),
@@ -88,10 +88,8 @@ test("a pending Bluesky source leaves loaded asocialmedia posts ahead of its pla
   );
   expect(html).toContain('aria-label="Loading feed"');
   expect(html).toContain("min-h-dvh");
-  expect(html).toContain("Native content remains visible");
-  expect(html.indexOf('aria-label="Loading feed"')).toBeGreaterThan(
-    html.indexOf('data-post-id="native-post"')
-  );
+  expect(html).not.toContain("Native content remains visible");
+  expect(html).not.toContain('data-post-id="native-post"');
   expect(html).not.toContain("caught up");
   expect(html.match(/data-skeleton-media=/g)?.length).toBeGreaterThan(1);
   client.clear();

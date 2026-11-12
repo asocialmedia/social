@@ -93,6 +93,8 @@ export function ExternalLibraryScreen() {
         </Pressable>
       ) : null}
       <FlatList
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         data={items}
         keyExtractor={(item) => item.uri}
         contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}

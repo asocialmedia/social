@@ -191,6 +191,7 @@ export function GifPicker({
         ) : null}
       </View>
       <ScrollView
+        showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.grid}
         nestedScrollEnabled
         showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}

@@ -62,6 +62,7 @@ export function formatJoinedDate(iso: string): string {
 export type SocialLinkKind =
   | "bluesky"
   | "github"
+  | "link"
   | "linkedin"
   | "reddit"
   | "twitter"
@@ -76,6 +77,7 @@ export interface SocialLink {
 interface SocialSource {
   blueskyHandle?: string | null;
   customDomain?: string | null;
+  customUrls?: readonly string[] | null;
   githubUsername?: string | null;
   linkedinUsername?: string | null;
   redditUsername?: string | null;
@@ -131,6 +133,22 @@ export function getSocialLinks(user: SocialSource): SocialLink[] {
       href: `https://www.reddit.com/user/${user.redditUsername}`,
       kind: "reddit",
       label: `Reddit: ${user.redditUsername}`,
+    });
+  }
+  // Web's custom links, after the usernames. Only absolute http(s) URLs
+  // become links, so a stray stored value never opens another scheme.
+  for (const link of user.customUrls ?? []) {
+    if (!URL.canParse(link)) {
+      continue;
+    }
+    const url = new URL(link);
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      continue;
+    }
+    links.push({
+      href: url.href,
+      kind: "link",
+      label: `Link: ${url.host}${url.pathname === "/" ? "" : url.pathname}`,
     });
   }
   return links;
@@ -248,6 +266,7 @@ export function resolveAvatarWithFallback(
 const SOCIAL_HOSTS: Record<SocialLinkKind, string> = {
   bluesky: "bsky.app",
   github: "github.com",
+  link: "",
   linkedin: "www.linkedin.com",
   reddit: "www.reddit.com",
   twitter: "x.com",
@@ -266,7 +285,9 @@ export function safeSocialUrl(link: SocialLink): string | null {
   } catch {
     return null;
   }
-  if (parsed.protocol !== "https:") {
+  // A custom link may be plain http, as on web; every other kind is https.
+  const allowsHttp = link.kind === "link" && parsed.protocol === "http:";
+  if (parsed.protocol !== "https:" && !allowsHttp) {
     return null;
   }
   if (parsed.username || parsed.password) {

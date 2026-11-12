@@ -16,6 +16,7 @@
 import type { FeedPost } from "./feed-types";
 
 export type MoreAction =
+  | { type: "follow" }
   | { type: "delete" }
   | { type: "edit-tags" }
   | { type: "hide" }

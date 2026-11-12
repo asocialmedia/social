@@ -62,6 +62,7 @@ interface UpdateProfileResponse {
     bannerKey: string | null;
     bannerUrl: string | null;
     bio: string | null;
+    customUrls: string[] | null;
     displayName: string;
     githubUsername: string | null;
     linkedinUsername: string | null;
@@ -446,6 +447,7 @@ export function useUpdateProfileMutation() {
         const optimisticUser = {
           ...previousUser,
           bio: values.bio,
+          customUrls: values.customUrls ?? previousUser.customUrls,
           displayName: values.displayName,
           githubUsername: values.githubUsername ?? null,
           linkedinUsername: values.linkedinUsername ?? null,
@@ -469,6 +471,7 @@ export function useUpdateProfileMutation() {
               bannerKey: old.bannerKey,
               bannerUrl: updatedUser.bannerUrl ?? old.bannerUrl,
               bio: updatedUser.bio ?? "",
+              customUrls: updatedUser.customUrls,
               displayName: updatedUser.displayName,
               githubUsername: updatedUser.githubUsername,
               linkedinUsername: updatedUser.linkedinUsername,

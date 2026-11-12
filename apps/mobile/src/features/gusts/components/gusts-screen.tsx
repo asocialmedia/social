@@ -883,6 +883,7 @@ export function GustsScreen() {
         <GestureDetector gesture={gestures.pan}>
           <GestureDetector gesture={gestures.nativeScroll}>
             <Animated.FlatList
+              showsHorizontalScrollIndicator={false}
               data={posts}
               getItemLayout={(_, index) => ({
                 index,

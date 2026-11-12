@@ -1620,6 +1620,7 @@ function NormalMessageThreadScreen({
               <Animated.View style={{ flex: 1 }}>
                 <GestureDetector gesture={nativeScroll}>
                   <AnimatedTranscriptList
+                    showsHorizontalScrollIndicator={false}
                     contentContainerStyle={[
                       styles.listContent,
                       items.length === 0 && {

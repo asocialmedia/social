@@ -4,7 +4,6 @@
 // SSRF-guarded proxy rooted at the API base. Taps open the origin URL
 // externally: mobile has no iframe player, so the YouTube facade links out
 // instead of swapping in a youtube-nocookie player.
-import { FontAwesome6 } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { Play } from "lucide-react-native";
 import { useState } from "react";
@@ -13,13 +12,10 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { openExternalUrl } from "@/lib/interaction/open-url";
 import { useAppTheme } from "@/theme";
 
-import {
-  getLinkPlatform,
-  hostLabel,
-  safeLinkUrl,
-} from "../../home/components/profile-utils";
+import { hostLabel, safeLinkUrl } from "../../home/components/profile-utils";
 import type { LinkEmbed } from "../lib/link-embeds";
 import { embedImageUrl, youtubeEmbedThumbnail } from "../lib/link-embeds";
+import { SiteIcon } from "./site-icon";
 
 // `.embed-panel-3d` panel recipe, light + dark.
 const EMBED_PANEL_SHADOWS =
@@ -41,38 +37,6 @@ function panelStyle(isDark: boolean, cardBg: string) {
     borderWidth: 1,
     boxShadow: isDark ? EMBED_PANEL_SHADOWS_DARK : EMBED_PANEL_SHADOWS,
   };
-}
-
-// Platform-aware origin badge: brand glyph for known platforms, otherwise
-// a host-initial tile. No favicon fetch, like web's EmbedSiteBadge.
-function EmbedSiteBadge({
-  siteName,
-  url,
-}: {
-  siteName: string | null | undefined;
-  url: string;
-}) {
-  const { theme } = useAppTheme();
-  const platform = getLinkPlatform(url);
-  if (platform) {
-    return (
-      <View style={[styles.badgeTile, { backgroundColor: theme.dividerLine }]}>
-        <FontAwesome6
-          color={platform.color ?? theme.dividerText}
-          name={platform.icon}
-          size={12}
-        />
-      </View>
-    );
-  }
-  const label = hostLabel(url) || siteName || "link";
-  return (
-    <View style={[styles.badgeTile, { backgroundColor: theme.dividerLine }]}>
-      <Text style={[styles.badgeLetter, { color: theme.dividerText }]}>
-        {(label[0] ?? "L").toUpperCase()}
-      </Text>
-    </View>
-  );
 }
 
 function YouTubeFacade({
@@ -166,12 +130,12 @@ function OgCard({
       <View style={[styles.ogRow, compact && styles.ogRowCompact]}>
         <View style={styles.ogBody}>
           <View style={styles.ogHead}>
-            <EmbedSiteBadge siteName={embed.siteName} url={embed.url} />
+            <SiteIcon url={embed.url} />
             <Text
               numberOfLines={1}
               style={[styles.siteName, { color: theme.dividerText }]}
             >
-              {embed.siteName ?? "Link"}
+              {embed.siteName || hostLabel(embed.url) || "Link"}
             </Text>
           </View>
           <Text

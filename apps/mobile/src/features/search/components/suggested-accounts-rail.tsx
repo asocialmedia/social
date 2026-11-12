@@ -298,6 +298,7 @@ export function SuggestedAccountsRail({
         }
       />
       <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.railContent}
         decelerationRate="fast"
         horizontal
