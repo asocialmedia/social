@@ -169,6 +169,35 @@ test("event reads buffer new rows until acceptance without replacing loaded page
   store.dispose();
 });
 
+test("accepting new head posts keeps downward pagination on its existing cursor", async () => {
+  const urls: string[] = [];
+  const old = external("anchor");
+  const fresh = external("above-anchor");
+  const older = external("below-anchor");
+  const responses = [
+    { ...page, items: [old] },
+    { ...page, cursor: "head-only-cursor", items: [fresh, old] },
+    { ...page, cursor: null, items: [older] },
+  ];
+  const store = createBlueskyFeed("https://asm.test", "latest", (url) => {
+    urls.push(String(url));
+    return Promise.resolve(Response.json(responses.shift()));
+  });
+  await store.refresh();
+  await store.probe();
+  store.acceptNew();
+  store.acceptNew();
+  await store.fetchNext();
+  expect(new URL(urls[2] ?? "").searchParams.get("cursor")).toBe("next");
+  expect(
+    store
+      .snapshot()
+      .pages.flatMap((entry) => entry.items.map((post) => post.id))
+  ).toEqual([fresh.id, old.id, older.id]);
+  expect(store.snapshot().newItems).toEqual([]);
+  store.dispose();
+});
+
 test("pausing retains loaded pages so returning paints without a refetch", async () => {
   let reads = 0;
   const store = createBlueskyFeed("https://asm.test", "latest", () => {

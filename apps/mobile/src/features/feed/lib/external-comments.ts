@@ -21,7 +21,7 @@ export function externalCommentsToFeed(
       avatarUrl: comment.user?.avatarUrl ?? null,
       displayName: comment.user.displayName,
       id: comment.user.id,
-      username: comment.user.username,
+      username: comment.user.handle ?? comment.user.username,
     },
   }));
 }

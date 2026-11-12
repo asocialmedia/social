@@ -45,7 +45,8 @@ import {
   isBookmarkedByUser,
   getUserVote,
 } from "@/features/feed/lib/feed-types";
-import { parseStoredEmbeds } from "@/features/feed/lib/link-embeds";
+import type { parseStoredEmbeds } from "@/features/feed/lib/link-embeds";
+import { usePostLinkPreviews } from "@/features/feed/lib/use-post-link-previews";
 import {
   BioContent,
   MentionChip,
@@ -127,9 +128,9 @@ export function PostDetailCard({
   );
   const hasMeta = extraTags.length > 0 || extraMentions.length > 0;
   const attachments = Array.isArray(post.attachments) ? post.attachments : [];
-  const linkEmbeds = useMemo(
-    () => parseStoredEmbeds(post.embeds),
-    [post.embeds]
+  const { embeds: linkEmbeds } = usePostLinkPreviews(
+    post.embeds,
+    post.external
   );
   const hasMediaOrEmbeds = attachments.length > 0 || linkEmbeds.length > 0;
   // The delta store is module-level, so this card has to be nudged to

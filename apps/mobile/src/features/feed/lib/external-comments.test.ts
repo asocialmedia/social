@@ -64,3 +64,17 @@ describe("mergeExternalComments", () => {
     expect(merged[0]?.id).toBe("c5");
   });
 });
+
+test("upstream comments keep their display handle and stable profile identity", () => {
+  const upstream = comment("at://did:plc:author/app.bsky.feed.post/comment");
+  upstream.source = "bluesky";
+  upstream.user = {
+    displayName: "Doremus Jessup",
+    handle: "doremusjessup.bsky.social",
+    id: "did:plc:author",
+    username: "legacy-username",
+  };
+  const [row] = externalCommentsToFeed([upstream]);
+  expect(row?.user?.username).toBe("doremusjessup.bsky.social");
+  expect(row?.user?.id).toBe("did:plc:author");
+});
