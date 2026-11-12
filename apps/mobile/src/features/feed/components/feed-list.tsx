@@ -1,5 +1,7 @@
 import {
   activeNetworkInterests,
+  feedRenderPolicy,
+  reconcileFeedOrder,
   discoveryMode,
   feedAvailability,
   filterExternalRecommendations,
@@ -48,11 +50,6 @@ import {
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { FeedErrorState } from "@/features/feed/components/feed-error-state";
-import {
-  DEFAULT_SOURCE_WAIT_MS,
-  FOLLOWING_INITIAL_SOURCE_WAIT_MS,
-  useBoundedSourcePending,
-} from "@/features/feed/state/use-bounded-source-pending";
 import { useFeedExposures } from "@/features/network/state/feed-exposures";
 import { useNetworkSettings } from "@/features/network/state/use-network-settings";
 import { haptic } from "@/lib/interaction/haptics";
@@ -85,6 +82,7 @@ import {
 } from "../lib/mixed-feed-rows";
 import type { TimelineRow } from "../lib/mixed-feed-rows";
 import { pillAuthors } from "../lib/pill-authors";
+import { mergeUnreadFeedHead } from "../lib/unread-feed-head";
 import { viewBatcher } from "../lib/view-batcher";
 import {
   isSameVisibilityPublish,
@@ -246,7 +244,11 @@ const FeedRowItem = memo(
     const postId = item.kind === "asm" ? item.value.post.id : item.id;
     const showAlt = useAltVisible(postId);
     if (item.kind === "bluesky") {
-      return <BlueskyPostCard onShare={onShare} post={item.value} />;
+      return (
+        <View style={[styles.group, { borderBottomColor: cardBorder }]}>
+          <BlueskyPostCard onShare={onShare} post={item.value} />
+        </View>
+      );
     }
     const row = item.value;
     return (
@@ -670,10 +672,12 @@ export const FeedList = memo(
     );
 
     // Above every early return below: a hook called after one is conditional.
-    const refreshing = status === "refreshing";
+    const refreshing = status === "refreshing" || external.refreshing;
+    const headNoticeResetRef = useRef<(() => void) | null>(null);
     const pull = usePullToRefresh({
       failed: status === "error",
       onRefresh: () => {
+        headNoticeResetRef.current?.();
         refresh();
         external.refresh();
       },
@@ -691,6 +695,109 @@ export const FeedList = memo(
         setHeaderHidden(hidden);
       }
     }, []);
+    const noticeScope = `${memoryKey}:${source}:${network.scope}`;
+    const [unreadHead, setUnreadHead] = useState<{
+      scope: string;
+      native: FeedPost[];
+      external: FeedPost[];
+    }>({ external: [], native: [], scope: noticeScope });
+    const unreadNative = mergeUnreadFeedHead(
+      unreadHead.scope === noticeScope ? unreadHead.native : [],
+      newItems
+    );
+    const unreadExternal = mergeUnreadFeedHead(
+      unreadHead.scope === noticeScope ? unreadHead.external : [],
+      external.newItems.map(getExternalPostView)
+    );
+    const acceptExternalHead = external.acceptNew;
+    const acceptFeedHead = useCallback(() => {
+      if (source !== "bluesky") {
+        showNewPosts();
+      }
+      if (source !== "asm") {
+        acceptExternalHead();
+      }
+    }, [source, showNewPosts, acceptExternalHead]);
+    const admitFeedHead = useCallback(() => {
+      if (refreshing || status === "loading-more" || external.loadingMore) {
+        return;
+      }
+      if (newItems.length + external.newItems.length > 0) {
+        setUnreadHead((previous) => ({
+          external: mergeUnreadFeedHead(
+            previous.scope === noticeScope ? previous.external : [],
+            source === "asm" ? [] : external.newItems.map(getExternalPostView)
+          ),
+          native: mergeUnreadFeedHead(
+            previous.scope === noticeScope ? previous.native : [],
+            source === "bluesky" ? [] : newItems
+          ),
+          scope: noticeScope,
+        }));
+      }
+      acceptFeedHead();
+    }, [
+      newItems,
+      external.newItems,
+      noticeScope,
+      source,
+      acceptFeedHead,
+      refreshing,
+      status,
+      external.loadingMore,
+    ]);
+    const acknowledgeFeedHead = useCallback(() => {
+      if (refreshing || status === "loading-more" || external.loadingMore) {
+        return;
+      }
+      acceptFeedHead();
+      setUnreadHead({ external: [], native: [], scope: noticeScope });
+    }, [acceptFeedHead, noticeScope, refreshing, status, external.loadingMore]);
+    const pendingHeadCount =
+      (source === "bluesky" ? 0 : newItems.length) +
+      (source === "asm" ? 0 : external.newItems.length);
+    useEffect(() => {
+      headNoticeResetRef.current = () =>
+        setUnreadHead({ external: [], native: [], scope: noticeScope });
+      return () => {
+        headNoticeResetRef.current = null;
+      };
+    }, [noticeScope]);
+
+    useEffect(() => {
+      // Keep the current card anchored; newly published rows become reachable
+      // above it without a button press once the reader has left the top.
+      if (
+        feedRenderPolicy({
+          active: isActive,
+          initialLoading:
+            (source !== "bluesky" && status === "loading") ||
+            (source !== "asm" && external.status === "loading"),
+          offset: scrollOffset.get(),
+          paging: status === "loading-more" || external.loadingMore,
+          pendingHeadCount,
+          refreshing,
+        }).admitHead
+      ) {
+        const frame = requestAnimationFrame(() => {
+          if (scrollOffset.get() >= 16) {
+            admitFeedHead();
+          }
+        });
+        return () => cancelAnimationFrame(frame);
+      }
+    }, [
+      isActive,
+      status,
+      external.status,
+      refreshing,
+      external.loadingMore,
+      pendingHeadCount,
+      scrollOffset,
+      admitFeedHead,
+      source,
+    ]);
+
     const reportPullOffset = pull.onScrollOffset;
     const endPull = pull.onScrollEndDrag;
     const handleScroll = useAnimatedScrollHandler({
@@ -729,11 +836,10 @@ export const FeedList = memo(
           if (!userScrolling.get()) {
             scheduleOnRN(saveOffset, offset);
           }
-          if (offset < 16 && previous >= 16) {
-            // The reader reached the top: merge held head rows instead of
-            // only dismissing the pill, so they paint in place instead of
-            // vanishing until the next probe.
-            scheduleOnRN(showNewPosts);
+          if (offset >= 16 && previous < 16) {
+            scheduleOnRN(admitFeedHead);
+          } else if (offset < 16 && previous >= 16) {
+            scheduleOnRN(acknowledgeFeedHead);
           }
           // Ordinary scrolling stays on the UI thread. The custom refresh
           // loader only needs top crossings and iOS bounce distances on JS.
@@ -748,7 +854,11 @@ export const FeedList = memo(
     const renderScrollComponent = useCallback(
       (props: ScrollViewProps & { ref?: Ref<ScrollViewInstance> }) => (
         <GestureDetector gesture={pull.nativeScrollGesture}>
-          <ScrollView {...props} />
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            showsHorizontalScrollIndicator={false}
+            {...props}
+          />
         </GestureDetector>
       ),
       [pull.nativeScrollGesture]
@@ -823,10 +933,29 @@ export const FeedList = memo(
     // stabilized array reuses old wrappers, so it can never be identical to
     // the fresh one. Render-phase setState (the sanctioned "adjust state
     // during render" pattern): fires at most once per input change.
-    const [stableRows, setStableRows] = useState<TimelineRow[]>([]);
-    const stabilizedRows = stableTimelineRows(stableRows, freshRows);
-    if (!areTimelineRowsIdentical(stabilizedRows, stableRows)) {
-      setStableRows(stabilizedRows);
+    const rowScope = `${variant}:${userId ?? "guest"}:${network.scope}:${source}`;
+    const [rowState, setRowState] = useState<{
+      scope: string;
+      rows: TimelineRow[];
+    }>({ rows: [], scope: rowScope });
+    const stableRows = rowState.scope === rowScope ? rowState.rows : [];
+    const initialPeerPending =
+      (source !== "bluesky" &&
+        (status === "loading" || (status === "idle" && enabled))) ||
+      (source !== "asm" && external.status === "loading");
+    const previousRows = initialPeerPending ? [] : stableRows;
+    const orderedRows = initialPeerPending
+      ? []
+      : reconcileFeedOrder(previousRows, freshRows, [
+          posts.map((post) => `asm:${post.id}`),
+          externalPosts.map((post) => `bluesky:${post.id}`),
+        ]);
+    const stabilizedRows = stableTimelineRows(previousRows, orderedRows);
+    if (
+      rowState.scope !== rowScope ||
+      !areTimelineRowsIdentical(stabilizedRows, stableRows)
+    ) {
+      setRowState({ rows: stabilizedRows, scope: rowScope });
     }
     const rows = stableRows;
     const externalPending = source !== "asm" && external.status === "loading";
@@ -845,22 +974,14 @@ export const FeedList = memo(
     const combinedHasMore =
       (source !== "bluesky" && hasMore) ||
       (source !== "asm" && external.hasMore);
-    // Web's useBoundedSourcePending: while one source's first page is still
-    // in flight, hold the list at its first row so a page-sized batch from
-    // the faster source is not locked in ahead of its peer. Following waits
-    // up to the remote read deadline (18s), every other feed 600ms.
-    const nativeInitialLoading =
-      source !== "bluesky" &&
-      (status === "loading" || (status === "idle" && enabled));
-    const externalInitialLoading = externalPending;
-    const initialSourceLoading = nativeInitialLoading || externalInitialLoading;
-    const sourcesPending = useBoundedSourcePending(
-      source === "all" && initialSourceLoading,
-      variant === "following"
-        ? FOLLOWING_INITIAL_SOURCE_WAIT_MS
-        : DEFAULT_SOURCE_WAIT_MS
-    );
-    const visibleRows = sourcesPending ? rows.slice(0, 1) : rows;
+    // Reveal the first batch only after both reads settle, so late arrivals
+    // cannot move posts the reader has already started reading.
+    const sourcesPending =
+      (source !== "bluesky" &&
+        (status === "loading" || (status === "idle" && enabled))) ||
+      (includeBluesky && external.status === "loading");
+    const initialSourceLoading = sourcesPending;
+    const visibleRows = sourcesPending ? [] : rows;
     const nativeFailed = source !== "bluesky" && status === "error";
     const externalFailed = source !== "asm" && external.status === "error";
     const sourceFailed = nativeFailed || externalFailed;
@@ -1066,7 +1187,7 @@ export const FeedList = memo(
     }
 
     // The shared editor stays above loading and empty feeds as well as populated lists.
-    if (availability === "loading") {
+    if (availability === "loading" || (sourcesPending && !preferencesFailed)) {
       return (
         <FeedState>
           {listHeader}
@@ -1147,13 +1268,11 @@ export const FeedList = memo(
     // Web's Following renders two pills (following.tsx), one per head probe.
     // For you and Latest (home-feed.tsx) render one pill that merges both
     // heads' authors (deduped by id) and sums their counts.
-    const nativeAuthors: PillAuthor[] = pillAuthors(newItems);
-    const externalAuthors: PillAuthor[] = pillAuthors(
-      external.newItems.map(getExternalPostView)
-    );
+    const nativeAuthors: PillAuthor[] = pillAuthors(unreadNative);
+    const externalAuthors: PillAuthor[] = pillAuthors(unreadExternal);
     const splitPills = variant === "following";
-    const nativeNewCount = source === "bluesky" ? 0 : newItems.length;
-    const externalNewCount = source === "asm" ? 0 : external.newItems.length;
+    const nativeNewCount = source === "bluesky" ? 0 : unreadNative.length;
+    const externalNewCount = source === "asm" ? 0 : unreadExternal.length;
     const mergedAuthors: PillAuthor[] = [
       ...new Map(
         [
@@ -1163,16 +1282,22 @@ export const FeedList = memo(
       ).values(),
     ];
     const revealNewPosts = () => {
+      if (refreshing || status === "loading-more" || external.loadingMore) {
+        return;
+      }
       haptic();
-      showNewPosts();
-      external.acceptNew();
+      acknowledgeFeedHead();
       // Web's revealFeedHead (83655878): commit the new head
       // first, then scroll, so maintainVisibleContentPosition
       // cannot re-anchor and cancel the jump.
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
+          scrollOffset.set(0);
+          headerScrollOffset?.set(0);
+          scrollVisibility.set({ baseline: 0, hidden: false });
+          publishHidden(false);
           listRef.current?.scrollToOffset({
-            animated: true,
+            animated: false,
             offset: 0,
           });
         });
@@ -1190,6 +1315,7 @@ export const FeedList = memo(
               ]}
             >
               <AnimatedFeedList
+                showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{
                   paddingBottom: HEADER_BAR_HEIGHT + bottomInset,
                 }}
@@ -1202,7 +1328,16 @@ export const FeedList = memo(
                 onEndReached={() => {
                   // A failed source waits for the reader's retry instead of
                   // re-firing on every end-reached, like web's manual gate.
-                  if (sourcesPending) {
+                  if (
+                    !feedRenderPolicy({
+                      active: isActive,
+                      initialLoading: sourcesPending,
+                      offset: scrollOffset.get(),
+                      paging: status === "loading-more" || external.loadingMore,
+                      pendingHeadCount: 0,
+                      refreshing,
+                    }).loadTail
+                  ) {
                     return;
                   }
                   if (source !== "bluesky" && status !== "error") {
@@ -1237,23 +1372,19 @@ export const FeedList = memo(
                 onPress={revealNewPosts}
               />
             ) : null}
-            {splitPills && source !== "bluesky" && newItems.length > 0 ? (
+            {splitPills && nativeNewCount > 0 ? (
               <NewContentPill
                 authors={nativeAuthors}
-                count={newItems.length}
+                count={nativeNewCount}
                 onPress={revealNewPosts}
               />
             ) : null}
-            {splitPills && source !== "asm" && external.newItems.length > 0 ? (
+            {splitPills && externalNewCount > 0 ? (
               <NewContentPill
                 authors={externalAuthors}
-                count={external.newItems.length}
+                count={externalNewCount}
                 onPress={revealNewPosts}
-                style={
-                  source !== "bluesky" && newItems.length > 0
-                    ? { top: 60 }
-                    : undefined
-                }
+                style={nativeNewCount > 0 ? { top: 60 } : undefined}
               />
             ) : null}
             <ShareSheet onClose={handleCloseShare} post={sharePost} />

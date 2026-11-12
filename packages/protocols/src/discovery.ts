@@ -524,3 +524,11 @@ export {
   postNetworkInterestScore,
 } from "./network-content-policy";
 export type { NetworkPolicyPost } from "./network-content-policy";
+
+export {
+  feedRenderPolicy,
+  mergeUnreadFeedHead,
+  reconcileFeedOrder,
+} from "./feed-coordinator";
+export type { FeedRenderState } from "./feed-coordinator";
+export { canFollowPostAuthor } from "./feed-coordinator";

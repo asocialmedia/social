@@ -104,7 +104,13 @@ mock.module("@/hooks/feed/use-new-content-probe", () => ({
   }),
 }));
 mock.module("@/hooks/feed/use-seamless-feed-head", () => ({
-  useSeamlessFeedHead() {},
+  useSeamlessFeedHead({
+    pendingItems = [],
+  }: {
+    pendingItems?: { id: string }[];
+  }) {
+    return { acknowledge() {}, pullState: "idle", unreadItems: pendingItems };
+  },
 }));
 mock.module("./feed-view", () => ({
   FeedView: ({
@@ -531,7 +537,7 @@ test("guest source snapshots keep their feed node through locale hydration and l
   }
 });
 
-test("a stalled peer cannot leave a moving skeleton below the released feed", async () => {
+test("a slow initial peer keeps posts hidden until the mixed batch is ready", async () => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -576,14 +582,22 @@ test("a stalled peer cannot leave a moving skeleton below the released feed", as
       )
     );
     const feed = host.querySelector("[data-loaded]");
-    expect(feed).not.toBeNull();
-    expect(feed?.dataset.sourcesPending).toBe("true");
+    expect(feed).toBeNull();
     expect(host.querySelector('[aria-label="Loading feed"]')).not.toBeNull();
     await act(async () => {
       await Bun.sleep(680);
     });
-    expect(host.querySelector("[data-loaded]")).toBe(feed);
-    expect(feed?.dataset.sourcesPending).toBe("false");
+    expect(host.querySelector("[data-loaded]")).toBeNull();
+    expect(host.querySelector('[aria-label="Loading feed"]')).not.toBeNull();
+    bootstrapPending = false;
+    await act(() =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <HomeFeed variant="latest" />
+        </QueryClientProvider>
+      )
+    );
+    expect(host.querySelector("[data-loaded]")).not.toBeNull();
     expect(host.querySelector('[aria-label="Loading feed"]')).toBeNull();
   } finally {
     await act(() => root.unmount());

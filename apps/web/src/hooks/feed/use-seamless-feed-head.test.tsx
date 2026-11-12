@@ -1,7 +1,7 @@
-import { afterAll, expect, mock, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 
 import { Window } from "happy-dom";
-import { act, useRef } from "react";
+import { act, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { useSeamlessFeedHead } from "./use-seamless-feed-head";
@@ -37,227 +37,80 @@ afterAll(async () => {
   }
 });
 
-test("a feed that mounts after loading merges buffered posts only when returning to the top", async () => {
+test("automatic head admission preserves the unread pill and waits for pagination", async () => {
   const host = dom.document.createElement("div");
   host.style.overflowY = "auto";
   dom.document.body.append(host);
   const root = createRoot(host as unknown as HTMLElement);
-  const merge = mock(() => null);
-  const probe = mock(() => Promise.resolve());
-  function Feed({ ready, count }: { ready: boolean; count: number }) {
+  let merges = 0;
+  function Feed({
+    paging = false,
+    refreshing = false,
+  }: {
+    paging?: boolean;
+    refreshing?: boolean;
+  }) {
     const ref = useRef<HTMLDivElement>(null);
-    useSeamlessFeedHead({ count, enabled: ready, merge, probe, root: ref });
-    return ready ? <div ref={ref}>Posts</div> : null;
-  }
-  await act(() => {
-    root.render(<Feed ready={false} count={0} />);
-  });
-  await act(() => {
-    root.render(<Feed ready count={2} />);
-  });
-  await act(() => {
-    host.scrollTop = 500;
-    host.dispatchEvent(new dom.Event("scroll"));
-  });
-  expect(merge).toHaveBeenCalledTimes(0);
-  await act(() => {
-    host.scrollTop = 0;
-    host.dispatchEvent(new dom.Event("scroll"));
-  });
-  expect(merge).toHaveBeenCalledTimes(1);
-  expect(probe).toHaveBeenCalledTimes(1);
-  await act(() => {
-    root.unmount();
-  });
-  host.remove();
-});
-
-test("scrolling downwards never merges buffered posts", async () => {
-  const host = dom.document.createElement("div");
-  host.style.overflowY = "auto";
-  dom.document.body.append(host);
-  const root = createRoot(host as unknown as HTMLElement);
-  const merge = mock(() => null);
-  const probe = mock(() => Promise.resolve());
-  function Feed() {
-    const ref = useRef<HTMLDivElement>(null);
-    useSeamlessFeedHead({ count: 5, enabled: true, merge, probe, root: ref });
-    return <div ref={ref}>Posts</div>;
-  }
-  await act(() => {
-    root.render(<Feed />);
-  });
-  // Scrolling down from 0 to 200 should not trigger merge
-  await act(() => {
-    host.scrollTop = 200;
-    host.dispatchEvent(new dom.Event("scroll"));
-  });
-  expect(merge).toHaveBeenCalledTimes(0);
-  await act(() => {
-    root.unmount();
-  });
-  host.remove();
-});
-
-test("a feed sitting below a composer merges buffered posts when scrolling up to the feed boundary", async () => {
-  const host = dom.document.createElement("div");
-  host.style.overflowY = "auto";
-  dom.document.body.append(host);
-  const root = createRoot(host as unknown as HTMLElement);
-  const merge = mock(() => null);
-  const probe = mock(() => Promise.resolve());
-  function FeedWithComposer() {
-    const feedRef = useRef<HTMLDivElement>(null);
-    useSeamlessFeedHead({
-      count: 3,
+    const [pending, setPending] = useState([{ id: "new" }]);
+    const notice = useSeamlessFeedHead({
+      count: pending.length,
       enabled: true,
-      merge,
-      probe,
-      root: feedRef,
+      merge: () => {
+        merges += 1;
+        setPending([]);
+      },
+      paging,
+      pendingItems: pending,
+      probe: async () => {},
+      refreshing,
+      root: ref,
     });
     return (
-      <div>
-        <div style={{ height: "200px" }}>Composer</div>
-        <div ref={feedRef}>Feed</div>
+      <div
+        ref={(node) => {
+          ref.current = node;
+          if (node) {
+            node.getBoundingClientRect = () => ({
+              bottom: 1000,
+              height: 1000,
+              left: 0,
+              right: 400,
+              toJSON() {},
+              top: -host.scrollTop,
+              width: 400,
+              x: 0,
+              y: -host.scrollTop,
+            });
+          }
+        }}
+      >
+        <output>{notice.unreadItems.length}</output>
       </div>
     );
   }
-  await act(() => {
-    root.render(<FeedWithComposer />);
-  });
-  // Mock bounding rects so feed is 200px below host container
-  const feedEl = host.querySelector("div > div:nth-child(2)") as HTMLElement;
-  if (feedEl) {
-    Object.defineProperty(host, "getBoundingClientRect", {
-      configurable: true,
-      value: () => ({
-        bottom: 600,
-        height: 600,
-        left: 0,
-        right: 800,
-        top: 0,
-        width: 800,
-      }),
-    });
-    Object.defineProperty(feedEl, "getBoundingClientRect", {
-      configurable: true,
-      value: () => ({
-        bottom: 200 - host.scrollTop + 500,
-        height: 500,
-        left: 0,
-        right: 800,
-        top: 200 - host.scrollTop,
-        width: 800,
-      }),
-    });
-  }
-  // User scrolls down into the feed
-  await act(() => {
-    host.scrollTop = 800;
-    host.dispatchEvent(new dom.Event("scroll"));
-  });
-  expect(merge).toHaveBeenCalledTimes(0);
-  // User scrolls back up to the feed boundary (200px)
-  await act(() => {
-    host.scrollTop = 200;
-    host.dispatchEvent(new dom.Event("scroll"));
-  });
-  expect(merge).toHaveBeenCalledTimes(1);
-  await act(() => {
-    root.unmount();
-  });
-  host.remove();
-});
-
-test.each([false, true])(
-  "a late head response merges only while still at the head (leave=%s)",
-  async (leave) => {
-    const host = dom.document.createElement("div");
-    host.style.overflowY = "auto";
-    dom.document.body.append(host);
-    const root = createRoot(host as unknown as HTMLElement);
-    const merge = mock(() => null);
-    const probe = mock(() => Promise.resolve());
-    const originalNow = Date.now;
-    let now = originalNow();
-    Date.now = () => now;
-    function Feed({ count }: { count: number }) {
-      const ref = useRef<HTMLDivElement>(null);
-      useSeamlessFeedHead({ count, enabled: true, merge, probe, root: ref });
-      return <div ref={ref}>Posts</div>;
-    }
-    try {
-      await act(() => root.render(<Feed count={0} />));
-      const feed = host.firstElementChild;
-      if (!feed) {
-        throw new Error("Missing feed");
-      }
-      Object.defineProperty(feed, "getBoundingClientRect", {
-        value: () => ({ top: -host.scrollTop }),
-      });
-      await act(() =>
-        host.dispatchEvent(new dom.WheelEvent("wheel", { deltaY: -100 }))
-      );
-      expect(probe).toHaveBeenCalledTimes(1);
-      now += 15_000;
-      if (leave) {
-        await act(() => {
-          host.scrollTop = 500;
-          host.dispatchEvent(new dom.Event("scroll"));
-        });
-      }
-      await act(() => root.render(<Feed count={1} />));
-      expect(merge).toHaveBeenCalledTimes(leave ? 0 : 1);
-      if (!leave) {
-        await act(() => root.render(<Feed count={0} />));
-        await act(() => root.render(<Feed count={2} />));
-        expect(merge).toHaveBeenCalledTimes(2);
-      }
-    } finally {
-      Date.now = originalNow;
-      await act(() => root.unmount());
-      host.remove();
-    }
-  }
-);
-
-test("a layout shift above the head cannot reveal a late response below the current head", async () => {
-  const host = dom.document.createElement("div");
-  host.style.overflowY = "auto";
-  dom.document.body.append(host);
-  const root = createRoot(host as unknown as HTMLElement);
-  const merge = mock(() => null);
-  const probe = mock(() => Promise.resolve());
-  let offset = 200;
-  function Feed({ count }: { count: number }) {
-    const ref = useRef<HTMLDivElement>(null);
-    useSeamlessFeedHead({ count, enabled: true, merge, probe, root: ref });
-    return <div ref={ref}>Posts</div>;
-  }
   try {
-    await act(() => root.render(<Feed count={0} />));
-    const feed = host.firstElementChild;
-    if (!feed) {
-      throw new Error("Missing feed");
-    }
-    Object.defineProperty(feed, "getBoundingClientRect", {
-      value: () => ({ top: offset - host.scrollTop }),
-    });
-    host.scrollTop = 200;
-    await act(() => host.dispatchEvent(new dom.Event("scroll")));
-    await act(() =>
-      host.dispatchEvent(new dom.WheelEvent("wheel", { deltaY: -100 }))
-    );
-    expect(probe).toHaveBeenCalledTimes(1);
-    // The composer collapses without the reader scrolling or a scroll event.
-    offset = 0;
-    await act(() => root.render(<Feed count={1} />));
-    expect(merge).not.toHaveBeenCalled();
-    await act(() => {
-      host.scrollTop = 0;
+    await act(() => root.render(<Feed paging />));
+    await act(async () => {
+      host.scrollTop = 500;
       host.dispatchEvent(new dom.Event("scroll"));
+      await Bun.sleep(40);
     });
-    expect(merge).toHaveBeenCalledTimes(1);
+    expect(merges).toBe(0);
+    await act(async () => {
+      root.render(<Feed refreshing />);
+      await Bun.sleep(40);
+    });
+    expect(merges).toBe(0);
+    await act(async () => {
+      root.render(<Feed />);
+      await Bun.sleep(40);
+    });
+    await act(async () => {
+      await Bun.sleep(40);
+    });
+    expect(merges).toBe(1);
+    expect(host.querySelector("output")?.textContent).toBe("1");
+    expect(host.scrollTop).toBe(500);
   } finally {
     await act(() => root.unmount());
     host.remove();

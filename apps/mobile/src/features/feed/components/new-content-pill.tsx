@@ -1,6 +1,10 @@
 // New-content pill: floats over the feed when the head probe finds posts
 // newer than the list (web NewContentPill). Overlapping avatar stack (first
 // three), "{count} new post(s)", ArrowUp. Tapping reveals them at the top.
+// The surface is web's `.rail-3d-btn` dark glass in both themes: a smoky
+// fill, white ink, the bright inner lip and the dark outer ring. Native has no
+// backdrop blur here, so the fill carries the glass alone; pressing shows
+// web's `:hover` recipe.
 import { Image } from "expo-image";
 import { ArrowUp } from "lucide-react-native";
 import { useState } from "react";
@@ -8,14 +12,22 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { StyleProp, ViewStyle } from "react-native";
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
+import { RAIL_BUTTON } from "@/components/surface/recipes";
 import { getApiBaseUrl } from "@/lib/network/api-env";
-import { SURFACE_SHADOWS, SURFACE_SHADOWS_DARK, useAppTheme } from "@/theme";
+import { useAppTheme } from "@/theme";
 
 import {
   bskyAvatarForSize,
   resolveAvatarWithFallback,
 } from "../../home/components/profile-utils";
 import { newContentLabel } from "../lib/new-content-label";
+
+const RAIL_PRESSED = {
+  background: "rgba(40, 44, 54, 0.6)",
+  color: "#ffffff",
+  shadows:
+    "inset 0 0 0 1px rgba(255, 255, 255, 0.35), inset 0 1.5px 2px rgba(255, 255, 255, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 10px rgba(0, 0, 0, 0.3)",
+} as const;
 
 export interface PillAuthor {
   avatarUrl?: string | null;
@@ -60,7 +72,7 @@ function PillAvatar({
       source={failed ? avatarPlaceholder : { uri }}
       style={[
         styles.stackAvatar,
-        { borderColor: theme.cardBg },
+        { borderColor: theme.backgroundAlt },
         index === 0 && styles.stackFirst,
       ]}
     />
@@ -74,7 +86,6 @@ export function NewContentPill({
   onPress,
   style,
 }: NewContentPillProps) {
-  const { isDark, theme } = useAppTheme();
   if (count <= 0) {
     return null;
   }
@@ -90,34 +101,35 @@ export function NewContentPill({
         accessibilityRole="button"
         onPress={onPress}
       >
-        {({ pressed }) => (
-          <View
-            style={[
-              styles.pill,
-              {
-                backgroundColor: theme.cardBg,
-                borderColor: theme.cardBorder,
-                boxShadow: isDark ? SURFACE_SHADOWS_DARK : SURFACE_SHADOWS,
-              },
-              pressed && styles.pressed,
-            ]}
-          >
-            <View style={styles.stack}>
-              {authors.slice(0, 3).map((author, index) => (
-                <PillAvatar
-                  apiBase={apiBase}
-                  author={author}
-                  index={index}
-                  key={author.id}
-                />
-              ))}
+        {({ pressed }) => {
+          const recipe = pressed ? RAIL_PRESSED : RAIL_BUTTON;
+          return (
+            <View
+              style={[
+                styles.pill,
+                {
+                  backgroundColor: recipe.background,
+                  boxShadow: recipe.shadows,
+                },
+              ]}
+            >
+              <View style={styles.stack}>
+                {authors.slice(0, 3).map((author, index) => (
+                  <PillAvatar
+                    apiBase={apiBase}
+                    author={author}
+                    index={index}
+                    key={author.id}
+                  />
+                ))}
+              </View>
+              <Text style={[styles.label, { color: recipe.color }]}>
+                {label}
+              </Text>
+              <ArrowUp color={recipe.color} size={16} />
             </View>
-            <Text style={[styles.label, { color: theme.inputText }]}>
-              {label}
-            </Text>
-            <ArrowUp color={theme.inputText} size={16} />
-          </View>
-        )}
+          );
+        }}
       </Pressable>
     </View>
   );
@@ -143,15 +155,12 @@ const styles = StyleSheet.create({
   },
   pill: {
     alignItems: "center",
+    borderCurve: "continuous",
     borderRadius: 9999,
-    borderWidth: 1,
     flexDirection: "row",
     gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
-  },
-  pressed: {
-    opacity: 0.85,
   },
   stack: {
     flexDirection: "row",

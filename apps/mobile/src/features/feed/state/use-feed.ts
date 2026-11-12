@@ -208,10 +208,9 @@ export function useFeedTab({
           const unseen = isRankedFeed(variant)
             ? findUnseenRankedItems(fresh, currentKnown)
             : findUnseenItems(fresh, currentKnown);
-          // Held, not merged: prepending here would shift the visible rows
-          // (Android has no maintainVisibleContentPosition), jumping the
-          // content under the reader's finger. The pill offers them and
-          // showNewPosts merges on reveal, like web's head probe.
+          // Buffer the head until the list admits it. FlashList preserves the
+          // visible card when the reader is away from the top; at the top,
+          // the pill lets them choose when to reveal new posts.
           if (!cancelled && unseen.length > 0) {
             setNewItems((pending) => flattenUniquePosts([unseen, pending]));
           }

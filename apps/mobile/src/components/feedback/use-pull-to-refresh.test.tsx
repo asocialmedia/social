@@ -1,10 +1,10 @@
 import { afterAll, expect, mock, test } from "bun:test";
 
 import { Window } from "happy-dom";
-import { act, useEffect } from "react";
+import { act } from "react";
 import { createRoot } from "react-dom/client";
 
-import { PULL_THRESHOLD } from "./android-pull";
+const PULL_THRESHOLD = 90;
 
 interface Touch {
   absoluteX: number;
@@ -24,6 +24,20 @@ class MockGesture {
   move?: (event: TouchEvent, manager: Manager) => void;
   update?: (event: { translationY: number }) => void;
   finalize?: (event: unknown, success: boolean) => void;
+  activeOffsetY() {
+    return this;
+  }
+  failOffsetX() {
+    return this;
+  }
+  maxPointers() {
+    return this;
+  }
+  onBegin(handler: () => void) {
+    this.begin = handler;
+    return this;
+  }
+  begin?: () => void;
   enabled() {
     return this;
   }
@@ -75,9 +89,6 @@ function AnimatedValue(initial: number) {
     },
   };
 }
-function touch(y: number): TouchEvent {
-  return { allTouches: [{ absoluteX: 20, absoluteY: y }], numberOfTouches: 1 };
-}
 const animate = () => ({ start() {} });
 mock.module("react-native", () => ({
   Animated: { Value: AnimatedValue, spring: animate, timing: animate },
@@ -115,78 +126,41 @@ afterAll(async () => {
   }
 });
 
-test("restored offsets reject refresh, top crossings retain the recognizer, and cancellation never refreshes", async () => {
+test("refresh counts only the extra pull after reaching the top and ignores cancelled gestures", async () => {
   const refresh = mock(() => {});
   let offset = 1400;
-  const scrollOffset = { get: () => offset };
-  let pull: ReturnType<typeof usePullToRefresh> | undefined;
   function Probe() {
-    const result = usePullToRefresh({
+    usePullToRefresh({
       failed: false,
       onRefresh: refresh,
       refreshing: false,
-      scrollOffset,
+      scrollOffset: { get: () => offset },
     });
-    useEffect(() => {
-      pull = result;
-    }, [result]);
     return null;
   }
   const root = createRoot(document.createElement("div"));
-  const manager = { activate: mock(() => {}), fail: mock(() => {}) };
   try {
     await act(() => root.render(<Probe />));
     const gesture = pans.at(-1);
-    expect(gesture).toBeDefined();
-    gesture?.down?.(touch(0), manager);
-    expect(manager.fail).toHaveBeenCalledTimes(1);
+    gesture?.begin?.();
+    gesture?.update?.({ translationY: 200 });
+    gesture?.finalize?.({}, true);
+    expect(refresh).not.toHaveBeenCalled();
+    gesture?.begin?.();
     offset = 0;
-    gesture?.move?.(touch(200), manager);
-    expect(manager.activate).not.toHaveBeenCalled();
-    gesture?.finalize?.({}, false);
+    gesture?.update?.({ translationY: 300 });
+    gesture?.finalize?.({}, true);
     expect(refresh).not.toHaveBeenCalled();
-
-    await act(() => {
-      pull?.onScrollOffset(500);
-      root.render(<Probe />);
-    });
-    expect(pans.at(-1)).toBe(gesture);
-    await act(() => {
-      pull?.onScrollOffset(0);
-      root.render(<Probe />);
-    });
-    expect(pans.at(-1)).toBe(gesture);
-    gesture?.down?.(touch(0), manager);
-    gesture?.move?.(touch(20), manager);
-    expect(manager.activate).toHaveBeenCalledTimes(1);
+    gesture?.begin?.();
     gesture?.update?.({ translationY: 20 });
     gesture?.update?.({ translationY: 220 });
-    pull?.onScrollEndDrag();
     gesture?.finalize?.({}, false);
     expect(refresh).not.toHaveBeenCalled();
-
-    gesture?.down?.(touch(0), manager);
-    gesture?.move?.(touch(20), manager);
+    gesture?.begin?.();
     gesture?.update?.({ translationY: 20 });
     gesture?.update?.({ translationY: 220 });
-    pull?.onScrollEndDrag();
     gesture?.finalize?.({}, true);
     expect(refresh).toHaveBeenCalledTimes(1);
-    // A new touch below verifies threshold boundaries using the production constant.
-    for (const distance of [80, PULL_THRESHOLD, PULL_THRESHOLD + 1]) {
-      gesture?.down?.(touch(0), manager);
-      gesture?.move?.(touch(20), manager);
-      gesture?.update?.({ translationY: 20 });
-      gesture?.update?.({ translationY: 20 + distance / 0.55 });
-      const failedBeforeDrift = manager.fail.mock.calls.length;
-      gesture?.move?.(
-        { allTouches: [{ absoluteX: 90, absoluteY: 220 }], numberOfTouches: 1 },
-        manager
-      );
-      expect(manager.fail.mock.calls.length).toBe(failedBeforeDrift);
-      gesture?.finalize?.({}, true);
-    }
-    expect(refresh).toHaveBeenCalledTimes(2);
   } finally {
     await act(() => root.unmount());
   }

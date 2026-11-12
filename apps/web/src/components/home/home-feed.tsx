@@ -17,16 +17,16 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import Image from "next/image";
-import { useCallback, useDeferredValue, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { FeedErrorState } from "@/components/feeds/feed-error-state";
+import { FeedPullStatus } from "@/components/feeds/feed-pull-status";
 import { NewContentPill } from "@/components/feeds/new-content-pill";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
-import { useBoundedSourcePending } from "@/hooks/feed/use-bounded-source-pending";
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
 import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
 import { useFeedRecovery } from "@/hooks/feed/use-feed-recovery";
@@ -49,6 +49,8 @@ import {
   networkPostRecommended,
   networkPostAllowed,
 } from "@/lib/posts/network-content-policy";
+import type { PresentedPost } from "@/lib/posts/presentation";
+import { externalPostView } from "@/lib/posts/presentation";
 import { readFeedPage } from "@/lib/posts/read-feed-page";
 import { isTrendingPost } from "@/lib/posts/trending-eligibility";
 import {
@@ -471,10 +473,6 @@ export default function HomeFeed({
     }
   }, [clearNewItems, newPosts, queryClient, queryKey, external, source]);
 
-  const showNewPosts = useCallback(() => {
-    revealFeedHead(feedRootRef.current, revealNewPosts);
-  }, [revealNewPosts]);
-
   // A community segment that is still loading leads the render; a failed
   // community fetch degrades to the global feed rather than blanking the page,
   // and a failed global fetch never hides a community segment that loaded.
@@ -523,20 +521,9 @@ export default function HomeFeed({
     showCommunitySection ||
     (source !== "bluesky" && visibleGlobalPosts.length > 0) ||
     (allowExternal && source !== "asm" && externalPosts.length > 0);
-  const sourcesStagingPending = useBoundedSourcePending(
-    source === "all" &&
-      hasAnyPosts &&
-      initialSourceLoading &&
-      !hasGuestBootstrap
-  );
-  // Enter staging immediately, then release the larger batch in a background render.
-  const deferredSourceStaging = useDeferredValue(sourcesStagingPending);
-  const holdSourceStaging = sourcesStagingPending || deferredSourceStaging;
-  // Release the cards and their trailing placeholder together when a peer stalls.
-  const showInitialSourceSkeleton =
-    initialSourceLoading &&
-    !hasGuestBootstrap &&
-    (source !== "all" || !hasAnyPosts || sourcesStagingPending);
+  // Keep the initial batch behind the skeleton until both networks settle.
+  const holdSourceStaging = initialSourceLoading && !hasGuestBootstrap;
+  const showInitialSourceSkeleton = holdSourceStaging;
   const sourceFailed =
     (source !== "bluesky" && (communityFailed || globalStatus === "error")) ||
     (allowExternal && includeBluesky && external.isError);
@@ -550,19 +537,35 @@ export default function HomeFeed({
     nativeError: communityFailed || globalStatus === "error",
     nativeLoading: communityPending || globalStatus === "pending",
   });
-  useSeamlessFeedHead({
+  const headNotice = useSeamlessFeedHead<PresentedPost>({
     count:
       (source === "bluesky" ? 0 : newPosts.length) +
       (source === "asm" ? 0 : external.newItems.length),
     enabled: network.ready && !excludePostId && !communitySlug,
     merge: revealNewPosts,
+    paging: isFetchingNextGlobalPage || external.isFetchingNextPage,
+    pendingItems: [
+      ...(source === "bluesky" ? [] : newPosts),
+      ...(source === "asm" ? [] : external.newItems.map(externalPostView)),
+    ],
     probe: () =>
       Promise.all([
         source === "bluesky" ? Promise.resolve() : probeNow(),
         source === "asm" ? Promise.resolve() : external.probeNow(),
       ]),
+    refreshing:
+      (isFetching && !isFetchingNextGlobalPage) ||
+      (external.isFetching && !external.isFetchingNextPage),
     root: feedRootRef,
+    scope: `${hashKey(queryKey)}:${source}`,
   });
+
+  const showNewPosts = useCallback(() => {
+    revealFeedHead(feedRootRef.current, () => {
+      headNotice.acknowledge();
+      revealNewPosts();
+    });
+  }, [revealNewPosts, headNotice]);
 
   const manualContinuation =
     hasNextPage &&
@@ -702,46 +705,16 @@ export default function HomeFeed({
 
   return (
     <div className="relative" ref={feedRootRef}>
-      {!excludePostId &&
-      !communitySlug &&
-      ((source !== "bluesky" && newPosts.length > 0) ||
-        (source !== "asm" && external.newItems.length > 0)) ? (
+      <FeedPullStatus state={headNotice.pullState} />
+      {!excludePostId && !communitySlug && headNotice.unreadItems.length > 0 ? (
         <div className="pointer-events-none sticky top-3 z-20 -mb-10 flex justify-center">
           <NewContentPill
-            authors={[
-              ...new Map([
-                ...(source === "bluesky"
-                  ? []
-                  : newPosts.map(
-                      (post) =>
-                        [
-                          post.userId,
-                          {
-                            avatarUrl: post.user?.avatarUrl,
-                            id: post.userId,
-                            username: post.user?.username,
-                          },
-                        ] as const
-                    )),
-                ...(source === "asm"
-                  ? []
-                  : external.newItems.map(
-                      (post) =>
-                        [
-                          post.author.id,
-                          {
-                            avatarUrl: post.author.avatarUrl ?? null,
-                            id: post.author.id,
-                            username: post.author.handle,
-                          },
-                        ] as const
-                    )),
-              ]).values(),
-            ]}
-            count={
-              (source === "bluesky" ? 0 : newPosts.length) +
-              (source === "asm" ? 0 : external.newItems.length)
-            }
+            authors={headNotice.unreadItems.map((post) => ({
+              avatarUrl: post.user?.avatarUrl,
+              id: post.userId,
+              username: post.user?.username,
+            }))}
+            count={headNotice.unreadItems.length}
             noun="post"
             onClick={showNewPosts}
           />
@@ -761,7 +734,7 @@ export default function HomeFeed({
       >
         {/* Community segment leads. `showCommunity={false}` because every post
             here already belongs to the community being read. */}
-        {showCommunitySection ? (
+        {showCommunitySection && !holdSourceStaging ? (
           <FeedView
             key={hashKey(communityQueryKey)}
             cacheKey={communityQueryKey}
@@ -773,12 +746,14 @@ export default function HomeFeed({
         ) : null}
         {/* The hand-off between the community and the platform. Only rendered
             when both segments actually have posts on screen. */}
-        {showCommunitySection && visibleGlobalPosts.length > 0 ? (
+        {showCommunitySection &&
+        !holdSourceStaging &&
+        visibleGlobalPosts.length > 0 ? (
           <h3 className="text-muted-foreground border-border/60 border-t px-4 pt-4 pb-2 text-xs font-semibold tracking-wide uppercase">
             More from asocialmedia
           </h3>
         ) : null}
-        {hasAnyPosts ? (
+        {hasAnyPosts && !holdSourceStaging ? (
           <FeedView
             key={
               hasGuestBootstrap
