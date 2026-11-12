@@ -343,6 +343,7 @@ export function HashtagFeed({ tag }: { tag: string }) {
     <FeedMediaScope.Provider value={mediaScope}>
       <View style={styles.root}>
         <FlatList
+          showsHorizontalScrollIndicator={false}
           {...LIST_VIRTUALIZATION_PROPS}
           contentContainerStyle={styles.content}
           data={visibleRows}

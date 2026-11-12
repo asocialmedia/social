@@ -230,6 +230,8 @@ export function CommunityPrivateLanding({
 
   return (
     <ScrollView
+      showsVerticalScrollIndicator={false}
+      showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ paddingBottom: bottomPadding }}
       style={styles.root}
     >

@@ -868,7 +868,11 @@ const ExploreTabContent = memo(
     const renderScrollComponent = useCallback(
       (props: ScrollViewProps & { ref?: Ref<ScrollViewInstance> }) => (
         <GestureDetector gesture={nativeScrollGesture}>
-          <ScrollView {...props} />
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            showsHorizontalScrollIndicator={false}
+            {...props}
+          />
         </GestureDetector>
       ),
       [nativeScrollGesture]
@@ -1222,6 +1226,7 @@ const ExploreTabContent = memo(
               ]}
             >
               <AnimatedExploreList
+                showsHorizontalScrollIndicator={false}
                 key={cacheKey}
                 ref={scrollViewRef}
                 renderScrollComponent={renderScrollComponent}

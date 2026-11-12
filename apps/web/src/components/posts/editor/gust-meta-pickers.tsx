@@ -7,7 +7,7 @@ import { Hash, Plus, Search, X } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { useTags } from "@/hooks/posts/use-tags";
 import { useToast } from "@/lib/gooey-toast";
@@ -258,12 +258,7 @@ export function GustMentionPicker({
             placeholder="Search people to mention…"
             value={search}
           />
-          {isLoading ? (
-            <ZephLoader
-              variant="search"
-              className="text-muted-foreground h-4 w-4"
-            />
-          ) : null}
+          {isLoading ? <Spinner3D className="size-4" /> : null}
         </div>
         {search ? (
           <Command.List className="max-h-45 overflow-y-auto p-1.5">

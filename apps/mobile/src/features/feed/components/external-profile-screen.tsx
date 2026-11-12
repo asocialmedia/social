@@ -60,6 +60,7 @@ function authorProfile(
     communityMemberships: [],
     createdAt: "",
     customDomain: null,
+    customUrls: [],
     displayName: author.displayName,
     followers: [],
     githubUsername: null,
@@ -123,6 +124,8 @@ function ExternalProfileContent({ actor }: { actor: string }) {
   return (
     <View style={{ backgroundColor: theme.containerBg, flex: 1 }}>
       <FlatList
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         data={posts}
         keyExtractor={(post) => post.id}
         contentInsetAdjustmentBehavior="automatic"

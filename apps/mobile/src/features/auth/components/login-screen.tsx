@@ -382,6 +382,7 @@ export default function LoginScreen() {
           style={styles.keyboardAvoid}
         >
           <ScrollView
+            showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}

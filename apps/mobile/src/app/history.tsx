@@ -126,6 +126,8 @@ export default function HistoryRoute() {
         ) : null}
       </View>
       <FlatList
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         data={posts}
         keyExtractor={(post) => post.id}
         contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}

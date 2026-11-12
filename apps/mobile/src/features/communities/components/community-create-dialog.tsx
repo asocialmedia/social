@@ -340,6 +340,7 @@ export function CommunityCreateDialog({
               />
             </View>
             <ScrollView
+              showsHorizontalScrollIndicator={false}
               ref={scrollRef}
               style={styles.scroll}
               keyboardShouldPersistTaps="handled"

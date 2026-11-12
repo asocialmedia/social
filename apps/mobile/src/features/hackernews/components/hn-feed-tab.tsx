@@ -156,7 +156,11 @@ export const HnFeedTab = memo(
     const renderScrollComponent = useCallback(
       (props: ScrollViewProps & { ref?: Ref<ScrollViewInstance> }) => (
         <GestureDetector gesture={nativeScrollGesture}>
-          <ScrollView {...props} />
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            showsHorizontalScrollIndicator={false}
+            {...props}
+          />
         </GestureDetector>
       ),
       [nativeScrollGesture]
@@ -356,6 +360,7 @@ export const HnFeedTab = memo(
             ]}
           >
             <AnimatedHnList
+              showsHorizontalScrollIndicator={false}
               renderScrollComponent={renderScrollComponent}
               contentContainerStyle={{
                 flexGrow: 1,

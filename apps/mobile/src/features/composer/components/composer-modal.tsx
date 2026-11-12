@@ -73,6 +73,7 @@ export function ComposerModal() {
             ]}
           >
             <ScrollView
+              showsHorizontalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
             >

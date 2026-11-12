@@ -610,6 +610,7 @@ export function SpotlightModal() {
       </View>
 
       <ScrollView
+        showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}

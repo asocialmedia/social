@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
-import { ZephLoader } from "@/components/feedback/zeph-loader";
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { themeText } from "@/components/surface/recipes";
 import { apiJson } from "@/features/media-upload/lib/upload-api";
 import { useAppTheme } from "@/theme";
@@ -122,7 +122,7 @@ export function InlineSuggestions({
   if (loading && items.length === 0) {
     body = (
       <View style={styles.loading}>
-        <ZephLoader variant="search" color={text.muted} size={14} />
+        <Spinner3D size={16} />
         <Text style={[styles.muted, { color: text.muted }]}>Searching...</Text>
       </View>
     );

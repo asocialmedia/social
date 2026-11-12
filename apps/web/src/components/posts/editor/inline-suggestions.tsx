@@ -4,7 +4,7 @@ import type { UserData } from "@asm/db";
 import type { Editor } from "@tiptap/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 
 import { collectInlineRelations, mergeUniqueIds } from "./inline-nodes";
@@ -542,10 +542,7 @@ export const InlineSuggestions = ({
     if (loading && items.length === 0) {
       return (
         <div className="flex items-center justify-center gap-2 p-3">
-          <ZephLoader
-            variant="search"
-            className="text-muted-foreground size-4"
-          />
+          <Spinner3D className="size-4" />
           <span className="text-muted-foreground text-sm">Searching...</span>
         </div>
       );

@@ -95,6 +95,7 @@ export function ExploreCommunities({
         COMMUNITIES
       </Text>
       <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.row}
         horizontal
         keyboardShouldPersistTaps="handled"

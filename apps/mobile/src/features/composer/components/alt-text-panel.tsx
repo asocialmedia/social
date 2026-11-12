@@ -9,8 +9,8 @@ import { useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import zephImage from "@/assets/images/zeph.png";
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { toast } from "@/components/feedback/toast";
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import {
   ORANGE_GRADIENT,
@@ -112,7 +112,7 @@ export function AltTextPanel({
           ]}
         >
           {analyzing ? (
-            <ZephLoader variant="media" color="#fb923c" size={14} />
+            <Spinner3D size={14} />
           ) : (
             <Image
               accessibilityLabel=""

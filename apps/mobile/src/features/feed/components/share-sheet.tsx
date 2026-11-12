@@ -458,6 +458,8 @@ function ShareDialog({
                 placeholder="Search conversations…"
               />
               <ScrollView
+                showsVerticalScrollIndicator={false}
+                showsHorizontalScrollIndicator={false}
                 style={{ maxHeight: 240 }}
                 keyboardShouldPersistTaps="handled"
               >

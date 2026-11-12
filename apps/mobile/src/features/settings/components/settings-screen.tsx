@@ -233,6 +233,7 @@ export function SettingsScreen() {
           />
         ) : (
           <ScrollView
+            showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.securitySkeleton}
             showsVerticalScrollIndicator={false}
           >

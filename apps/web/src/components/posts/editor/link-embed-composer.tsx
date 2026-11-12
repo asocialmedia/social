@@ -4,7 +4,7 @@ import { useQueries } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import { EmbedSiteBadge } from "@/components/posts/embeds/embed-utils";
 import useDebounce from "@/hooks/use-debounce";
 import { linkPreviewQueryOptions } from "@/lib/link-embeds/preview-query";
@@ -79,12 +79,7 @@ export default function LinkEmbedComposer({
                     {embed?.siteName ??
                       (isLoading ? "Resolving link…" : "Link")}
                   </span>
-                  {isLoading ? (
-                    <ZephLoader
-                      variant="general"
-                      className="text-muted-foreground size-3"
-                    />
-                  ) : null}
+                  {isLoading ? <Spinner3D className="size-3" /> : null}
                 </div>
                 <button
                   aria-label={`Dismiss preview for ${url}`}

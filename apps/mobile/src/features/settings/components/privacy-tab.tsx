@@ -14,7 +14,6 @@ import { useCallback, useEffect, useState } from "react";
 import type { RefObject } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import type { ScrollViewInstance as ScrollViewType } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { toast } from "@/components/feedback/toast";
 import { authClient } from "@/features/auth/lib/auth-client";
@@ -70,7 +69,6 @@ export function PrivacyTab({
   scrollRef?: RefObject<ScrollViewType | null>;
 }) {
   const { theme } = useAppTheme();
-  const insets = useSafeAreaInsets();
   const { runWithInstallToken } = useInstall();
   const [selected, setSelected] = useState<GroupAddPolicy>("FOLLOWING_ONLY");
   const [loaded, setLoaded] = useState(false);
@@ -141,10 +139,8 @@ export function PrivacyTab({
 
   return (
     <ScrollView
-      contentContainerStyle={[
-        styles.content,
-        { paddingBottom: 96 + insets.bottom },
-      ]}
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.content}
       ref={scrollRef}
       showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
     >
@@ -201,7 +197,7 @@ export function PrivacyTab({
 }
 
 const styles = StyleSheet.create({
-  content: { flexGrow: 1, gap: 14, padding: 16 },
+  content: { flexGrow: 1, gap: 14, padding: 16, paddingBottom: 0 },
   marker: {
     borderCurve: "continuous",
     borderRadius: 999,
