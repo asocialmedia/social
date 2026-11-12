@@ -1,4 +1,5 @@
 "use client";
+
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { externalReplyTarget } from "@asm/protocols/discovery";
 import {
@@ -13,9 +14,11 @@ import { FEED_POST_ACTION } from "@/components/home/feedview/feed-post-surface";
 import ShareButton from "@/components/home/feedview/share-button";
 import AuraVoteButton from "@/components/posts/actions/aura-vote-button";
 import BookmarkButton from "@/components/posts/actions/bookmark-button";
+import { PostAuthorFollow } from "@/components/posts/actions/post-author-follow";
 import { RespondAction } from "@/components/posts/actions/respond-action";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { getPostUrl } from "@/lib/posts/post-url";
+import { externalPostView } from "@/lib/posts/presentation";
 import { useComposerStore } from "@/store/composer-store";
 
 import { BlueskyIcon } from "./bluesky-icon";
@@ -156,6 +159,7 @@ export function ExternalPostMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="rounded-2xl! p-2">
+        <PostAuthorFollow post={externalPostView(post)} menu />
         <DropdownMenuItem
           className="pill-3d-hover gap-3 rounded-lg px-2 py-2"
           onSelect={() => {

@@ -1,3 +1,5 @@
+"use client";
+
 import type { UserData } from "@asm/db";
 import {
   DropdownMenu,
@@ -34,6 +36,7 @@ import { useHideRecommendationPostMutation } from "@/recommendations/mutations";
 import { useComposerStore } from "@/store/composer-store";
 
 import DeletePostDialog from "./delete-post-dialog";
+import { PostAuthorFollow } from "./post-author-follow";
 import PostModerationDialog from "./post-moderation-dialog";
 
 interface PostMoreButtonProps {
@@ -214,6 +217,7 @@ function NativePostMoreButton({
             the primitive's `panel-3d` surface; dropping it lets the shared
             3D recipe - and its now-rounded corners - apply. */}
         <DropdownMenuContent align="end" className="rounded-2xl! p-2">
+          <PostAuthorFollow post={post} menu />
           {extraItems}
           {user && post.community && !post.moderated ? (
             <DropdownMenuItem

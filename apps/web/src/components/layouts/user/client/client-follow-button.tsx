@@ -3,7 +3,9 @@
 import { debugLog } from "@asm/config/debug";
 import type { FollowerInfo } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
-import { useQueryClient } from "@tanstack/react-query";
+import { DropdownMenuItem } from "@asm/ui/shadui/dropdown-menu";
+import { useIsMutating, useQueryClient } from "@tanstack/react-query";
+import { UserPlus, UserRoundMinus } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
@@ -18,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { useFollowStateStore } from "./follow-state";
 
 interface ClientFollowButtonProps {
+  menu?: boolean;
   className?: string;
   initialState: {
     followers: number;
@@ -178,8 +181,14 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
   initialState,
   className,
   onFollowed,
+  menu = false,
 }) => {
   const { isLoggedIn, goToLogin } = useRequireAuth();
+  const sharedPending =
+    useIsMutating({
+      mutationKey: ["author-follow"],
+      predicate: (mutation) => mutation.state.variables === userId,
+    }) > 0;
   const [localState, updateState] = useFollowState(userId, initialState);
   const { handleFollow, handleUnfollow, isLoading } = useFollowMutations(
     userId,
@@ -189,6 +198,9 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
     useOptimisticUpdate(localState, updateState);
 
   const handleFollowToggle = async () => {
+    if (sharedPending) {
+      return;
+    }
     if (!isLoggedIn) {
       goToLogin();
       return;
@@ -215,6 +227,22 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
 
   const isFollowing = localState.isFollowedByUser;
 
+  if (menu) {
+    const Icon = isFollowing ? UserRoundMinus : UserPlus;
+    return (
+      <DropdownMenuItem
+        className="pill-3d-hover gap-3 rounded-lg px-2 py-2"
+        disabled={isLoading || sharedPending}
+        onSelect={() => {
+          void handleFollowToggle();
+        }}
+      >
+        <Icon className="size-4" />
+        {isFollowing ? "Unfollow" : "Follow"}
+      </DropdownMenuItem>
+    );
+  }
+
   return (
     <motion.div
       className="inline-flex shrink-0"
@@ -228,7 +256,7 @@ const ClientFollowButton: React.FC<ClientFollowButtonProps> = ({
           "relative overflow-hidden transition-all duration-300",
           isLoading && "cursor-not-allowed"
         )}
-        disabled={isLoading}
+        disabled={isLoading || sharedPending}
         onClick={handleFollowToggle}
         size="sm"
         variant={isFollowing ? "premium-neutral" : "premium"}

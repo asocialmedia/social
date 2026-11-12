@@ -563,12 +563,14 @@ export function PostDetailScreen({
       style={[styles.root, { backgroundColor: theme.containerBg }]}
     >
       <PostDetailHeader
+        post={post}
         bannerUrl={headerImage}
         onBack={handleGoBack}
         subtitle={headerTitles.subtitle}
         title={headerTitles.title}
       />
       <ScrollView
+        showsHorizontalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         onScrollEndDrag={(event) =>
@@ -801,7 +803,7 @@ const styles = StyleSheet.create({
     fontWeight: "normal",
   },
   related: {
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   retry: {
     alignItems: "center",

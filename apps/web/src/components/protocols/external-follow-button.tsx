@@ -1,7 +1,14 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { DropdownMenuItem } from "@asm/ui/shadui/dropdown-menu";
+import {
+  useIsMutating,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { UserPlus, UserRoundMinus } from "lucide-react";
 import { z } from "zod";
 
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
@@ -16,16 +23,22 @@ export function ExternalFollowButton({
   initialFollowing,
   onFollowed,
   showForGuest = false,
+  menu = false,
 }: {
   did: string;
   className?: string;
   initialFollowing?: boolean;
   onFollowed?: () => void;
   showForGuest?: boolean;
+  menu?: boolean;
 }) {
   const auth = useRequireAuth();
   const client = useQueryClient();
   const { toast } = useToast();
+  const sharedPending =
+    useIsMutating({
+      mutationKey: ["external-follow-write", auth.user?.id ?? "guest", did],
+    }) > 0;
   const queryKey = ["external-follow", auth.user?.id ?? "guest", did];
   // Only reaches the query once the component has decided to render, which it
   // does only for a signed-in reader; `isLoggedIn` is therefore true here.
@@ -76,6 +89,7 @@ export function ExternalFollowButton({
       }
       return followState.parse(await response.json());
     },
+    mutationKey: ["external-follow-write", auth.user?.id ?? "guest", did],
     onError: (error, active, context) => {
       client.setQueryData(
         queryKey,
@@ -116,6 +130,17 @@ export function ExternalFollowButton({
   // greyed button on a stranger's profile is a dead end, while no button is just
   // a page you are reading.
   if (!auth.isLoggedIn) {
+    if (menu && showForGuest) {
+      return (
+        <DropdownMenuItem
+          className="pill-3d-hover gap-3 rounded-lg px-2 py-2"
+          onSelect={() => auth.goToLogin()}
+        >
+          <UserPlus className="size-4" />
+          Follow
+        </DropdownMenuItem>
+      );
+    }
     return showForGuest ? (
       <Button
         className={className}
@@ -130,13 +155,32 @@ export function ExternalFollowButton({
   if (state.isError) {
     label = "Retry follow";
   }
+  if (menu) {
+    const Icon = state.data?.following ? UserRoundMinus : UserPlus;
+    return (
+      <DropdownMenuItem
+        className="pill-3d-hover gap-3 rounded-lg px-2 py-2"
+        disabled={sharedPending || mutation.isPending || state.isPending}
+        onSelect={() => {
+          if (state.isError) {
+            void state.refetch();
+          } else {
+            mutation.mutate(!state.data?.following);
+          }
+        }}
+      >
+        <Icon className="size-4" />
+        {state.data?.following ? "Unfollow" : label}
+      </DropdownMenuItem>
+    );
+  }
   return (
     <Button
       className={cn(
         "h-9 rounded-full px-4 text-[13px]! sm:text-sm!",
         className
       )}
-      disabled={mutation.isPending || state.isPending}
+      disabled={sharedPending || mutation.isPending || state.isPending}
       onClick={() => {
         if (state.isError) {
           void state.refetch();

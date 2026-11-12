@@ -10,6 +10,8 @@ import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { IconButton3D } from "@/components/surface/icon-button-3d";
+import { PostAuthorFollow } from "@/features/feed/components/post-author-follow";
+import type { FeedPost } from "@/features/feed/lib/feed-types";
 import { imageCachePolicy } from "@/lib/cache/image-cache";
 import { useAppTheme } from "@/theme";
 
@@ -63,11 +65,13 @@ function HeaderBannerWash({ bannerUrl }: { bannerUrl: string }) {
 
 export function PostDetailHeader({
   bannerUrl,
+  post,
   onBack,
   title = "Post",
   subtitle,
 }: {
   bannerUrl?: string | null;
+  post?: FeedPost | null;
   onBack: () => void;
   title?: string;
   subtitle?: string | null;
@@ -101,6 +105,7 @@ export function PostDetailHeader({
             </Text>
           ) : null}
         </View>
+        {post ? <PostAuthorFollow post={post} /> : null}
       </View>
     </View>
   );
@@ -112,7 +117,7 @@ const styles = StyleSheet.create({
   },
   bar: {
     alignItems: "center",
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     gap: 10,
     overflow: "hidden",

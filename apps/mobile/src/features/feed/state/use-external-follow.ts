@@ -9,6 +9,8 @@ import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 
+const activeFollowWrites = new Set<string>();
+
 const stateSchema = z.object({ following: z.boolean() });
 export const useExternalFollowRevision = create<{
   revisions: Record<string, number>;
@@ -87,9 +89,11 @@ export function useExternalFollow(did: string, enabled: boolean) {
         setAttempt((current) => current + 1);
         return;
       }
-      if (busy.current || !ready) {
+      const writeKey = `${user.id}:${did}`;
+      if (busy.current || activeFollowWrites.has(writeKey) || !ready) {
         return;
       }
+      activeFollowWrites.add(writeKey);
       busy.current = true;
       setPending(true);
       try {
@@ -133,6 +137,7 @@ export function useExternalFollow(did: string, enabled: boolean) {
           variant: "destructive",
         });
       } finally {
+        activeFollowWrites.delete(writeKey);
         busy.current = false;
         setPending(false);
       }

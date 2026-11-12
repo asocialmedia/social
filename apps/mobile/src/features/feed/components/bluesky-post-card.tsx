@@ -101,6 +101,7 @@ export const BlueskyPostCard = memo(
           entries={[
             {
               action: { type: "follow" },
+              followPost: view,
               icon: UserPlus,
               label: followLabel,
             },

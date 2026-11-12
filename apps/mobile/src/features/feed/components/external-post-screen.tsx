@@ -11,12 +11,13 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
 import { useComposerStore } from "@/features/composer/state/composer-store";
+import { GuestAuthBar } from "@/features/home/components/guest-auth-bar";
 import { invalidateProtocolResources } from "@/features/network/state/use-protocol-resource";
 import { PostDetailHeader } from "@/features/post/components/post-detail-header";
+import { PostDetailSkeleton } from "@/features/post/components/post-detail-skeleton";
 import { recordExternalPostVisit } from "@/features/post/lib/post-api";
 import {
   externalPostHeader,
@@ -28,22 +29,29 @@ import { useAppTheme } from "@/theme";
 import { cachedExternalPost } from "../lib/external-cache";
 import { mergeExternalComments } from "../lib/external-comments";
 import { readExternal } from "../lib/external-interactions";
+import { externalPostView } from "../lib/external-post-view";
 import type { FeedPost } from "../lib/feed-types";
 import { useBlueskyProfile } from "../state/use-bluesky-profile";
 import { BlueskyPostCard } from "./bluesky-post-card";
 import { ExternalDiscussion } from "./external-discussion";
-import { ExternalResponses } from "./external-responses";
+import { ExternalRelatedFeed } from "./external-related-feed";
 import { ShareSheet } from "./share-sheet";
 
 export function ExternalPostScreen() {
   const { uri: param } = useLocalSearchParams<{ uri: string }>();
   const uri = typeof param === "string" ? param : "";
+  return <ExternalPostContent key={uri} uri={uri} />;
+}
+
+function ExternalPostContent({ uri }: { uri: string }) {
   const { user } = useSessionContext();
   const { theme } = useAppTheme();
   const composerOpen = useComposerStore((state) => state.isOpen);
   const scrollRef = useRef<ScrollViewInstance>(null);
   const inputRef = useRef<TextInputInstance>(null);
-  const discussionY = useRef(0);
+  const loadMoreRelated = useRef<(() => void) | null>(null);
+  const [showDiscussion, setShowDiscussion] = useState(true);
+  const [discussionLoaded, setDiscussionLoaded] = useState(false);
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -69,6 +77,7 @@ export function ExternalPostScreen() {
         const next = await readExternal(uri, undefined, signal);
         if (!signal?.aborted) {
           setData(next);
+          setDiscussionLoaded(true);
           setError(false);
         }
       } catch {
@@ -141,10 +150,22 @@ export function ExternalPostScreen() {
     setLoadingMore(false);
   };
 
+  let discussionStatus: "ready" | "loading" | "error" = "ready";
+  if (!discussionLoaded) {
+    discussionStatus = error ? "error" : "loading";
+  }
+
   const openDiscussion = () => {
-    scrollRef.current?.scrollTo({ animated: true, y: discussionY.current });
-    inputRef.current?.focus();
+    setShowDiscussion((current) => !current);
   };
+
+  if (!data && !error) {
+    return (
+      <View style={{ backgroundColor: theme.containerBg, flex: 1 }}>
+        <PostDetailSkeleton />
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -152,6 +173,7 @@ export function ExternalPostScreen() {
       style={{ backgroundColor: theme.containerBg, flex: 1 }}
     >
       <PostDetailHeader
+        post={data?.post ? externalPostView(data.post) : null}
         bannerUrl={header.bannerUrl}
         title={header.title}
         subtitle={header.subtitle}
@@ -160,8 +182,22 @@ export function ExternalPostScreen() {
         }
       />
       <ScrollView
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         ref={scrollRef}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        contentContainerStyle={{
+          paddingBottom: insets.bottom + (user ? 24 : 180),
+        }}
+        onScroll={({ nativeEvent }) => {
+          if (
+            nativeEvent.contentOffset.y +
+              nativeEvent.layoutMeasurement.height >=
+            nativeEvent.contentSize.height - 1200
+          ) {
+            loadMoreRelated.current?.();
+          }
+        }}
+        scrollEventThrottle={100}
         keyboardShouldPersistTaps="handled"
       >
         {error ? (
@@ -177,12 +213,6 @@ export function ExternalPostScreen() {
             </Text>
           </Pressable>
         ) : null}
-        {!data && !error ? (
-          <View className="items-center gap-3 py-12">
-            <Spinner3D size={24} />
-            <Text style={{ color: theme.dividerText }}>Loading post…</Text>
-          </View>
-        ) : null}
         {data?.post ? (
           <BlueskyPostCard
             detail
@@ -197,12 +227,8 @@ export function ExternalPostScreen() {
             Source post unavailable. asocialmedia discussion is preserved.
           </Text>
         ) : null}
-        {data ? (
-          <View
-            onLayout={(event) => {
-              discussionY.current = event.nativeEvent.layout.y;
-            }}
-          >
+        {data && showDiscussion ? (
+          <View>
             <ExternalDiscussion
               asm={data.post?.asm}
               comments={data.comments.items}
@@ -213,16 +239,54 @@ export function ExternalPostScreen() {
               onLoadMore={() => {
                 void more();
               }}
-              onReply={openDiscussion}
+              onReply={() => inputRef.current?.focus()}
+              status={discussionStatus}
+              onRetry={() => {
+                void load();
+              }}
               uri={uri}
             />
           </View>
         ) : null}
-        <ExternalResponses
-          key={`${uri}:${data?.post?.asm?.responses ?? 0}`}
-          uri={uri}
-        />
+        {data ? (
+          <>
+            <View className="flex-row items-center justify-between px-4 py-2">
+              <Text
+                className="text-sm font-semibold"
+                style={{
+                  color: theme.inputText,
+                  fontFamily: "SofiaProBold",
+                  fontSize: 14,
+                  lineHeight: 20,
+                }}
+              >
+                View more content
+              </Text>
+              <Pressable
+                accessibilityRole="link"
+                accessibilityLabel="View all posts on the global feed"
+                onPress={() => router.replace("/")}
+              >
+                <Text
+                  className="text-primary text-sm"
+                  style={{ fontFamily: "SofiaProMed", lineHeight: 20 }}
+                >
+                  View all posts
+                </Text>
+              </Pressable>
+            </View>
+            <ExternalRelatedFeed
+              excludeUri={uri}
+              loadMoreRef={loadMoreRelated}
+            />
+          </>
+        ) : null}
       </ScrollView>
+      {user ? null : (
+        <View className="absolute inset-x-0 bottom-0">
+          <GuestAuthBar />
+        </View>
+      )}
       <ShareSheet onClose={() => setSharePost(null)} post={sharePost} />
     </KeyboardAvoidingView>
   );
