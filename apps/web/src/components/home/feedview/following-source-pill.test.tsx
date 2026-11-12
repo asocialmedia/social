@@ -1,10 +1,13 @@
 import { expect, mock, test } from "bun:test";
 
+import type { ExternalPost } from "@asm/protocols/contracts";
 import { defaultNetworkPreferences } from "@asm/protocols/discovery";
 import type { FeedSource } from "@asm/protocols/discovery";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+
+import type { PresentedPost } from "@/lib/posts/presentation";
 
 let selectedSource: FeedSource = "all";
 let externalPending = false;
@@ -15,7 +18,7 @@ let renderedFeed: {
   source?: FeedSource;
   sourcesPending?: boolean;
   sortBy?: string;
-  sourceWaitMs?: number;
+  sourceWaitMs?: number | null;
 } = {};
 mock.module("@/store/feed-source-store", () => ({
   useFeedSourceStore: (select: (state: { source: FeedSource }) => FeedSource) =>
@@ -39,7 +42,15 @@ mock.module("@/hooks/feed/use-new-content-probe", () => ({
   }),
 }));
 mock.module("@/hooks/feed/use-seamless-feed-head", () => ({
-  useSeamlessFeedHead() {},
+  useSeamlessFeedHead: ({
+    pendingItems,
+  }: {
+    pendingItems: PresentedPost[];
+  }) => ({
+    acknowledge() {},
+    pullState: "idle",
+    unreadItems: pendingItems,
+  }),
 }));
 mock.module("@/components/home/feed-view", () => ({
   FeedView: (props: typeof renderedFeed) => {
@@ -64,7 +75,29 @@ mock.module("@/components/protocols/use-bluesky-feed", () => ({
     isFetching: externalPending || externalFetching,
     isPending: externalPending,
     newItems: [
-      { author: { handle: "author.test", id: "author" }, id: "remote-new" },
+      {
+        author: {
+          displayName: "Author",
+          handle: "author.test",
+          id: "author",
+          labels: [],
+          source: "bluesky",
+          upstreamCounts: {},
+          url: "https://bsky.app/profile/author.test",
+        },
+        createdAt: "2026-11-12T10:00:00.000Z",
+        id: "remote-new",
+        indexedAt: "2026-11-12T10:00:00.000Z",
+        labels: [],
+        languages: ["en"],
+        media: [],
+        revision: "revision",
+        segments: [{ text: "New post" }],
+        source: "bluesky",
+        text: "New post",
+        upstreamCounts: {},
+        url: "https://bsky.app/profile/author.test/post/new",
+      } satisfies ExternalPost,
     ],
     probeNow: () => Promise.resolve(),
     showNewItems() {},
@@ -134,7 +167,7 @@ test.each(["native", "bluesky", "both"])(
 );
 
 test.each(["asm", "all", "bluesky"] as const)(
-  "Following coalesces delayed remote arrivals only for the mixed feed (%s)",
+  "Following waits for delayed remote arrivals only for the mixed feed (%s)",
   (source) => {
     selectedSource = source;
     externalPending = true;
@@ -151,7 +184,7 @@ test.each(["asm", "all", "bluesky"] as const)(
       );
       expect(renderedFeed.sourcesPending).toBe(source === "all");
       expect(renderedFeed.sortBy).toBe("server");
-      expect(renderedFeed.sourceWaitMs).toBe(18_000);
+      expect(renderedFeed.sourceWaitMs).toBeNull();
     } finally {
       externalPending = false;
       client.clear();
