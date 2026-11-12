@@ -2,7 +2,6 @@ import { Palette } from "lucide-react-native";
 import type { RefObject } from "react";
 import type { ScrollViewInstance } from "react-native";
 import { ScrollView, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import { useThemePreference } from "@/theme/theme-preference-native";
@@ -39,18 +38,18 @@ export function PersonalizationTab({
 }: {
   scrollRef: RefObject<ScrollViewInstance | null>;
 }) {
-  const insets = useSafeAreaInsets();
   const preference = useThemePreference((state) => state.preference);
   const setPreference = useThemePreference((state) => state.setPreference);
   return (
     <ScrollView
+      showsHorizontalScrollIndicator={false}
       ref={scrollRef}
       showsVerticalScrollIndicator={SHOWS_SCROLL_INDICATOR}
       contentContainerStyle={{
         flexGrow: 1,
         gap: 16,
         padding: 16,
-        paddingBottom: 96 + insets.bottom,
+        paddingBottom: 0,
       }}
     >
       <SettingsSectionHeader
