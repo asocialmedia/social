@@ -19,6 +19,7 @@ export interface PopupProfile {
   communityMemberships: PopupCommunityRole[];
   createdAt: string;
   customDomain: string | null;
+  customUrls: string[];
   displayName: string | null;
   githubUsername: string | null;
   linkedinUsername: string | null;
@@ -49,6 +50,12 @@ function countOf(value: unknown): number {
 
 function textOf(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
 }
 
 export function parsePopupProfile(payload: unknown): PopupProfile | null {
@@ -84,6 +91,7 @@ export function parsePopupProfile(payload: unknown): PopupProfile | null {
     communityMemberships,
     createdAt: textOf(data["createdAt"]) ?? "",
     customDomain: textOf(data["customDomain"]),
+    customUrls: stringList(data["customUrls"]),
     displayName: textOf(data["displayName"]),
     githubUsername: textOf(data["githubUsername"]),
     linkedinUsername: textOf(data["linkedinUsername"]),

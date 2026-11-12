@@ -3,7 +3,14 @@
 import type { UserCommunityRole, UserData } from "@asm/db";
 import type { ExternalAuthor } from "@asm/protocols/contracts";
 import { formatDate } from "date-fns";
-import { CalendarDays, Flame, Globe, Info, MessageCircle } from "lucide-react";
+import {
+  CalendarDays,
+  Flame,
+  Globe,
+  Info,
+  Link2,
+  MessageCircle,
+} from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useState } from "react";
@@ -84,6 +91,22 @@ function getSocialLinks(user: UserData): SocialLink[] {
       href: `https://www.reddit.com/user/${user.redditUsername}`,
       icon: FaReddit,
       label: `Reddit: ${user.redditUsername}`,
+    });
+  }
+  // Custom links are validated as absolute http(s) URLs on write; the
+  // protocol check here keeps a stray stored value from becoming an href.
+  for (const link of user.customUrls ?? []) {
+    if (!URL.canParse(link)) {
+      continue;
+    }
+    const url = new URL(link);
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      continue;
+    }
+    links.push({
+      href: url.href,
+      icon: Link2,
+      label: `Link: ${url.host}${url.pathname === "/" ? "" : url.pathname}`,
     });
   }
   return links;

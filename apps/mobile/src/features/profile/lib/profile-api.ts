@@ -201,6 +201,11 @@ export function parseProfileHeader(
     communityMemberships: memberships,
     createdAt: dateOf(user.createdAt),
     customDomain: textOf(user.customDomain),
+    customUrls: Array.isArray(user.customUrls)
+      ? user.customUrls.filter(
+          (entry): entry is string => typeof entry === "string"
+        )
+      : [],
     displayName: textOf(user.displayName),
     followers,
     githubUsername: textOf(user.githubUsername),

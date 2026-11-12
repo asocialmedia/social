@@ -1,6 +1,10 @@
 "use client";
 
-import { updateUserProfileSchema } from "@asm/auth/validation";
+import {
+  MAX_CUSTOM_URLS,
+  normalizeCustomUrl,
+  updateUserProfileSchema,
+} from "@asm/auth/validation";
 import type { UpdateUserProfileValues } from "@asm/auth/validation";
 import {
   Form,
@@ -13,11 +17,15 @@ import {
 import { Input } from "@asm/ui/shadui/input";
 import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Link2, UserRound } from "lucide-react";
+import { Globe, Link2, Plus, UserRound, X } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
-import type { Control, ControllerRenderProps } from "react-hook-form";
+import type {
+  Control,
+  ControllerRenderProps,
+  UseFormReturn,
+} from "react-hook-form";
 import type { IconType } from "react-icons";
 import { FaGithub, FaLinkedin, FaReddit, FaXTwitter } from "react-icons/fa6";
 
@@ -195,6 +203,86 @@ const SocialFormField = ({
   />
 );
 
+// Up to three personal links under the social usernames. The rows are plain
+// strings in the form. A bare domain gains https:// when its field loses
+// focus, and the server drops blank rows when it stores the list.
+const CustomUrlsField = ({
+  form,
+}: {
+  form: UseFormReturn<UpdateUserProfileValues>;
+}) => {
+  const links = form.watch("customUrls") ?? [];
+  const errors = form.formState.errors.customUrls;
+  const setLinks = (next: string[]) =>
+    form.setValue("customUrls", next, { shouldDirty: true });
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">Custom links</p>
+      {links.map((link, index) => (
+        <div className="space-y-1" key={`custom-url-${index}`}>
+          <div className="flex items-center gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Globe className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+              <Input
+                aria-label={`Custom link ${index + 1}`}
+                autoCapitalize="none"
+                className="premium-input h-10 rounded-xl pr-3 pl-10 text-sm"
+                inputMode="url"
+                maxLength={200}
+                onBlur={() =>
+                  setLinks(
+                    links.map((value, position) =>
+                      position === index ? normalizeCustomUrl(value) : value
+                    )
+                  )
+                }
+                onChange={(event) =>
+                  setLinks(
+                    links.map((value, position) =>
+                      position === index ? event.target.value : value
+                    )
+                  )
+                }
+                placeholder="https://yourwebsite.com"
+                value={link}
+              />
+            </div>
+            <button
+              aria-label={`Remove custom link ${index + 1}`}
+              className="icon-btn-3d flex size-10 shrink-0 items-center justify-center rounded-full"
+              onClick={() =>
+                setLinks(links.filter((_, position) => position !== index))
+              }
+              type="button"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+          {errors?.[index]?.message ? (
+            <p className="text-destructive text-xs">{errors[index]?.message}</p>
+          ) : null}
+        </div>
+      ))}
+      {errors?.message ? (
+        <p className="text-destructive text-xs">{errors.message}</p>
+      ) : null}
+      {links.length < MAX_CUSTOM_URLS ? (
+        <button
+          className="btn-3d-gray inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-sm font-semibold"
+          onClick={() => setLinks([...links, ""])}
+          type="button"
+        >
+          <Plus className="size-4" />
+          Add custom link
+        </button>
+      ) : null}
+      <p className="text-muted-foreground text-xs">
+        Add up to {MAX_CUSTOM_URLS} links, like a portfolio, shop or blog.
+      </p>
+    </div>
+  );
+};
+
 interface ProfileSettingsProps {
   // Switches the settings view to the Account tab's username section.
   onNavigateToAccount?: () => void;
@@ -209,6 +297,7 @@ export default function ProfileSettings({
   const form = useForm<UpdateUserProfileValues>({
     defaultValues: {
       bio: user.bio || "",
+      customUrls: [...(user.customUrls ?? [])],
       displayName: user.displayName,
       githubUsername: user.githubUsername ?? "",
       linkedinUsername: user.linkedinUsername ?? "",
@@ -352,7 +441,9 @@ export default function ProfileSettings({
       values.githubUsername !== (user.githubUsername ?? "") ||
       values.linkedinUsername !== (user.linkedinUsername ?? "") ||
       values.twitterUsername !== (user.twitterUsername ?? "") ||
-      values.redditUsername !== (user.redditUsername ?? "");
+      values.redditUsername !== (user.redditUsername ?? "") ||
+      JSON.stringify(values.customUrls ?? []) !==
+        JSON.stringify(user.customUrls ?? []);
     const hasAvatarChanges = Boolean(croppedAvatar || gifToCenter);
     const hasAvatarDeleted =
       avatarDeleted && Boolean(avatarState.url || avatarState.key);
@@ -518,6 +609,9 @@ export default function ProfileSettings({
                       key={item.name}
                     />
                   ))}
+                </div>
+                <div className="mt-4">
+                  <CustomUrlsField form={form} />
                 </div>
               </div>
             </div>

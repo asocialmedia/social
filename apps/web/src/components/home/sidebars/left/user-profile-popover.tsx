@@ -14,6 +14,7 @@ import {
   FileText,
   Flame,
   Globe,
+  Link2,
   LogOut,
   Settings2,
   UserPlus,
@@ -120,6 +121,22 @@ function getSocialLinks(user: UserData): PopoverSocialLink[] {
       href: `https://www.reddit.com/user/${user.redditUsername}`,
       icon: FaReddit,
       label: `Reddit: ${user.redditUsername}`,
+    });
+  }
+  // Custom links are validated as absolute http(s) URLs on write; the
+  // protocol check here keeps a stray stored value from becoming an href.
+  for (const link of user.customUrls ?? []) {
+    if (!URL.canParse(link)) {
+      continue;
+    }
+    const url = new URL(link);
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      continue;
+    }
+    links.push({
+      href: url.href,
+      icon: Link2,
+      label: `Link: ${url.host}${url.pathname === "/" ? "" : url.pathname}`,
     });
   }
   return links;

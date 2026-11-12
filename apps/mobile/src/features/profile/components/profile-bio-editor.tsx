@@ -1,7 +1,7 @@
 import type { RefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ScrollViewInstance, ViewInstance } from "react-native";
-import { Keyboard, Pressable, Text, View } from "react-native";
+import { Keyboard, Text, View } from "react-native";
 
 import { AnimatedWordCounter } from "@/components/feedback/animated-word-counter";
 import { premiumInput } from "@/components/surface/recipes";
@@ -12,8 +12,10 @@ import {
   applySuggestion,
 } from "@/features/composer/lib/inline-relations";
 import type { MentionPick } from "@/features/composer/lib/inline-relations";
-import { BioContent } from "@/features/home/components/bio-content";
-import { SettingsSubcard } from "@/features/settings/components/settings-ui";
+import {
+  BIO_WORD_LIMIT,
+  countBioWords,
+} from "@/features/settings/lib/bio-editor";
 import { getApiBaseUrl } from "@/lib/network/api-env";
 import { useAppTheme } from "@/theme";
 
@@ -29,7 +31,6 @@ export function ProfileBioEditor({
   onFocus?: () => void;
 }) {
   const [mentions, setMentions] = useState<MentionPick[]>([]);
-  const [preview, setPreview] = useState(false);
   const { theme, isDark } = useAppTheme();
   const [focused, setFocused] = useState(false);
   const fieldRef = useRef<ViewInstance>(null);
@@ -86,7 +87,8 @@ export function ProfileBioEditor({
         ref={fieldRef}
         style={{
           backgroundColor: field.background,
-          borderRadius: 14,
+          borderCurve: "continuous",
+          borderRadius: 12,
           boxShadow: field.shadows,
           padding: 12,
         }}
@@ -99,7 +101,7 @@ export function ProfileBioEditor({
           isDark={isDark}
           value={value}
           selection={selection}
-          placeholder="Tell us a little bit about yourself"
+          placeholder="Tell us a little bit about yourself - @mention, #tag or drop a link"
           placeholderColor={field.placeholder}
           onChange={(text, range) => {
             onChangeText(text.slice(0, 2000));
@@ -146,49 +148,14 @@ export function ProfileBioEditor({
           pick(user.username);
         }}
       />
-      <View
-        style={{
-          alignItems: "center",
-          flexDirection: "row",
-          gap: 12,
-          justifyContent: "space-between",
-        }}
-      >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ expanded: preview }}
-          onPress={() => setPreview((current) => !current)}
-          hitSlop={6}
-        >
-          <Text
-            style={{
-              color: theme.auxLink,
-              fontFamily: "SofiaProMed",
-              fontSize: 12,
-            }}
-          >
-            {preview ? "Hide bio preview" : "Preview bio"}
-          </Text>
-        </Pressable>
+      {/* Web: the word counter sits right-aligned under the field. The pills
+          already render inside the field, so there is no separate preview. */}
+      <View style={{ alignItems: "flex-end" }}>
         <AnimatedWordCounter
-          current={value.trim().split(/\s+/).filter(Boolean).length}
-          max={400}
+          current={countBioWords(value)}
+          max={BIO_WORD_LIMIT}
         />
       </View>
-      <Text
-        style={{
-          color: theme.dividerText,
-          fontFamily: "SofiaProReg",
-          fontSize: 12,
-        }}
-      >
-        Links, @mentions and #tags appear as inline badges on your profile.
-      </Text>
-      {preview && value.trim() ? (
-        <SettingsSubcard style={{ padding: 12 }}>
-          <BioContent apiBase={getApiBaseUrl()} bio={value} />
-        </SettingsSubcard>
-      ) : null}
     </View>
   );
 }

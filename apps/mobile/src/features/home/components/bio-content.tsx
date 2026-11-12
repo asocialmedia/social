@@ -8,7 +8,6 @@ import type { TextSegment } from "@asm/protocols/contracts";
 // a wrapping row (the standard native linkify arrangement) instead of true
 // inline flow. Mention and tag pills navigate, as they do in web's
 // post-meta.tsx.
-import { FontAwesome6 } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { Hash } from "lucide-react-native";
@@ -24,6 +23,7 @@ import {
 
 import avatarPlaceholder from "@/assets/images/avatar-placeholder.png";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { SiteIcon } from "@/features/feed/components/site-icon";
 import { externalInlineSegments } from "@/features/network/lib/source-text";
 import { openExternalUrl } from "@/lib/interaction/open-url";
 import {
@@ -39,7 +39,6 @@ import {
   clampBioSegments,
   clampBioSegmentsByLines,
   estimateCharsPerLine,
-  getLinkPlatform,
   hostLabel,
   safeLinkUrl,
   segmentBioContent,
@@ -70,10 +69,8 @@ function ChipShell({ children, tint }: { children: ReactNode; tint?: string }) {
 }
 
 function LinkChip({ title, url }: { title?: string; url: string }) {
-  const { isDark, theme } = useAppTheme();
-  const platform = getLinkPlatform(url);
+  const { theme } = useAppTheme();
   const label = title?.trim() || hostLabel(url);
-  const iconColor = platform?.color ?? theme.dividerText;
   return (
     <Pressable
       accessibilityLabel={`${label}, ${url}`}
@@ -88,24 +85,7 @@ function LinkChip({ title, url }: { title?: string; url: string }) {
       }}
     >
       <ChipShell>
-        {platform ? (
-          <FontAwesome6 color={iconColor} name={platform.icon} size={14} />
-        ) : (
-          <View
-            style={[
-              styles.initialTile,
-              {
-                backgroundColor: isDark
-                  ? "rgba(255, 255, 255, 0.08)"
-                  : theme.dividerLine,
-              },
-            ]}
-          >
-            <Text style={[styles.initialText, { color: theme.dividerText }]}>
-              {(label[0] ?? "L").toUpperCase()}
-            </Text>
-          </View>
-        )}
+        <SiteIcon url={url} size={14} />
         <Text
           numberOfLines={1}
           style={[styles.chipText, { color: theme.dividerText }]}

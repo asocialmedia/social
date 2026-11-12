@@ -10,6 +10,7 @@ import {
   Flame,
   Globe,
   Info,
+  Link2,
   MessageCircle,
   Pencil,
 } from "lucide-react-native";
@@ -89,6 +90,9 @@ function BannerContent({
 function SocialIcon({ color, kind }: { color: string; kind: string }) {
   if (kind === "website") {
     return <Globe color={color} size={16} />;
+  }
+  if (kind === "link") {
+    return <Link2 color={color} size={16} />;
   }
   if (kind === "bluesky") {
     return <BlueskyIcon color={color} />;

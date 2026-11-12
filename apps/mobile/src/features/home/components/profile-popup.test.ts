@@ -127,6 +127,64 @@ describe("getSocialLinks", () => {
   test("returns nothing when no socials are set", () => {
     expect(getSocialLinks({})).toEqual([]);
   });
+
+  test("adds custom links last and skips non-http values", () => {
+    expect(
+      getSocialLinks({
+        customUrls: [
+          "https://shop.example.com/store",
+          // oxlint-disable-next-line eslint/no-script-url -- Regression fixture for rejecting script URLs.
+          // oxlint-disable-next-line eslint/no-script-url -- Regression fixture for rejecting script URLs.
+          "javascript:alert(1)",
+          "not a url",
+          "http://blog.example.com/",
+        ],
+        githubUsername: "octo",
+      })
+    ).toEqual([
+      {
+        href: "https://github.com/octo",
+        kind: "github",
+        label: "GitHub: octo",
+      },
+      {
+        href: "https://shop.example.com/store",
+        kind: "link",
+        label: "Link: shop.example.com/store",
+      },
+      {
+        href: "http://blog.example.com/",
+        kind: "link",
+        label: "Link: blog.example.com",
+      },
+    ]);
+  });
+});
+
+describe("safeSocialUrl", () => {
+  test("lets a custom link be http but keeps brands on https", () => {
+    expect(
+      safeSocialUrl({
+        href: "http://blog.example.com/",
+        kind: "link",
+        label: "",
+      })
+    ).toBe("http://blog.example.com/");
+    expect(
+      safeSocialUrl({
+        href: "http://github.com/octo",
+        kind: "github",
+        label: "",
+      })
+    ).toBeNull();
+    expect(
+      safeSocialUrl({
+        href: "https://user:pass@example.com",
+        kind: "link",
+        label: "",
+      })
+    ).toBeNull();
+  });
 });
 
 describe("resolveProfileImageUrl", () => {
@@ -288,6 +346,7 @@ describe("fetchPopupProfile", () => {
         communityMemberships: [],
         createdAt: "2024-03-15T00:00:00.000Z",
         customDomain: null,
+        customUrls: [],
         displayName: "Asocial",
         githubUsername: "octo",
         username: "asocialmedia",
@@ -361,6 +420,7 @@ function stubProfile(username = "asocialmedia") {
     communityMemberships: [],
     createdAt: "2024-01-01T00:00:00.000Z",
     customDomain: null,
+    customUrls: [],
     displayName: null,
     githubUsername: null,
     linkedinUsername: null,

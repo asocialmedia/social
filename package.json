@@ -1,6 +1,6 @@
 {
   "name": "@asocialmedia/social",
-  "version": "1.14.35",
+  "version": "1.14.36",
   "private": true,
   "homepage": "https://asocialmedia.cc",
   "license": "AGPL-3.0",
@@ -50,7 +50,7 @@
     "lighthouse": "^13.6.0",
     "oxfmt": "^0.63.0",
     "oxlint": "^1.78.0",
-    "prisma": "8.0.0-rc.22",
+    "prisma": "8.0.0-rc.33",
     "puppeteer-core": "^25.16.0",
     "turbo": "^2.10.9",
     "typescript": "^7.0.2",

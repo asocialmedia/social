@@ -109,6 +109,7 @@ export function externalAuthorView(author: ExternalAuthor): UserData {
     communityMemberships: [],
     createdAt: new Date(0),
     customDomain: null,
+    customUrls: null,
     displayName: author.displayName,
     displayUsername: null,
     followers: [],

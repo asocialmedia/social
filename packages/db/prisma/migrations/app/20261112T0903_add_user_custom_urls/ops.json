@@ -1,0 +1,78 @@
+[
+  {
+    "id": "column.public.users.customUrls",
+    "label": "Add column \"customUrls\" to \"users\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "customUrls",
+        "table": "users"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"customUrls\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "users", "customUrls"]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"customUrls\"",
+        "sql": "ALTER TABLE \"public\".\"users\" ADD COLUMN \"customUrls\" text[]"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"customUrls\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": ["public", "users", "customUrls"]
+      }
+    ]
+  },
+  {
+    "id": "checkConstraint.users.users_customUrls_elem_not_null_e651ac78",
+    "label": "Add check constraint \"users_customUrls_elem_not_null_e651ac78\" on \"users\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "users_customUrls_elem_not_null_e651ac78",
+        "table": "users"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"users_customUrls_elem_not_null_e651ac78\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "users_customUrls_elem_not_null_e651ac78",
+          "public",
+          "\"public\".\"users\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add check constraint \"users_customUrls_elem_not_null_e651ac78\"",
+        "sql": "ALTER TABLE \"public\".\"users\" ADD CONSTRAINT \"users_customUrls_elem_not_null_e651ac78\" CHECK (array_position(\"customUrls\", NULL) IS NULL)"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"users_customUrls_elem_not_null_e651ac78\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "users_customUrls_elem_not_null_e651ac78",
+          "public",
+          "\"public\".\"users\""
+        ]
+      }
+    ]
+  }
+]

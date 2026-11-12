@@ -1,4 +1,4 @@
-import { updateUserProfileSchema } from "@asm/auth/validation";
+import { cleanCustomUrls, updateUserProfileSchema } from "@asm/auth/validation";
 import type { UpdateUserProfileValues } from "@asm/auth/validation";
 import { prisma } from "@asm/db";
 
@@ -30,6 +30,7 @@ export async function PATCH(
     bio: string;
     displayName: string;
     customDomain: string | null;
+    customUrls: string[] | null;
     githubUsername: string | null;
     linkedinUsername: string | null;
     redditUsername: string | null;
@@ -43,6 +44,10 @@ export async function PATCH(
   }
   if (parsedValues.customDomain !== undefined) {
     data.customDomain = parsedValues.customDomain || null;
+  }
+  if (parsedValues.customUrls !== undefined) {
+    const links = cleanCustomUrls(parsedValues.customUrls);
+    data.customUrls = links.length ? links : null;
   }
   if (parsedValues.githubUsername !== undefined) {
     data.githubUsername = parsedValues.githubUsername || null;
