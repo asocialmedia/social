@@ -171,6 +171,9 @@ export function observeRequest<T>(
           reason = "Hydration durably rescheduled";
         } else if (error instanceof ProtocolError) {
           reason = error.message;
+        } else if (error instanceof Error) {
+          // Preserve the real cause instead of a generic internal marker.
+          reason = `${error.name}: ${error.message}`.slice(0, 300);
         }
         log.call(
           logger,
@@ -178,6 +181,10 @@ export function observeRequest<T>(
             ...correlation,
             code: deferred ? "deferred" : code,
             durationMs: performance.now() - startedAt,
+            // Include error shape for triage without leaking payloads.
+            ...(error instanceof Error
+              ? { errorName: error.name }
+              : { errorName: "unknown" }),
             reason,
           },
           deferred ? "Protocol request deferred" : "Protocol request failed"

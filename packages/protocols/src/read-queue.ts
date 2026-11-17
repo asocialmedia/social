@@ -36,12 +36,21 @@ export class BoundedReadQueue {
   }
 
   async run<T>(read: () => Promise<T>, signal: AbortSignal): Promise<T> {
-    signal.throwIfAborted();
+    if (signal.aborted) {
+      throw new ProtocolError("cancelled", "Search cancelled");
+    }
     if (this.closed) {
       throw new ProtocolError("cancelled", "Search queue is closed");
     }
     if (this.active < this.options.concurrency) {
-      return await abortable(this.execute(read), signal);
+      try {
+        return await abortable(this.execute(read), signal);
+      } catch (error) {
+        if (signal.aborted) {
+          throw new ProtocolError("cancelled", "Search cancelled");
+        }
+        throw error;
+      }
     }
     if (this.waiting.length >= this.options.maxQueued) {
       this.rejected += 1;
@@ -83,7 +92,14 @@ export class BoundedReadQueue {
     }, this.options.maxWaitMs);
     signal.addEventListener("abort", cancel, { once: true });
     this.waiting.push(entry);
-    return await abortable(deferred.promise, signal);
+    try {
+      return await abortable(deferred.promise, signal);
+    } catch (error) {
+      if (signal.aborted) {
+        throw new ProtocolError("cancelled", "Search cancelled");
+      }
+      throw error;
+    }
   }
 
   close() {

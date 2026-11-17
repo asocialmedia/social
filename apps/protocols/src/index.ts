@@ -417,7 +417,7 @@ export async function startProtocols() {
           void runWarmup(() =>
             warmDiscoveryInventory({
               head: page,
-              maxPages: content === "video" ? 6 : 3,
+              maxPages: content === "video" ? 3 : 2,
               read: (cursor) =>
                 selectedDiscovery.read(mode, cursor, locale, topics, content),
               retain: (next, began) => selectedInventory.put(next.items, began),

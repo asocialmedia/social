@@ -195,7 +195,7 @@ describe("Bluesky public read boundary", () => {
       ).rejects.toMatchObject({ code: "unavailable" });
     }
     expect(calls).toBe(5);
-    now += 30_001;
+    now += 40_000;
     const probe = client.getProfile("bsky.app");
     await expect(client.getProfile("other.test")).rejects.toMatchObject({
       code: "unavailable",
@@ -392,15 +392,19 @@ describe("Bluesky public read boundary", () => {
       },
       now: () => now,
     });
-    await expect(client.getProfile("bsky.app")).rejects.toMatchObject({
-      code: "rate_limited",
-      retryAfterSeconds: 300,
-    });
+    const firstError = await client.getProfile("bsky.app").then(
+      () => null,
+      (error: { code?: string; retryAfterSeconds?: number }) => error
+    );
+    expect(firstError?.code).toBe("rate_limited");
+    // Jittered cooldown is 240-360s for a capped 300s retry-after.
+    expect(firstError?.retryAfterSeconds).toBeGreaterThanOrEqual(240);
+    expect(firstError?.retryAfterSeconds).toBeLessThanOrEqual(360);
     await expect(client.getProfile("other.test")).rejects.toMatchObject({
       code: "rate_limited",
     });
     expect(calls).toBe(1);
-    now += 301_000;
+    now += 361_000;
     await expect(client.getProfile("other.test")).rejects.toBeInstanceOf(
       ProtocolError
     );
@@ -868,7 +872,7 @@ test("a denied search cursor does not cool down its healthy head", async () => {
     cursor: "denied-page",
   });
   expect(reads).toBe(2);
-  now = 20_000;
+  now = 35_000;
   await expect(client.searchPosts("anime", "top")).resolves.toMatchObject({
     cursor: "denied-page",
   });

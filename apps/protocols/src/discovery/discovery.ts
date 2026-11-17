@@ -628,7 +628,7 @@ export class BlueskyDiscovery {
               since:
                 source.searchWindow?.since ??
                 new Date(
-                  Math.floor(Date.now() / 60_000) * 60_000 -
+                  Math.floor(Date.now() / 300_000) * 300_000 -
                     discoveryLookbackMs(mode)
                 ).toISOString(),
               ...(source.searchWindow

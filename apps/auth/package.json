@@ -1,6 +1,6 @@
 {
   "name": "@asm/auth-app",
-  "version": "1.2.26",
+  "version": "1.2.27",
   "private": true,
   "description": "asocialmedia Auth Service",
   "scripts": {
@@ -41,7 +41,7 @@
   "devDependencies": {
     "@types/bun": "^1.4.0",
     "bun-types": "^1.4.0",
-    "prisma": "8.0.0-rc.33",
+    "prisma": "8.0.0-rc.34",
     "typescript": "^7.0.2"
   }
 }

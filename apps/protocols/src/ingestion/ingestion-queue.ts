@@ -2,6 +2,7 @@
 // oxlint-disable promise/prefer-await-to-then
 import { createHash } from "node:crypto";
 
+import { ProtocolError } from "@asm/protocols/contracts";
 import { metrics, context, propagation } from "@opentelemetry/api";
 import { Queue, Worker, UnrecoverableError, DelayedError } from "bullmq";
 import type Redis from "ioredis";
@@ -159,6 +160,18 @@ export function createIngestionQueue(options: {
             const reschedule = error instanceof HydrationRescheduleError;
             const delay = reschedule ? 1000 : hydrationRetryDelay(error);
             if (!delay) {
+              // Non-retryable validation and permission failures must not
+              // occupy the bounded retry queue or masquerade as internal errors.
+              if (
+                error instanceof ProtocolError &&
+                ["invalid_input", "restricted", "cancelled"].includes(
+                  error.code
+                )
+              ) {
+                throw new UnrecoverableError(
+                  `Protocol hydration rejected: ${error.code}`
+                );
+              }
               throw error;
             }
             if (reschedule) {
@@ -201,12 +214,27 @@ export function createIngestionQueue(options: {
       );
     }
   });
-  worker.on("failed", () => {
+  worker.on("failed", (job, error) => {
     failed += 1;
     counter.add(1, { node: options.node, outcome: "failed" });
-    options.logger.warn(
-      { event: "ingestion.retry", node: options.node },
-      "Protocol hydration failed; bounded queue retry scheduled"
+    // Include job identity and cause; unrecoverable rejections are terminal.
+    const terminal = error instanceof UnrecoverableError;
+    const log = terminal ? options.logger.error : options.logger.warn;
+    log.call(
+      options.logger,
+      {
+        attemptsMade: job?.attemptsMade,
+        errorName: error instanceof Error ? error.name : "unknown",
+        event: "ingestion.retry",
+        jobId: job?.id,
+        node: options.node,
+        reason:
+          error instanceof Error ? error.message.slice(0, 300) : "unknown",
+        terminal,
+      },
+      terminal
+        ? "Protocol hydration terminally rejected; dropping batch"
+        : "Protocol hydration failed; bounded queue retry scheduled"
     );
   });
   worker.on("stalled", () =>

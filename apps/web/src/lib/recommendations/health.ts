@@ -17,8 +17,15 @@ export function reportRecommendationHealth(
     }
     status.set(source, { failed: false, loggedAt: previous?.loggedAt ?? 0 });
   } else if (!previous || now - previous.loggedAt >= 60_000) {
+    // Preserve the cause without leaking response payloads.
+    let detail: string | undefined;
+    if (error instanceof Error) {
+      detail = `${error.name}: ${error.message}`.slice(0, 300);
+    } else if (typeof error === "string") {
+      detail = error.slice(0, 300);
+    }
     logger.warn(
-      { error, source },
+      { error: detail, source },
       "Recommendation source unavailable; retaining independent source results"
     );
     status.set(source, { failed: true, loggedAt: now });

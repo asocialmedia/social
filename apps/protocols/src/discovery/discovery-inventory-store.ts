@@ -1,4 +1,5 @@
 import type { ExternalPost } from "@asm/protocols/contracts";
+import { ProtocolError } from "@asm/protocols/contracts";
 import { externalPostSchema } from "@asm/protocols/discovery";
 import type Redis from "ioredis";
 
@@ -120,24 +121,41 @@ export class RedisInventoryStore implements InventoryStore {
     if (!posts.length) {
       return;
     }
-    await this.redis.eval(
-      inventoryScript,
-      this.keys.length,
-      ...this.keys,
-      "put",
-      Date.now(),
-      startedAt,
-      ...posts.slice(0, 50).flatMap((post) => [post.id, JSON.stringify(post)])
-    );
+    try {
+      await this.redis.eval(
+        inventoryScript,
+        this.keys.length,
+        ...this.keys,
+        "put",
+        Date.now(),
+        startedAt,
+        ...posts.slice(0, 50).flatMap((post) => [post.id, JSON.stringify(post)])
+      );
+    } catch {
+      // Storage loss defers hydration; it must not surface as internal.
+      throw new ProtocolError(
+        "unavailable",
+        "Inventory storage unavailable",
+        2
+      );
+    }
   }
   async invalidate(target: string) {
-    await this.redis.eval(
-      inventoryScript,
-      this.keys.length,
-      ...this.keys,
-      "invalidate",
-      Date.now(),
-      target
-    );
+    try {
+      await this.redis.eval(
+        inventoryScript,
+        this.keys.length,
+        ...this.keys,
+        "invalidate",
+        Date.now(),
+        target
+      );
+    } catch {
+      throw new ProtocolError(
+        "unavailable",
+        "Inventory storage unavailable",
+        2
+      );
+    }
   }
 }
