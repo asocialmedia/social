@@ -162,11 +162,11 @@ export function createIngestionQueue(options: {
             if (!delay) {
               // Non-retryable validation and permission failures must not
               // occupy the bounded retry queue or masquerade as internal errors.
+              // Cancellations stay retryable: shutdowns and aborted reads must
+              // rehydrate on retry instead of dropping the batch.
               if (
                 error instanceof ProtocolError &&
-                ["invalid_input", "restricted", "cancelled"].includes(
-                  error.code
-                )
+                ["invalid_input", "restricted"].includes(error.code)
               ) {
                 throw new UnrecoverableError(
                   `Protocol hydration rejected: ${error.code}`
@@ -217,8 +217,12 @@ export function createIngestionQueue(options: {
   worker.on("failed", (job, error) => {
     failed += 1;
     counter.add(1, { node: options.node, outcome: "failed" });
-    // Include job identity and cause; unrecoverable rejections are terminal.
-    const terminal = error instanceof UnrecoverableError;
+    // Include job identity and cause. Unrecoverable rejections are terminal,
+    // and so is an ordinary error once the attempt budget is spent, since
+    // BullMQ will not retry it further.
+    const maxAttempts = job?.opts?.attempts ?? 3;
+    const exhausted = (job?.attemptsMade ?? 0) >= maxAttempts;
+    const terminal = error instanceof UnrecoverableError || exhausted;
     const log = terminal ? options.logger.error : options.logger.warn;
     log.call(
       options.logger,

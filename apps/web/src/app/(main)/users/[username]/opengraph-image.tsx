@@ -3,6 +3,7 @@ import { fromPrismaDateTime, getUserBadges, prisma } from "@asm/db";
 import { cacheLife, cacheTag } from "next/cache";
 import { notFound } from "next/navigation";
 import { ImageResponse } from "next/og";
+import { connection } from "next/server";
 
 import { avatarInitial, canSatoriRenderAvatar } from "@/lib/seo/og-avatar";
 import { getOgFontOptions } from "@/lib/seo/og-fonts";
@@ -69,7 +70,10 @@ export default async function Image({
   try {
     user = await getUserForCard(username);
   } catch {
-    // Storage outage: static fallback, never 500, short cache.
+    // Storage outage: request-time fallback, never 500. connection() opts
+    // this render out of static caching so the fallback cannot persist past
+    // recovery; no-store keeps it out of downstream caches too.
+    await connection();
     return new ImageResponse(
       <div
         style={{
@@ -87,7 +91,7 @@ export default async function Image({
       </div>,
       {
         ...size,
-        headers: { "cache-control": "public, max-age=60" },
+        headers: { "cache-control": "no-store" },
       }
     );
   }

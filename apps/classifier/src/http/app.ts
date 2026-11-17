@@ -98,11 +98,13 @@ export function createClassifierApp(
         });
       }, signal);
     } catch (error) {
+      // Only unexpected inference failures are failures; validation and
+      // backpressure responses are rejections, matching the server summary.
       if (error instanceof ClassifierError) {
-        if (error.status === 429 || error.status === 503) {
-          rejected += 1;
-        } else {
+        if (error.status === 500) {
           failed += 1;
+        } else {
+          rejected += 1;
         }
         return json(
           { error: error.code },

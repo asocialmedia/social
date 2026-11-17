@@ -5,7 +5,7 @@ import {
   resolveUsername,
 } from "@asm/db";
 import type { Metadata } from "next";
-import { notFound, permanentRedirect, redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { cache, Suspense } from "react";
 
@@ -70,7 +70,7 @@ async function FollowersContent({ params }: PageProps) {
   ]);
 
   if (resolvedUser.redirectToCurrentUsername) {
-    permanentRedirect(`${profilePath(resolvedUser.user.username)}/followers`);
+    redirect(`${profilePath(resolvedUser.user.username)}/followers`);
   }
   const userData = resolvedUser.user;
 

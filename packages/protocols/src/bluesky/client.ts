@@ -1108,10 +1108,10 @@ export class BlueskyClient {
                   response.headers.get("retry-after"),
                   this.options.now()
                 ) ?? 30_000;
-              // Jitter spreads fleet retries; global pause stays protective.
-              const jitteredMs = Math.ceil(
-                baseWaitMs * (0.8 + Math.random() * 0.4)
-              );
+              // Nonnegative jitter only delays past the requested pause;
+              // retrying before Retry-After expires would cause another 429.
+              const jitteredMs =
+                baseWaitMs + Math.floor(Math.random() * baseWaitMs * 0.25);
               const wait = Math.ceil(jitteredMs / 1000);
               this.blockedUntil = Math.max(
                 this.blockedUntil,

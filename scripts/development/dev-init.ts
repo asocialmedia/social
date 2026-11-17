@@ -381,7 +381,10 @@ async function main() {
       stop("· migrations applied");
     } else {
       start("applying schema");
-      const applied = await prisma(["db", "update"], "../../.env.test");
+      const applied = await prisma(
+        ["db", "update", "--confirm", "asocialmedia"],
+        "../../.env.test"
+      );
       if (applied.exitCode !== 0) {
         const failure = formatPrismaFailure(
           applied.stdout,

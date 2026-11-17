@@ -1,10 +1,10 @@
 // oxlint-disable next/no-img-element -- Satori image generation requires native img elements
 import { fromPrismaDateTime, prisma } from "@asm/db";
 import { cacheLife, cacheTag } from "next/cache";
-import { notFound, permanentRedirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { ImageResponse } from "next/og";
+import { connection } from "next/server";
 
-import { getShortPostId } from "@/lib/posts/post-url";
 import { canSatoriRenderAvatar, avatarInitial } from "@/lib/seo/og-avatar";
 import { getOgFontOptions } from "@/lib/seo/og-fonts";
 import { ogMediaDataUrl } from "@/lib/seo/og-media";
@@ -162,17 +162,17 @@ export default async function Image({
 }) {
   const { index, postId } = await params;
 
-  // Canonicalize to the short post id so only one image URL is ever linked.
-  if (postId !== getShortPostId(postId)) {
-    permanentRedirect(`/posts/${getShortPostId(postId)}/opengraph-image`);
-  }
-
+  // The full post id is the canonical image identity: short-id prefixes can
+  // collide across posts, so full IDs always render their own post instead of
+  // redirecting to an ambiguous short URL.
   let post: Awaited<ReturnType<typeof getPostForCard>>;
   try {
     post = await getPostForCard(postId);
   } catch {
-    // Storage outage: static fallback, never 500, short cache so a bad
-    // render never poisons the immutable cache.
+    // Storage outage: request-time fallback, never 500. connection() opts
+    // this render out of static caching so the fallback cannot persist past
+    // recovery; no-store keeps it out of downstream caches too.
+    await connection();
     return new ImageResponse(
       <div
         style={{
@@ -190,7 +190,7 @@ export default async function Image({
       </div>,
       {
         ...size,
-        headers: { "cache-control": "public, max-age=60" },
+        headers: { "cache-control": "no-store" },
       }
     );
   }

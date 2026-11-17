@@ -47,7 +47,7 @@ const server = Bun.serve({
     return response;
   },
   hostname: "0.0.0.0",
-  idleTimeout: 15,
+  idleTimeout: 45,
   maxRequestBodySize: maxImageBytes + 64 * 1024,
   port: config.port,
 });

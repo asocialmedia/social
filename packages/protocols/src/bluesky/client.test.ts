@@ -397,14 +397,14 @@ describe("Bluesky public read boundary", () => {
       (error: { code?: string; retryAfterSeconds?: number }) => error
     );
     expect(firstError?.code).toBe("rate_limited");
-    // Jittered cooldown is 240-360s for a capped 300s retry-after.
-    expect(firstError?.retryAfterSeconds).toBeGreaterThanOrEqual(240);
-    expect(firstError?.retryAfterSeconds).toBeLessThanOrEqual(360);
+    // Nonnegative jitter keeps the cooldown at or above the capped 300s retry-after.
+    expect(firstError?.retryAfterSeconds).toBeGreaterThanOrEqual(300);
+    expect(firstError?.retryAfterSeconds).toBeLessThanOrEqual(375);
     await expect(client.getProfile("other.test")).rejects.toMatchObject({
       code: "rate_limited",
     });
     expect(calls).toBe(1);
-    now += 361_000;
+    now += 376_000;
     await expect(client.getProfile("other.test")).rejects.toBeInstanceOf(
       ProtocolError
     );

@@ -20,10 +20,10 @@ export default function robots(): MetadataRoute.Robots {
         // Account-scoped, private, and internal search routes are disallowed
         // to keep crawler budget focused on indexable public content.
         // Auth pages remain crawlable so their noindex metadata can be read.
-        // Build assets are never indexable; the header above also noindexes them.
+        // Build assets stay crawlable so pages render fully; the header above
+        // keeps them out of the index without blocking fetches.
         disallow: [
           "/api/",
-          "/_next/",
           "/messages",
           "/search",
           "/*/followers",
