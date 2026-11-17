@@ -18,7 +18,7 @@ export function classifierConfig(env: Record<string, string | undefined>) {
       fileURLToPath(new URL("../../model.onnx", import.meta.url)),
     port: integer("PORT", 3014, 65_535),
     queueLimit: integer("CLASSIFIER_QUEUE_LIMIT", 8, 16),
-    requestTimeoutMs: integer("CLASSIFIER_REQUEST_TIMEOUT_MS", 10_000, 30_000),
+    requestTimeoutMs: integer("CLASSIFIER_REQUEST_TIMEOUT_MS", 15_000, 30_000),
     threads: integer("CLASSIFIER_THREADS", 1, 2),
     token,
   };

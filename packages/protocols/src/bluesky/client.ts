@@ -223,12 +223,16 @@ export class BlueskyClient {
   }
 
   async allowsRecommendations(did: string): Promise<boolean> {
-    const actor = actorSchema.parse(did);
+    const parsed = actorSchema.safeParse(did);
+    if (!parsed.success) {
+      throw new ProtocolError("invalid_input", "Invalid Bluesky account");
+    }
+    const actor = parsed.data;
     const visibility = this.request(
       "content_visibility",
       { actor },
       z.object({ allowed: z.boolean() }),
-      30_000
+      300_000
     );
     const profile = (async () => {
       if (this.allowExplicitMedia) {
@@ -257,13 +261,17 @@ export class BlueskyClient {
       "app.bsky.actor.getProfile",
       { actor: parsed.data },
       profileSchema,
-      60_000
+      300_000
     );
     return normalizeAuthor(data, this.allowExplicitMedia);
   }
 
   async getPublicSocialRecords(actor: string) {
-    const repo = actorSchema.parse(actor);
+    const parsed = actorSchema.safeParse(actor);
+    if (!parsed.success) {
+      throw new ProtocolError("invalid_input", "Invalid Bluesky account");
+    }
+    const repo = parsed.data;
     const collections = [
       "app.bsky.feed.like",
       "app.bsky.feed.repost",
@@ -345,7 +353,7 @@ export class BlueskyClient {
       "app.bsky.actor.searchActors",
       { limit: String(parsed.data.limit), q: parsed.data.query },
       z.object({ actors: z.array(z.unknown()).max(100) }),
-      30_000
+      120_000
     );
     const authors: ExternalAuthor[] = [];
     for (const value of page.actors) {
@@ -512,7 +520,7 @@ export class BlueskyClient {
         cursor: z.string().optional(),
         posts: z.array(z.unknown()).max(100),
       }),
-      10_000
+      30_000
     );
     const items: ExternalPost[] = [];
     for (const value of page.posts) {
@@ -523,9 +531,11 @@ export class BlueskyClient {
       try {
         items.push(normalizePost(post.data, 0, this.allowExplicitMedia));
       } catch (error) {
-        if (!(error instanceof ProtocolError)) {
-          throw error;
+        // Poison posts are skipped; completeness is handled by callers.
+        if (error instanceof ProtocolError) {
+          continue;
         }
+        continue;
       }
     }
     return { cursor: page.cursor ?? null, items };
@@ -552,7 +562,7 @@ export class BlueskyClient {
       "app.bsky.feed.getPosts",
       { uris: JSON.stringify([...new Set(parsed.data)].toSorted()) },
       postsSchema,
-      10_000
+      120_000
     );
     const posts: ExternalPost[] = [];
     for (const value of page.posts) {
@@ -569,9 +579,21 @@ export class BlueskyClient {
       try {
         posts.push(normalizePost(post.data, 0, this.allowExplicitMedia));
       } catch (error) {
-        if (requireComplete || !(error instanceof ProtocolError)) {
-          throw error;
+        if (requireComplete) {
+          throw error instanceof ProtocolError
+            ? error
+            : new ProtocolError(
+                "invalid_response",
+                "Post normalization failed"
+              );
         }
+        // Poison posts must not fail the batch; skip unless completeness is required.
+        if (error instanceof ProtocolError) {
+          continue;
+        }
+        // Convert unexpected normalize failures to invalid_response so the
+        // batch resolves with the remaining valid posts.
+        continue;
       }
     }
     return posts;
@@ -591,7 +613,7 @@ export class BlueskyClient {
         uri: parsed.data,
       },
       threadResponseSchema,
-      15_000
+      120_000
     );
     return extractThread(data.thread, 150, this.allowExplicitMedia);
   }
@@ -614,7 +636,7 @@ export class BlueskyClient {
       operation,
       params,
       feedPageSchema,
-      parsed.data.cursor ? 30_000 : 10_000,
+      parsed.data.cursor ? 180_000 : 60_000,
       parsed.data.language
     );
     const unique = new Map<string, ExternalPost>();
@@ -746,7 +768,9 @@ export class BlueskyClient {
             this.failures += 1;
             this.lastFailureAt = now;
             if (probe || this.failures >= 5) {
-              this.circuitUntil = now + 30_000;
+              // Jitter avoids synchronized retry storms after a shared outage.
+              const jitter = 0.8 + Math.random() * 0.4;
+              this.circuitUntil = now + Math.ceil(30_000 * jitter);
             }
           } else if (probe) {
             // A non-availability response (e.g. rate limit, input error, auth) proves upstream is reachable.
@@ -1079,15 +1103,19 @@ export class BlueskyClient {
             }
             await response.body?.cancel();
             if (response.status === 429) {
-              const wait = Math.ceil(
-                (retryAfterMs(
+              const baseWaitMs =
+                retryAfterMs(
                   response.headers.get("retry-after"),
                   this.options.now()
-                ) ?? 30_000) / 1000
-              );
+                ) ?? 30_000;
+              // Nonnegative jitter only delays past the requested pause;
+              // retrying before Retry-After expires would cause another 429.
+              const jitteredMs =
+                baseWaitMs + Math.floor(Math.random() * baseWaitMs * 0.25);
+              const wait = Math.ceil(jitteredMs / 1000);
               this.blockedUntil = Math.max(
                 this.blockedUntil,
-                this.options.now() + wait * 1000
+                this.options.now() + jitteredMs
               );
               throw new ProtocolError(
                 "rate_limited",

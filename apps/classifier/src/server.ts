@@ -11,16 +11,20 @@ const classifier = await createClassifier(config.modelPath, config.threads);
 const handler = createClassifierApp(config, classifier.classify);
 let completed = 0;
 let failed = 0;
+let rejected = 0;
 let totalMs = 0;
 const summary = setInterval(() => {
-  if (completed + failed > 0) {
+  if (completed + failed + rejected > 0) {
+    // Client rejections (4xx) are expected validation; only 5xx warn.
     telemetry.log(failed ? "warn" : "info", "classifier.requests", {
       completed,
       failed,
-      meanDurationMs: totalMs / (completed + failed),
+      meanDurationMs: totalMs / (completed + failed + rejected),
+      rejected,
     });
     completed = 0;
     failed = 0;
+    rejected = 0;
     totalMs = 0;
   }
 }, 30_000);
@@ -33,16 +37,18 @@ const server = Bun.serve({
     if (new URL(request.url).pathname === "/v1/classify") {
       if (response.ok) {
         completed += 1;
-      } else {
+      } else if (response.status === 500) {
         failed += 1;
+      } else {
+        rejected += 1;
       }
       totalMs += performance.now() - started;
     }
     return response;
   },
   hostname: "0.0.0.0",
-  idleTimeout: 15,
-  maxRequestBodySize: maxImageBytes,
+  idleTimeout: 45,
+  maxRequestBodySize: maxImageBytes + 64 * 1024,
   port: config.port,
 });
 telemetry.log("info", "classifier.ready", {
@@ -56,7 +62,11 @@ const stop = async () => {
   clearInterval(summary);
   await server.stop();
   await classifier.close();
-  telemetry.log("info", "classifier.stopped", { completed, failed });
+  telemetry.log("info", "classifier.stopped", {
+    completed,
+    failed,
+    rejected,
+  });
   await telemetry.shutdown();
 };
 process.once("SIGTERM", stop);

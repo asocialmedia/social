@@ -27,6 +27,7 @@ export function createClassifierApp(
     .digest();
   let completed = 0;
   let failed = 0;
+  let rejected = 0;
   return async (request: Request) => {
     const path = new URL(request.url).pathname;
     if ((path === "/health" || path === "/ready") && request.method === "GET") {
@@ -45,6 +46,7 @@ export function createClassifierApp(
         failed,
         maxImageBytes,
         queue: queue.status(),
+        rejected,
         threads: config.threads,
       });
     }
@@ -96,17 +98,27 @@ export function createClassifierApp(
         });
       }, signal);
     } catch (error) {
-      failed += 1;
+      // Only unexpected inference failures are failures; validation and
+      // backpressure responses are rejections, matching the server summary.
       if (error instanceof ClassifierError) {
+        if (error.status === 500) {
+          failed += 1;
+        } else {
+          rejected += 1;
+        }
         return json(
           { error: error.code },
           error.status,
-          error.status === 503 ? { "retry-after": "1" } : undefined
+          error.status === 503 || error.status === 429
+            ? { "retry-after": "1" }
+            : undefined
         );
       }
       if (signal.aborted) {
+        rejected += 1;
         return json({ error: "request_cancelled" }, 408);
       }
+      failed += 1;
       return json({ error: "inference_failed" }, 500);
     }
   };

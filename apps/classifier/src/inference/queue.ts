@@ -12,7 +12,8 @@ export class InferenceQueue {
     signal.throwIfAborted();
     if (this.active) {
       if (this.waiting.length >= this.limit) {
-        throw new ClassifierError("capacity_unavailable", 503);
+        // Backpressure is retryable; 429 keeps 5xx alerts for real failures.
+        throw new ClassifierError("capacity_unavailable", 429);
       }
       const pending = Promise.withResolvers<undefined>();
       const resume = () => pending.resolve();

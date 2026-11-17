@@ -119,7 +119,7 @@ test("one active inference plus a full queue rejects excess work with Retry-Afte
   await entered.promise;
   const waiting = app(request());
   const rejected = await app(request());
-  expect(rejected.status).toBe(503);
+  expect(rejected.status).toBe(429);
   expect(rejected.headers.get("retry-after")).toBe("1");
   gate.resolve(result);
   expect((await active).status).toBe(200);
