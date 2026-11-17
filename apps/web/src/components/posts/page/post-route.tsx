@@ -34,6 +34,7 @@ import {
   getPostImage,
   getPostPath,
   getPostUrl,
+  getShortPostId,
   postDescription,
   postTitle,
 } from "@/lib/seo/seo";
@@ -184,7 +185,9 @@ export async function generatePostMetadata(
   const title = postTitle(post);
   const description = postDescription(post);
   const url = absoluteUrl(canonicalPath);
-  const ogImageUrl = absoluteUrl(`/posts/${post.id}/opengraph-image`);
+  const ogImageUrl = absoluteUrl(
+    `/posts/${getShortPostId(post.id)}/opengraph-image`
+  );
   const postImage = getPostImage(post);
 
   return {

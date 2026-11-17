@@ -1,8 +1,10 @@
 // oxlint-disable next/no-img-element -- Satori image generation requires native img elements
 import { fromPrismaDateTime, prisma } from "@asm/db";
 import { cacheLife, cacheTag } from "next/cache";
+import { notFound, permanentRedirect } from "next/navigation";
 import { ImageResponse } from "next/og";
 
+import { getShortPostId } from "@/lib/posts/post-url";
 import { canSatoriRenderAvatar, avatarInitial } from "@/lib/seo/og-avatar";
 import { getOgFontOptions } from "@/lib/seo/og-fonts";
 import { ogMediaDataUrl } from "@/lib/seo/og-media";
@@ -160,9 +162,17 @@ export default async function Image({
 }) {
   const { index, postId } = await params;
 
-  const post = await getPostForCard(postId);
+  // Canonicalize to the short post id so only one image URL is ever linked.
+  if (postId !== getShortPostId(postId)) {
+    permanentRedirect(`/posts/${getShortPostId(postId)}/opengraph-image`);
+  }
 
-  if (!post) {
+  let post: Awaited<ReturnType<typeof getPostForCard>>;
+  try {
+    post = await getPostForCard(postId);
+  } catch {
+    // Storage outage: static fallback, never 500, short cache so a bad
+    // render never poisons the immutable cache.
     return new ImageResponse(
       <div
         style={{
@@ -176,10 +186,17 @@ export default async function Image({
           width: "100%",
         }}
       >
-        <span style={{ fontSize: 32 }}>Post not found</span>
+        <span style={{ fontSize: 32 }}>asocialmedia</span>
       </div>,
-      { ...size }
+      {
+        ...size,
+        headers: { "cache-control": "public, max-age=60" },
+      }
     );
+  }
+
+  if (!post) {
+    notFound();
   }
 
   const showMedia = getCardMedia(post, index);

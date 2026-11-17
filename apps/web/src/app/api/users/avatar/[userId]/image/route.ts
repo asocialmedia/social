@@ -56,15 +56,20 @@ export async function GET(
   const { userId } = await context.params;
 
   let avatarKey: string | null = null;
-  const cached = await avatarCache.get(userId);
-  if (cached?.key) {
-    avatarKey = cached.key;
-  }
-  if (!avatarKey) {
-    const user = await prisma.orm.public.Users.select("avatarKey")
-      .where({ id: userId })
-      .first();
-    avatarKey = user?.avatarKey ?? null;
+  try {
+    const cached = await avatarCache.get(userId);
+    if (cached?.key) {
+      avatarKey = cached.key;
+    }
+    if (!avatarKey) {
+      const user = await prisma.orm.public.Users.select("avatarKey")
+        .where({ id: userId })
+        .first();
+      avatarKey = user?.avatarKey ?? null;
+    }
+  } catch {
+    // Cache or DB outage: fall through to the default avatar instead of 500.
+    avatarKey = null;
   }
 
   if (!avatarKey) {

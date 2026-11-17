@@ -54,17 +54,23 @@ export async function GET(
 ) {
   const { communityId } = await context.params;
 
-  const community = await prisma.orm.public.Communities.select(
-    "avatarKey",
-    "id",
-    "_type"
-  )
-    .where({ id: communityId })
-    .first();
-  if (!community?.avatarKey) {
+  let avatarKey: string | null = null;
+  try {
+    const community = await prisma.orm.public.Communities.select(
+      "avatarKey",
+      "id",
+      "_type"
+    )
+      .where({ id: communityId })
+      .first();
+    avatarKey = community?.avatarKey ?? null;
+  } catch {
+    // DB outage: 404 keeps crawlers from retry-storming; never 500.
     return new NextResponse("Avatar not found", { status: 404 });
   }
-  const { avatarKey } = community;
+  if (!avatarKey) {
+    return new NextResponse("Avatar not found", { status: 404 });
+  }
 
   try {
     const response = await asmobClient.send(

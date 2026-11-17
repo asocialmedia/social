@@ -17,6 +17,15 @@ const nextConfig: NextConfig = withStreamConfig({
             value: "noindex",
           },
         ],
+        source: "/_next/static/:path*",
+      },
+      {
+        headers: [
+          {
+            key: "X-Robots-Tag",
+            value: "noindex",
+          },
+        ],
         source: "/_next/static/media/:path*",
       },
       {

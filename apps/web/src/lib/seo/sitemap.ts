@@ -14,8 +14,6 @@ import { cacheLife, cacheTag } from "next/cache";
 import { getPostUrl } from "@/lib/seo/seo";
 import { profilePath } from "@/lib/users/profile-path";
 
-import { getPublicBlueskyDiscovery } from "./bluesky-discovery";
-import { blueskyPostPath } from "./bluesky-metadata";
 import { publicPostReadable } from "./public-post-readability";
 import { videoWatchUrl } from "./video";
 
@@ -43,7 +41,6 @@ export const SITEMAP_IDS = [
   "users",
   "tags",
   "communities",
-  "bluesky",
   "videos",
 ] as const;
 
@@ -470,13 +467,6 @@ async function getVideoEntries(): Promise<SitemapEntry[]> {
 
 export function getSitemapEntries(id: SitemapId): Promise<SitemapEntry[]> {
   switch (id) {
-    case "bluesky": {
-      return getPublicBlueskyDiscovery().then((posts) =>
-        posts.map((post) => ({
-          url: `${siteConfig.url}${blueskyPostPath(post.id)}`,
-        }))
-      );
-    }
     case "videos": {
       return getVideoEntries();
     }

@@ -13,6 +13,7 @@ import {
   getPostMediaPath,
   getPostMediaUrl,
   getPostPath,
+  getShortPostId,
   postDescription,
   postTitle,
   siteConfig,
@@ -172,7 +173,8 @@ export async function generatePostMediaMetadata({
   const mediaImage = getMediaImage(post, resolvedIndex);
 
   const ogImageUrl =
-    mediaImage || absoluteUrl(`/posts/${post.id}/opengraph-image`);
+    mediaImage ||
+    absoluteUrl(`/posts/${getShortPostId(post.id)}/opengraph-image`);
 
   return {
     alternates: { canonical: canonicalPath },

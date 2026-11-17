@@ -1,6 +1,7 @@
 // oxlint-disable next/no-img-element -- Satori image generation requires native img elements
 import { fromPrismaDateTime, getUserBadges, prisma } from "@asm/db";
 import { cacheLife, cacheTag } from "next/cache";
+import { notFound } from "next/navigation";
 import { ImageResponse } from "next/og";
 
 import { avatarInitial, canSatoriRenderAvatar } from "@/lib/seo/og-avatar";
@@ -64,14 +65,16 @@ export default async function Image({
   params: Promise<{ username: string }>;
 }) {
   const { username } = await params;
-  const user = await getUserForCard(username);
-
-  if (!user) {
+  let user: Awaited<ReturnType<typeof getUserForCard>>;
+  try {
+    user = await getUserForCard(username);
+  } catch {
+    // Storage outage: static fallback, never 500, short cache.
     return new ImageResponse(
       <div
         style={{
           alignItems: "center",
-          background: "#111111",
+          background: "#0c0c0e",
           color: "#fafafa",
           display: "flex",
           fontFamily: "sans-serif",
@@ -80,10 +83,17 @@ export default async function Image({
           width: "100%",
         }}
       >
-        <span style={{ fontSize: 32 }}>User not found</span>
+        <span style={{ fontSize: 32 }}>asocialmedia</span>
       </div>,
-      { ...size }
+      {
+        ...size,
+        headers: { "cache-control": "public, max-age=60" },
+      }
     );
+  }
+
+  if (!user) {
+    notFound();
   }
 
   const bio = user.bio ? excerpt(user.bio, BIO_MAX) : null;
