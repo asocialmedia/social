@@ -399,7 +399,6 @@ export interface ReplayOptions {
   endpoint?: JetstreamEndpoint;
   dids?: string[];
   collections?: string[];
-  publicDiscovery?: boolean;
   kinds?: Kind[];
   afterSeq: number;
   signal?: AbortSignal;
@@ -448,21 +447,21 @@ export async function* replayJetstream(
   if (!Number.isSafeInteger(maxMessageBytes) || maxMessageBytes <= 0) {
     throw new RangeError("Stream limits must be positive safe integers");
   }
-  // Mirror the live tail: public discovery subscribes to commit, identity and
-  // account kinds, while a tracked-account subscription takes every kind.
-  const kinds =
-    options.kinds ??
-    (options.publicDiscovery
-      ? (["commit", "identity", "account"] as const satisfies readonly Kind[])
-      : replayKinds);
+  // Always request every kind on replay: kinds only narrow the snapshot
+  // plan, so excluding sync would still decode sync rows without surfacing
+  // them, while an excluded-but-undecodable row would abort the catch-up.
+  // Sync rows are harmless downstream (the worker ignores them after checkpointing).
+  const kinds = options.kinds ?? [...replayKinds];
   const endpoint = parsed.data.endpoint.replace("wss:", "https:");
+  // No strict wire validation here: malformed archive rows are skipped by the
+  // SDK instead of aborting the whole catch-up, and every yielded event still
+  // passes the schema check below before it can checkpoint anything.
   const client = new Jetstream({
     // The SDK types fetch as the full undici signature; only the call
     // signature is exercised here.
     ...(options.fetch ? { fetchImpl: options.fetch as typeof fetch } : {}),
     apiKey: options.apiKey,
     service: endpoint,
-    validateWire: true,
   });
   const controller = new AbortController();
   const signal = options.signal

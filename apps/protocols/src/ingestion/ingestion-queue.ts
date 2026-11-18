@@ -14,6 +14,7 @@ import {
   HydrationLifetimeExpiredError,
   hydrationLifetimeMs,
   hydrationRetryDelay,
+  resolveRefence,
 } from "./hydration-retry";
 
 export {
@@ -34,6 +35,7 @@ const batchSchema = z.object({
     )
     .min(1)
     .max(25),
+  refencedAt: z.number().int().positive().optional(),
   scheduledAt: z.number().int().positive().optional(),
   startedAt: z.number().int().positive(),
   trace: z
@@ -165,12 +167,22 @@ export function createIngestionQueue(options: {
             return await runHydrationJob(job.data, options.hydrate);
           } catch (error) {
             if (error instanceof HydrationLifetimeExpiredError) {
+              const at = Date.now();
+              const decision = resolveRefence(job.data.refencedAt, at);
+              if (decision.terminal) {
+                // The outage outlasted the re-fence budget: drop loudly
+                // instead of occupying the bounded queue with an immortal
+                // batch. attemptsMade is unaffected, so this stays terminal.
+                throw new UnrecoverableError(
+                  "Protocol hydration batch expired after extended outage; dropping batch"
+                );
+              }
               // The batch outwaited its fence during an outage, not because
               // it is poison: re-fence with a current timestamp and defer so
               // the posts still hydrate instead of dropping silently.
-              const at = Date.now();
               await job.updateData({
                 ...job.data,
+                refencedAt: decision.refencedAt,
                 scheduledAt: at,
                 startedAt: at,
               });

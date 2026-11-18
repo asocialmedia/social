@@ -13,6 +13,9 @@ export interface CheckpointStore {
   release: () => Promise<void>;
   load: () => Promise<number | undefined>;
   commit: (event: JetstreamEvent) => Promise<void>;
+  // Batched variant: advances the checkpoint once while delivering every
+  // event's invalidation, so batching never drops intermediate notifications.
+  commitBatch: (events: JetstreamEvent[]) => Promise<void>;
   resetCursor?: () => Promise<void>;
 }
 
@@ -29,6 +32,32 @@ if tonumber(ARGV[2]) > previous then
 end
 return 1
 `;
+const commitBatchScript = `
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+local previous = tonumber(redis.call('GET', KEYS[2]) or '-1')
+local seq = tonumber(ARGV[2])
+if seq > previous then
+  redis.call('SET', KEYS[2], ARGV[2])
+end
+if ARGV[3] ~= '' then
+  for index = 4, #ARGV do
+    redis.call('PUBLISH', ARGV[3], ARGV[index])
+  end
+end
+return 1
+`;
+
+function notificationFor(event: JetstreamEvent): string {
+  return JSON.stringify({
+    did: event.did,
+    kind: event.kind,
+    seq: event.seq,
+    source: "bluesky",
+    ...(event.kind === "commit"
+      ? { operation: event.commit.operation, uri: jetstreamRecordUri(event) }
+      : {}),
+  });
+}
 
 export class RedisCheckpointStore implements CheckpointStore {
   readonly scope: string;
@@ -101,15 +130,6 @@ export class RedisCheckpointStore implements CheckpointStore {
     return cursor;
   }
   async commit(event: JetstreamEvent): Promise<void> {
-    const notification = JSON.stringify({
-      did: event.did,
-      kind: event.kind,
-      seq: event.seq,
-      source: "bluesky",
-      ...(event.kind === "commit"
-        ? { operation: event.commit.operation, uri: jetstreamRecordUri(event) }
-        : {}),
-    });
     const committed = await this.redis.eval(
       commitScript,
       2,
@@ -118,7 +138,34 @@ export class RedisCheckpointStore implements CheckpointStore {
       this.owner,
       event.seq,
       this.publishInvalidations ? "asm:protocols:invalidations" : "",
-      notification
+      notificationFor(event)
+    );
+    if (committed !== 1) {
+      throw new Error("Jetstream lease is no longer owned");
+    }
+  }
+  async commitBatch(events: JetstreamEvent[]): Promise<void> {
+    if (!events.length) {
+      return;
+    }
+    let maxSeq = Number.NEGATIVE_INFINITY;
+    for (const event of events) {
+      if (event.seq > maxSeq) {
+        maxSeq = event.seq;
+      }
+    }
+    const channel = this.publishInvalidations
+      ? "asm:protocols:invalidations"
+      : "";
+    const committed = await this.redis.eval(
+      commitBatchScript,
+      2,
+      `${this.scope}:lease`,
+      `${this.scope}:cursor`,
+      this.owner,
+      maxSeq,
+      channel,
+      ...events.map((event) => notificationFor(event))
     );
     if (committed !== 1) {
       throw new Error("Jetstream lease is no longer owned");

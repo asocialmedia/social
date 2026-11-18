@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { ProtocolError } from "@asm/protocols/contracts";
 import { UnrecoverableError } from "bullmq";
 
+import { maxRefenceAgeMs, resolveRefence } from "./hydration-retry";
 import {
   HydrationLifetimeExpiredError,
   hydrationRetryDelay,
@@ -92,6 +93,15 @@ test("queue rejects invalid jobs and reschedules delayed work without refreshing
     )
   ).toBe(1);
   expect(reads).toEqual([[id], [id]]);
+});
+
+test("re-fencing keeps deferring within budget and drops loudly past it", () => {
+  const first = resolveRefence(undefined, 10_000);
+  expect(first).toEqual({ refencedAt: 10_000, terminal: false });
+  const renewed = resolveRefence(10_000, 10_000 + maxRefenceAgeMs);
+  expect(renewed).toEqual({ refencedAt: 10_000, terminal: false });
+  const expired = resolveRefence(10_000, 10_000 + maxRefenceAgeMs + 1);
+  expect(expired).toEqual({ refencedAt: 10_000, terminal: true });
 });
 
 test("Redis queue connections preserve URL credentials, database and TLS", () => {

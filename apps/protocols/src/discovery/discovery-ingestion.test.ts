@@ -79,6 +79,12 @@ test.each([false, "queue-error"])(
 
 test("local retries stop after three failures and deletion removes deferred candidates", async () => {
   let now = 10_000;
+  const warnings: {
+    attempts: number;
+    batchSize: number;
+    event: string;
+    reason: string;
+  }[] = [];
   const getPosts = mock(() =>
     Promise.reject(new ProtocolError("unavailable", "Retry", 1))
   );
@@ -88,6 +94,11 @@ test("local retries stop after three failures and deletion removes deferred cand
       allowsRecommendations: () => Promise.resolve(true),
       getPosts,
       invalidate() {},
+    },
+    logger: {
+      warn: (fields) => {
+        warnings.push(fields as (typeof warnings)[number]);
+      },
     },
     now: () => now,
     publish: () => Promise.resolve(),
@@ -115,6 +126,14 @@ test("local retries stop after three failures and deletion removes deferred cand
   expect(ingestion.pendingCount).toBe(0);
   expect(getPosts).toHaveBeenCalledTimes(4);
   expect(put).not.toHaveBeenCalled();
+  expect(warnings).toEqual([
+    {
+      attempts: 3,
+      batchSize: 1,
+      event: "ingestion.local_retry_exhausted",
+      reason: "attempts_exhausted",
+    },
+  ]);
 });
 
 test("outage-aged retries are re-fenced with a current timestamp instead of dropping posts", async () => {

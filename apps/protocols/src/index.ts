@@ -241,6 +241,7 @@ export async function startProtocols() {
       ? createDiscoveryIngestion({
           client: effectiveClient,
           dispatch: ingestionQueue?.enqueue,
+          logger,
           publish: () =>
             redis?.publish(
               FEED_EVENTS_CHANNEL,
