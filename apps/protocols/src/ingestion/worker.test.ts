@@ -65,6 +65,15 @@ test("reconnects from committed progress and ignores duplicate delivery", async 
       committed.push(item.seq);
       cursor = item.seq;
     },
+    commitBatch: async (items) => {
+      for (const item of items) {
+        committed.push(item.seq);
+      }
+      const last = items.at(-1);
+      if (last) {
+        cursor = last.seq;
+      }
+    },
     load: async () => cursor,
     release: async () => {},
     renew: async () => true,
@@ -110,6 +119,10 @@ test("does not advance the cursor when processing fails", async () => {
       commits += 1;
       throw new Error("Redis unavailable");
     },
+    commitBatch: async () => {
+      commits += 1;
+      throw new Error("Redis unavailable");
+    },
     load: async () => 10,
     release: async () => {},
     renew: async () => true,
@@ -143,6 +156,7 @@ test("a standby instance never opens an additional stream", async () => {
   const store: CheckpointStore = {
     acquire: async () => false,
     commit: async () => {},
+    commitBatch: async () => {},
     load: async () => {},
     release: async () => {},
     renew: async () => false,
@@ -171,6 +185,9 @@ test("events outside the configured account set cannot be checkpointed", async (
   const store: CheckpointStore = {
     acquire: async () => true,
     commit: async () => {
+      committed = true;
+    },
+    commitBatch: async () => {
       committed = true;
     },
     load: async () => {},
@@ -217,6 +234,9 @@ test("lease renewal loss cancels the socket before another event is committed", 
       acquire: async () => true,
       commit: async () => {
         commits += 1;
+      },
+      commitBatch: async (items) => {
+        commits += items.length;
       },
       load: async () => 10,
       release: async () => {
@@ -265,6 +285,7 @@ test("a flapping stream backs off and stops warning on every attempt", async () 
     store: {
       acquire: async () => true,
       commit: async () => {},
+      commitBatch: async () => {},
       load: async () => 10,
       release: async () => {},
       renew: async () => true,
@@ -293,4 +314,243 @@ test("a flapping stream backs off and stops warning on every attempt", async () 
   // Backoff must have moved past the one-second floor.
   expect(waits).toBeGreaterThan(1000);
   expect(health.connected).toBe(false);
+});
+
+test("checkpoints batch multiple events into one commit", async () => {
+  const { health, controller, logger } = fixture();
+  const committed: number[] = [];
+  const batches: number[][] = [];
+  let invalidations = 0;
+  const store: CheckpointStore = {
+    acquire: async () => true,
+    commit: async (item) => {
+      committed.push(item.seq);
+    },
+    commitBatch: async (items) => {
+      batches.push(items.map((item) => item.seq));
+      for (const item of items) {
+        committed.push(item.seq);
+      }
+    },
+    load: async () => 10,
+    release: async () => {},
+    renew: async () => true,
+  };
+  await runJetstreamWorker({
+    health,
+    invalidate: () => {
+      invalidations += 1;
+    },
+    logger,
+    signal: controller.signal,
+    store,
+    async *stream() {
+      yield event(11);
+      yield event(12);
+      yield event(13);
+      controller.abort();
+    },
+    streamOptions: { dids: [did] },
+    wait: async () => {},
+  });
+  // One commit call carries the whole batch (every invalidation is
+  // published), but every event still flows through processing.
+  expect(batches).toEqual([[11, 12, 13]]);
+  expect(committed).toEqual([11, 12, 13]);
+  expect(invalidations).toBe(3);
+  expect(health.processedEvents).toBe(3);
+});
+
+test("cursor resets resume from live edge without an api key", async () => {
+  const { health, controller, logger, logs } = fixture();
+  let liveCalls = 0;
+  let replays = 0;
+  const store: CheckpointStore = {
+    acquire: async () => true,
+    commit: async () => {},
+    commitBatch: async () => {},
+    load: async () => 100,
+    release: async () => {},
+    renew: async () => true,
+    resetCursor: async () => {},
+  };
+  await runJetstreamWorker({
+    health,
+    invalidate: () => {},
+    logger,
+    async *replay() {
+      replays += 1;
+      yield event(1);
+    },
+    signal: controller.signal,
+    store,
+    // oxlint-disable-next-line require-yield -- mock throws before first frame
+    async *stream() {
+      liveCalls += 1;
+      throw new Error("boom CursorTooOld");
+    },
+    streamOptions: { dids: [did] },
+    wait: async () => {
+      controller.abort();
+    },
+  });
+  expect(liveCalls).toBe(1);
+  expect(replays).toBe(0);
+  expect(logs).toContain(
+    "Jetstream cursor out of range or requires reconciliation; resuming from live edge"
+  );
+});
+
+test("cursor resets replay missed events instead of resuming from live edge", async () => {
+  const { health, controller, logger, logs } = fixture();
+  const committed: number[] = [];
+  const replayCalls: { afterSeq?: number; apiKey?: string }[] = [];
+  let liveCalls = 0;
+  let replayed = false;
+  const store: CheckpointStore = {
+    acquire: async () => true,
+    commit: async (item) => {
+      committed.push(item.seq);
+    },
+    commitBatch: async (items) => {
+      for (const item of items) {
+        committed.push(item.seq);
+      }
+    },
+    load: async () => 100,
+    release: async () => {},
+    renew: async () => true,
+    resetCursor: async () => {},
+  };
+  await runJetstreamWorker({
+    apiKey: "test-key",
+    health,
+    invalidate: () => {},
+    logger,
+    async *replay(options: { afterSeq?: number; apiKey?: string }) {
+      replayCalls.push({ afterSeq: options.afterSeq, apiKey: options.apiKey });
+      yield event(101);
+      yield event(102);
+      replayed = true;
+    },
+    signal: controller.signal,
+    store,
+    // oxlint-disable-next-line require-yield -- mock throws before first frame
+    async *stream() {
+      liveCalls += 1;
+      throw new Error("boom CursorTooOld");
+    },
+    streamOptions: { dids: [did] },
+    wait: async () => {
+      if (replayed) {
+        controller.abort();
+      }
+    },
+  });
+  expect(liveCalls).toBe(1);
+  expect(replayCalls).toEqual([{ afterSeq: 100, apiKey: "test-key" }]);
+  // The replayed gap commits as one batch; both events processed.
+  expect(committed).toEqual([101, 102]);
+  expect(health.processedEvents).toBe(2);
+  expect(logs).toContain(
+    "Jetstream cursor out of range; replaying missed events instead of resuming from live edge"
+  );
+  expect(logs).not.toContain(
+    "Jetstream cursor out of range or requires reconciliation; resuming from live edge"
+  );
+});
+
+test("batched checkpoints commit once per interval while processing every event", async () => {
+  const { health, controller, logger } = fixture();
+  const committed: number[] = [];
+  const batches: number[][] = [];
+  let invalidations = 0;
+  const store: CheckpointStore = {
+    acquire: async () => true,
+    commit: async (item) => {
+      committed.push(item.seq);
+    },
+    commitBatch: async (items) => {
+      batches.push(items.map((item) => item.seq));
+      for (const item of items) {
+        committed.push(item.seq);
+      }
+    },
+    load: async () => 10,
+    release: async () => {},
+    renew: async () => true,
+  };
+  await runJetstreamWorker({
+    commitBatchEvents: 50,
+    commitBatchMs: 60_000,
+    health,
+    invalidate: () => {
+      invalidations += 1;
+    },
+    logger,
+    signal: controller.signal,
+    store,
+    async *stream() {
+      yield event(11);
+      yield event(12);
+      yield event(13);
+      controller.abort();
+    },
+    streamOptions: { dids: [did] },
+    wait: async () => {},
+  });
+  // One commit call carries the whole batch (every invalidation is
+  // published), but every event still flows through processing.
+  expect(batches).toEqual([[11, 12, 13]]);
+  expect(committed).toEqual([11, 12, 13]);
+  expect(invalidations).toBe(3);
+  expect(health.processedEvents).toBe(3);
+});
+
+test("repeated replay failures fall back to live instead of retrying forever", async () => {
+  const { health, controller, logger, logs } = fixture();
+  const replayCalls: unknown[] = [];
+  let liveCalls = 0;
+  let resets = 0;
+  const store: CheckpointStore = {
+    acquire: async () => true,
+    commit: async () => {},
+    commitBatch: async () => {},
+    load: async () => 100,
+    release: async () => {},
+    renew: async () => true,
+    resetCursor: async () => {
+      resets += 1;
+    },
+  };
+  await runJetstreamWorker({
+    apiKey: "test-key",
+    health,
+    invalidate: () => {},
+    logger,
+    // oxlint-disable-next-line require-yield -- mock fails before first frame
+    async *replay() {
+      replayCalls.push(true);
+      throw new Error("Jetstream replay unavailable");
+    },
+    signal: controller.signal,
+    store,
+    // oxlint-disable-next-line require-yield -- mock fails before first frame
+    async *stream() {
+      liveCalls += 1;
+      throw new Error("boom CursorTooOld");
+    },
+    streamOptions: { dids: [did] },
+    wait: async () => {
+      if (liveCalls >= 2 && replayCalls.length >= 3) {
+        controller.abort();
+      }
+    },
+  });
+  expect(replayCalls).toHaveLength(3);
+  expect(resets).toBe(1);
+  expect(liveCalls).toBeGreaterThanOrEqual(2);
+  expect(logs).toContain(
+    "Jetstream replay failed repeatedly; resuming from live edge"
+  );
 });

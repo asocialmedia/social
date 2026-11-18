@@ -13,6 +13,7 @@ export interface ProtocolsConfig {
   workerConcurrency: number;
   workerTimeoutMs: number;
   searchConcurrency: number;
+  jetstreamApiKey?: string;
   asmUrl?: string;
   hostname: string;
   port: number;
@@ -80,7 +81,7 @@ export function readConfig(
     );
   }
   const port = Number(env.PROTOCOLS_PORT ?? "3012");
-  const searchConcurrency = Number(env.PROTOCOLS_SEARCH_CONCURRENCY ?? "48");
+  const searchConcurrency = Number(env.PROTOCOLS_SEARCH_CONCURRENCY ?? "16");
   if (
     !Number.isInteger(searchConcurrency) ||
     searchConcurrency < 1 ||
@@ -112,6 +113,9 @@ export function readConfig(
   if (enabled !== "true" && enabled !== "false") {
     throw new Error("PROTOCOLS_JETSTREAM_ENABLED must be true or false");
   }
+  // Metered replay catch-up key. Absent means gaps resume from the live edge;
+  // the SDK validates the format when a replay starts.
+  const jetstreamApiKey = env.JETSTREAM_API_KEY?.trim() || undefined;
   const dids = [
     ...new Set(
       (env.PROTOCOLS_BLUESKY_DIDS ?? "")
@@ -187,6 +191,7 @@ export function readConfig(
     endpoint,
     hostname: env.PROTOCOLS_HOST ?? "0.0.0.0",
     ingestionQueueEnabled: queueEnabled === "true",
+    jetstreamApiKey,
     jetstreamEnabled: enabled === "true",
     mode,
     port,

@@ -79,6 +79,9 @@ export function createDiscoveryIngestion(options: {
   publishInvalidation?: (event: JetstreamEvent) => Promise<unknown>;
   dispatch?: (ids: string[], startedAt: number) => Promise<boolean>;
   now?: () => number;
+  logger?: {
+    warn: (fields: Record<string, unknown>, message: string) => void;
+  };
 }) {
   const now = options.now ?? Date.now;
   const watches = new Map<
@@ -164,12 +167,13 @@ export function createDiscoveryIngestion(options: {
       const timestamp = now();
       for (let index = retries.length - 1; index >= 0; index -= 1) {
         const retry = retries[index];
-        if (
-          retry &&
-          (!retry.ids.length ||
-            timestamp - retry.startedAt > hydrationLifetimeMs)
-        ) {
+        if (!retry || !retry.ids.length) {
           retries.splice(index, 1);
+        } else if (timestamp - retry.startedAt > hydrationLifetimeMs) {
+          // Same outage case as the queue worker: the batch outwaited its
+          // fence, so re-fence with a current timestamp instead of dropping
+          // the posts. Attempt counts are preserved, so poison still dies.
+          retry.startedAt = timestamp;
         }
       }
       const retry = retries.find((candidate) => candidate.nextAt <= timestamp);
@@ -219,6 +223,23 @@ export function createDiscoveryIngestion(options: {
               (hydrationRetryDelay(error) ?? 1000 * 2 ** (attempts - 1)),
             startedAt,
           });
+        } else {
+          // Retries are bounded; surface the drop instead of pruning silently.
+          let reason = "lifetime_expired";
+          if (attempts >= 3) {
+            reason = "attempts_exhausted";
+          } else if (retries.length >= 4) {
+            reason = "retry_queue_full";
+          }
+          options.logger?.warn(
+            {
+              attempts,
+              batchSize: ids.length,
+              event: "ingestion.local_retry_exhausted",
+              reason,
+            },
+            "Protocol hydration batch dropped after exhausting local retries"
+          );
         }
       } finally {
         running = false;

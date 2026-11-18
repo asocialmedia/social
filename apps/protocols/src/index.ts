@@ -65,7 +65,7 @@ export async function startProtocols() {
   const observe = createProtocolObserver(logger);
   const client = new BlueskyClient({
     fetch: pool?.fetch,
-    maxConcurrentRequests: 48,
+    maxConcurrentRequests: 16,
     maxRetries: 0,
     observe,
     timeoutMs: readTimeoutMs,
@@ -73,7 +73,7 @@ export async function startProtocols() {
   const explicitClient = new BlueskyClient({
     allowExplicitMedia: true,
     fetch: pool?.fetch,
-    maxConcurrentRequests: 24,
+    maxConcurrentRequests: 8,
     maxRetries: 0,
     observe,
     timeoutMs: readTimeoutMs,
@@ -241,6 +241,7 @@ export async function startProtocols() {
       ? createDiscoveryIngestion({
           client: effectiveClient,
           dispatch: ingestionQueue?.enqueue,
+          logger,
           publish: () =>
             redis?.publish(
               FEED_EVENTS_CHANNEL,
@@ -552,11 +553,13 @@ export async function startProtocols() {
                 const { runJetstreamWorker } =
                   await import("./ingestion/worker");
                 const streamOptions = {
+                  apiKey: config.jetstreamApiKey,
                   dids: [],
                   endpoint: config.endpoint,
                   publicDiscovery: true,
                 };
                 await runJetstreamWorker({
+                  apiKey: config.jetstreamApiKey,
                   health: discoveryHealth,
                   invalidate: () => {
                     // Discovery ingestion publishes only hydrated, policy-checked updates.

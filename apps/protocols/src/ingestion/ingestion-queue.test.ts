@@ -1,8 +1,11 @@
 import { expect, test } from "bun:test";
 
 import { ProtocolError } from "@asm/protocols/contracts";
+import { UnrecoverableError } from "bullmq";
 
+import { maxRefenceAgeMs, resolveRefence } from "./hydration-retry";
 import {
+  HydrationLifetimeExpiredError,
   hydrationRetryDelay,
   HydrationRescheduleError,
   ingestionConnection,
@@ -70,6 +73,18 @@ test("queue rejects invalid jobs and reschedules delayed work without refreshing
       () => 310_001
     )
   ).rejects.toThrow("lifetime expired");
+  // Lifetime expiry stays an UnrecoverableError so terminal accounting is
+  // unchanged; the queue worker re-fences it instead of dropping the batch.
+  const expired = await runHydrationJob(
+    { ids: [id], startedAt: 10_000 },
+    hydrate,
+    () => 310_001
+  ).then(
+    () => null,
+    (error: unknown) => error
+  );
+  expect(expired).toBeInstanceOf(HydrationLifetimeExpiredError);
+  expect(expired).toBeInstanceOf(UnrecoverableError);
   expect(
     await runHydrationJob(
       { ids: [id], startedAt: 10_000 },
@@ -78,6 +93,15 @@ test("queue rejects invalid jobs and reschedules delayed work without refreshing
     )
   ).toBe(1);
   expect(reads).toEqual([[id], [id]]);
+});
+
+test("re-fencing keeps deferring within budget and drops loudly past it", () => {
+  const first = resolveRefence(undefined, 10_000);
+  expect(first).toEqual({ refencedAt: 10_000, terminal: false });
+  const renewed = resolveRefence(10_000, 10_000 + maxRefenceAgeMs);
+  expect(renewed).toEqual({ refencedAt: 10_000, terminal: false });
+  const expired = resolveRefence(10_000, 10_000 + maxRefenceAgeMs + 1);
+  expect(expired).toEqual({ refencedAt: 10_000, terminal: true });
 });
 
 test("Redis queue connections preserve URL credentials, database and TLS", () => {

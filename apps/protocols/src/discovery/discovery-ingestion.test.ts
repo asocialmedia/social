@@ -79,6 +79,12 @@ test.each([false, "queue-error"])(
 
 test("local retries stop after three failures and deletion removes deferred candidates", async () => {
   let now = 10_000;
+  const warnings: {
+    attempts: number;
+    batchSize: number;
+    event: string;
+    reason: string;
+  }[] = [];
   const getPosts = mock(() =>
     Promise.reject(new ProtocolError("unavailable", "Retry", 1))
   );
@@ -88,6 +94,11 @@ test("local retries stop after three failures and deletion removes deferred cand
       allowsRecommendations: () => Promise.resolve(true),
       getPosts,
       invalidate() {},
+    },
+    logger: {
+      warn: (fields) => {
+        warnings.push(fields as (typeof warnings)[number]);
+      },
     },
     now: () => now,
     publish: () => Promise.resolve(),
@@ -114,6 +125,52 @@ test("local retries stop after three failures and deletion removes deferred cand
   await ingestion.tick();
   expect(ingestion.pendingCount).toBe(0);
   expect(getPosts).toHaveBeenCalledTimes(4);
+  expect(put).not.toHaveBeenCalled();
+  expect(warnings).toEqual([
+    {
+      attempts: 3,
+      batchSize: 1,
+      event: "ingestion.local_retry_exhausted",
+      reason: "attempts_exhausted",
+    },
+  ]);
+});
+
+test("outage-aged retries are re-fenced with a current timestamp instead of dropping posts", async () => {
+  let now = 10_000;
+  const getPosts = mock(() =>
+    Promise.reject(new ProtocolError("unavailable", "Down", 1))
+  );
+  const put = mock(() => Promise.resolve());
+  const ingestion = createDiscoveryIngestion({
+    client: {
+      allowsRecommendations: () => Promise.resolve(true),
+      getPosts,
+      invalidate() {},
+    },
+    now: () => now,
+    publish: () => Promise.resolve(),
+    store: {
+      invalidate: () => Promise.resolve(),
+      put,
+      read: () => Promise.resolve([]),
+    },
+  });
+  ingestion.watch(["TypeScript"]);
+  await ingestion.event(event(0));
+  await ingestion.tick();
+  expect(getPosts).toHaveBeenCalledTimes(1);
+  now += 1000;
+  await ingestion.tick();
+  expect(getPosts).toHaveBeenCalledTimes(2);
+  // Jump past the 5-minute hydration lifetime: the retry must be re-fenced
+  // and attempted a third time, not pruned while posts are still missing.
+  now = 10_000 + 300_001;
+  await ingestion.tick();
+  expect(getPosts).toHaveBeenCalledTimes(3);
+  // The third failure exhausts the attempt budget, so the retry is gone only
+  // because it failed three times, not because it aged out.
+  expect(ingestion.pendingCount).toBe(0);
   expect(put).not.toHaveBeenCalled();
 });
 

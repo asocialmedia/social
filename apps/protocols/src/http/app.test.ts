@@ -430,7 +430,7 @@ describe("Elysia protocol service", () => {
 
 describe("protocol configuration", () => {
   test("search concurrency is independently bounded", () => {
-    expect(readConfig({}).searchConcurrency).toBe(48);
+    expect(readConfig({}).searchConcurrency).toBe(16);
     expect(
       readConfig({ PROTOCOLS_SEARCH_CONCURRENCY: "24" }).searchConcurrency
     ).toBe(24);
@@ -442,6 +442,13 @@ describe("protocol configuration", () => {
   });
   test("keeps Jetstream opt-in and never subscribes to the full firehose by accident", () => {
     expect(readConfig({}).jetstreamEnabled).toBe(false);
+    expect(readConfig({}).jetstreamApiKey).toBeUndefined();
+    expect(
+      readConfig({ JETSTREAM_API_KEY: "  " }).jetstreamApiKey
+    ).toBeUndefined();
+    expect(readConfig({ JETSTREAM_API_KEY: "gk_test" }).jetstreamApiKey).toBe(
+      "gk_test"
+    );
     expect(() => readConfig({ PROTOCOLS_JETSTREAM_ENABLED: "true" })).toThrow();
     expect(() => readConfig({ PROTOCOLS_JETSTREAM_ENABLED: "yes" })).toThrow();
     expect(() =>

@@ -6,7 +6,7 @@ import {
   XrpcSubscriptionError,
   websocketTransport,
 } from "@bsky/jetstream";
-import type { LiveTransport } from "@bsky/jetstream";
+import type { Kind, LiveTransport } from "@bsky/jetstream";
 import { z } from "zod";
 
 import { didSchema } from "../bluesky/schemas";
@@ -80,6 +80,9 @@ export interface JetstreamOptions {
   transport?: LiveTransport;
   onConnected?: () => void;
   fetch?: (input: URL, init: RequestInit) => Promise<Response>;
+  // API key for metered endpoints (replay/snapshot). Absent means live tail
+  // only; the key is never logged or embedded in errors by this module.
+  apiKey?: string;
 }
 
 export function jetstreamUrl(
@@ -257,6 +260,7 @@ export async function* streamJetstream(
     },
   };
   const client = new Jetstream({
+    apiKey: options.apiKey,
     service: subscription.origin.replace("wss:", "https:"),
     validateWire: true,
   });
@@ -386,6 +390,138 @@ export async function* streamJetstream(
         );
   } finally {
     clearTimeout(timer);
+    controller.abort();
+  }
+}
+
+export interface ReplayOptions {
+  apiKey: string;
+  endpoint?: JetstreamEndpoint;
+  dids?: string[];
+  collections?: string[];
+  kinds?: Kind[];
+  afterSeq: number;
+  signal?: AbortSignal;
+  fetch?: (input: URL, init: RequestInit) => Promise<Response>;
+  onConnected?: () => void;
+  maxMessageBytes?: number;
+}
+
+const replayCollections = [
+  "app.bsky.feed.post",
+  "app.bsky.actor.profile",
+  "app.bsky.actor.contentVisibilityDeclaration",
+  "app.bsky.feed.threadgate",
+  "app.bsky.feed.postgate",
+];
+
+const replayKinds: Kind[] = ["commit", "identity", "account", "sync"];
+
+// Replays archive history from afterSeq, then cuts over to the live tail
+// through the same event shape as the live stream. Used to catch up across
+// gaps the live cursor can no longer reach (CursorTooOld) instead of jumping
+// to the live edge and silently dropping posts. Requires an API key; replay
+// downloads are byte-metered with server-side retries.
+export async function* replayJetstream(
+  options: ReplayOptions
+): AsyncGenerator<JetstreamEvent> {
+  const parsed = z
+    .object({
+      afterSeq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+      collections: z
+        .array(collectionSchema)
+        .min(1)
+        .max(100)
+        .default([...replayCollections]),
+      dids: z.array(didSchema).max(1000).default([]),
+      endpoint: z.enum(jetstreamEndpoints).default(jetstreamEndpoints[0]),
+    })
+    .safeParse(options);
+  if (!parsed.success) {
+    throw new ProtocolError(
+      "invalid_input",
+      "Jetstream replay needs a bounded starting sequence"
+    );
+  }
+  const maxMessageBytes = options.maxMessageBytes ?? 256 * 1024;
+  if (!Number.isSafeInteger(maxMessageBytes) || maxMessageBytes <= 0) {
+    throw new RangeError("Stream limits must be positive safe integers");
+  }
+  // Always request every kind on replay: kinds only narrow the snapshot
+  // plan, so excluding sync would still decode sync rows without surfacing
+  // them, while an excluded-but-undecodable row would abort the catch-up.
+  // Sync rows are harmless downstream (the worker ignores them after checkpointing).
+  const kinds = options.kinds ?? [...replayKinds];
+  const endpoint = parsed.data.endpoint.replace("wss:", "https:");
+  // No strict wire validation here: malformed archive rows are skipped by the
+  // SDK instead of aborting the whole catch-up, and every yielded event still
+  // passes the schema check below before it can checkpoint anything.
+  const client = new Jetstream({
+    // The SDK types fetch as the full undici signature; only the call
+    // signature is exercised here.
+    ...(options.fetch ? { fetchImpl: options.fetch as typeof fetch } : {}),
+    apiKey: options.apiKey,
+    service: endpoint,
+  });
+  const controller = new AbortController();
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, controller.signal])
+    : controller.signal;
+  let connected = false;
+  try {
+    for await (const event of client.replay({
+      afterSeq: parsed.data.afterSeq,
+      collections: parsed.data.collections.map((collection) => {
+        ensureValidNsid(collection);
+        return collection;
+      }),
+      dids: parsed.data.dids.map((did) => didSchema.parse(did)),
+      kinds: [...kinds],
+      signal,
+    })) {
+      if (!connected) {
+        connected = true;
+        try {
+          options.onConnected?.();
+        } catch {
+          // Connection observers must not interrupt stream consumption.
+        }
+      }
+      if (
+        new TextEncoder().encode(JSON.stringify(event)).byteLength >
+        maxMessageBytes
+      ) {
+        throw new ProtocolError(
+          "invalid_response",
+          "Jetstream event exceeds the size limit"
+        );
+      }
+      const validated = eventSchema.safeParse(event);
+      if (!validated.success) {
+        throw new ProtocolError("invalid_response", "Invalid decoded event");
+      }
+      yield validated.data;
+    }
+  } catch (error) {
+    if (options.signal?.aborted) {
+      return;
+    }
+    if (error instanceof RecordValidationError) {
+      // The SDK skips this unusable record; hydration remains the boundary.
+      throw new ProtocolError(
+        "invalid_response",
+        "Jetstream cursor requires reconciliation"
+      );
+    }
+    throw error instanceof ProtocolError
+      ? error
+      : new ProtocolError(
+          "unavailable",
+          error instanceof Error
+            ? `Jetstream replay ${error.name}: ${error.message}`
+            : "Jetstream replay failed"
+        );
+  } finally {
     controller.abort();
   }
 }
