@@ -80,7 +80,7 @@ export function readConfig(
     );
   }
   const port = Number(env.PROTOCOLS_PORT ?? "3012");
-  const searchConcurrency = Number(env.PROTOCOLS_SEARCH_CONCURRENCY ?? "48");
+  const searchConcurrency = Number(env.PROTOCOLS_SEARCH_CONCURRENCY ?? "16");
   if (
     !Number.isInteger(searchConcurrency) ||
     searchConcurrency < 1 ||

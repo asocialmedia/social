@@ -430,7 +430,7 @@ describe("Elysia protocol service", () => {
 
 describe("protocol configuration", () => {
   test("search concurrency is independently bounded", () => {
-    expect(readConfig({}).searchConcurrency).toBe(48);
+    expect(readConfig({}).searchConcurrency).toBe(16);
     expect(
       readConfig({ PROTOCOLS_SEARCH_CONCURRENCY: "24" }).searchConcurrency
     ).toBe(24);

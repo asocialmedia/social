@@ -65,7 +65,7 @@ export async function startProtocols() {
   const observe = createProtocolObserver(logger);
   const client = new BlueskyClient({
     fetch: pool?.fetch,
-    maxConcurrentRequests: 48,
+    maxConcurrentRequests: 16,
     maxRetries: 0,
     observe,
     timeoutMs: readTimeoutMs,
@@ -73,7 +73,7 @@ export async function startProtocols() {
   const explicitClient = new BlueskyClient({
     allowExplicitMedia: true,
     fetch: pool?.fetch,
-    maxConcurrentRequests: 24,
+    maxConcurrentRequests: 8,
     maxRetries: 0,
     observe,
     timeoutMs: readTimeoutMs,
