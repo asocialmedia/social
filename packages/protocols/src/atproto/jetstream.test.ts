@@ -9,6 +9,7 @@ import {
   jetstreamRecordUri,
   jetstreamUrl,
   parseJetstreamEvent,
+  replayJetstream,
   streamJetstream,
 } from "./jetstream";
 
@@ -118,6 +119,12 @@ test("public discovery is explicit and cannot subscribe to unrelated collections
   expect(() =>
     jetstreamUrl({ dids: [authorDid], publicDiscovery: true })
   ).toThrow();
+});
+
+test("archive replay requires an api key and a bounded starting sequence", async () => {
+  // Invalid input fails before any network use.
+  const replay = replayJetstream({ afterSeq: -1, apiKey: "gk_test" });
+  await expect(replay.next()).rejects.toThrow("bounded starting sequence");
 });
 
 test("public discovery filters sync frames at the actual SDK subscription and reconciles undecodable replays", async () => {

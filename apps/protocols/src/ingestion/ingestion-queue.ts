@@ -10,9 +10,16 @@ import { z } from "zod";
 
 import { observeRequest } from "../runtime/observability";
 import type { ProtocolLogger } from "../runtime/observability";
-import { hydrationLifetimeMs, hydrationRetryDelay } from "./hydration-retry";
+import {
+  HydrationLifetimeExpiredError,
+  hydrationLifetimeMs,
+  hydrationRetryDelay,
+} from "./hydration-retry";
 
-export { hydrationRetryDelay } from "./hydration-retry";
+export {
+  HydrationLifetimeExpiredError,
+  hydrationRetryDelay,
+} from "./hydration-retry";
 
 const queueName = "asm-protocols-hydration-v1";
 const nodesKey = "asm:protocols:hydration:workers:v1";
@@ -66,7 +73,7 @@ export async function runHydrationJob(
     throw new UnrecoverableError("Invalid protocol hydration timestamp");
   }
   if (parsed.data.startedAt < timestamp - hydrationLifetimeMs) {
-    throw new UnrecoverableError("Protocol hydration lifetime expired");
+    throw new HydrationLifetimeExpiredError();
   }
   if ((parsed.data.scheduledAt ?? parsed.data.startedAt) < timestamp - 60_000) {
     // Refresh scheduling without changing the source timestamp used by inventory invalidation fences.
@@ -157,6 +164,29 @@ export function createIngestionQueue(options: {
           try {
             return await runHydrationJob(job.data, options.hydrate);
           } catch (error) {
+            if (error instanceof HydrationLifetimeExpiredError) {
+              // The batch outwaited its fence during an outage, not because
+              // it is poison: re-fence with a current timestamp and defer so
+              // the posts still hydrate instead of dropping silently.
+              const at = Date.now();
+              await job.updateData({
+                ...job.data,
+                scheduledAt: at,
+                startedAt: at,
+              });
+              // Only report deferral after durable scheduling succeeds; storage failures remain errors.
+              await job.moveToDelayed(at + 1000, job.token);
+              options.logger.info(
+                {
+                  event: "ingestion.deferred",
+                  node: options.node,
+                  refreshedFence: true,
+                  retryAfterMs: 1000,
+                },
+                "Protocol hydration waiting for read capacity"
+              );
+              throw new DelayedError();
+            }
             const reschedule = error instanceof HydrationRescheduleError;
             const delay = reschedule ? 1000 : hydrationRetryDelay(error);
             if (!delay) {

@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
 
 import { ProtocolError } from "@asm/protocols/contracts";
+import { UnrecoverableError } from "bullmq";
 
 import {
+  HydrationLifetimeExpiredError,
   hydrationRetryDelay,
   HydrationRescheduleError,
   ingestionConnection,
@@ -70,6 +72,18 @@ test("queue rejects invalid jobs and reschedules delayed work without refreshing
       () => 310_001
     )
   ).rejects.toThrow("lifetime expired");
+  // Lifetime expiry stays an UnrecoverableError so terminal accounting is
+  // unchanged; the queue worker re-fences it instead of dropping the batch.
+  const expired = await runHydrationJob(
+    { ids: [id], startedAt: 10_000 },
+    hydrate,
+    () => 310_001
+  ).then(
+    () => null,
+    (error: unknown) => error
+  );
+  expect(expired).toBeInstanceOf(HydrationLifetimeExpiredError);
+  expect(expired).toBeInstanceOf(UnrecoverableError);
   expect(
     await runHydrationJob(
       { ids: [id], startedAt: 10_000 },

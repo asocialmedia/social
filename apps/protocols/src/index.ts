@@ -552,11 +552,13 @@ export async function startProtocols() {
                 const { runJetstreamWorker } =
                   await import("./ingestion/worker");
                 const streamOptions = {
+                  apiKey: config.jetstreamApiKey,
                   dids: [],
                   endpoint: config.endpoint,
                   publicDiscovery: true,
                 };
                 await runJetstreamWorker({
+                  apiKey: config.jetstreamApiKey,
                   health: discoveryHealth,
                   invalidate: () => {
                     // Discovery ingestion publishes only hydrated, policy-checked updates.

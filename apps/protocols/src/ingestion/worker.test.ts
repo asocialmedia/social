@@ -294,3 +294,133 @@ test("a flapping stream backs off and stops warning on every attempt", async () 
   expect(waits).toBeGreaterThan(1000);
   expect(health.connected).toBe(false);
 });
+
+test("checkpoints batch multiple events into one commit", async () => {
+  const { health, controller, logger } = fixture();
+  const committed: number[] = [];
+  let invalidations = 0;
+  const store: CheckpointStore = {
+    acquire: async () => true,
+    commit: async (item) => {
+      committed.push(item.seq);
+    },
+    load: async () => 10,
+    release: async () => {},
+    renew: async () => true,
+  };
+  await runJetstreamWorker({
+    health,
+    invalidate: () => {
+      invalidations += 1;
+    },
+    logger,
+    signal: controller.signal,
+    store,
+    async *stream() {
+      yield event(11);
+      yield event(12);
+      yield event(13);
+      controller.abort();
+    },
+    streamOptions: { dids: [did] },
+    wait: async () => {},
+  });
+  // One commit for the whole batch (the latest sequence), but every event
+  // still flows through processing.
+  expect(committed).toEqual([13]);
+  expect(invalidations).toBe(3);
+  expect(health.processedEvents).toBe(3);
+});
+
+test("cursor resets resume from live edge without an api key", async () => {
+  const { health, controller, logger, logs } = fixture();
+  let liveCalls = 0;
+  let replays = 0;
+  const store: CheckpointStore = {
+    acquire: async () => true,
+    commit: async () => {},
+    load: async () => 100,
+    release: async () => {},
+    renew: async () => true,
+    resetCursor: async () => {},
+  };
+  await runJetstreamWorker({
+    health,
+    invalidate: () => {},
+    logger,
+    async *replay() {
+      replays += 1;
+      yield event(1);
+    },
+    signal: controller.signal,
+    store,
+    // oxlint-disable-next-line require-yield -- mock throws before first frame
+    async *stream() {
+      liveCalls += 1;
+      throw new Error("boom CursorTooOld");
+    },
+    streamOptions: { dids: [did] },
+    wait: async () => {
+      controller.abort();
+    },
+  });
+  expect(liveCalls).toBe(1);
+  expect(replays).toBe(0);
+  expect(logs).toContain(
+    "Jetstream cursor out of range or requires reconciliation; resuming from live edge"
+  );
+});
+
+test("cursor resets replay missed events instead of resuming from live edge", async () => {
+  const { health, controller, logger, logs } = fixture();
+  const committed: number[] = [];
+  const replayCalls: { afterSeq?: number; apiKey?: string }[] = [];
+  let liveCalls = 0;
+  let replayed = false;
+  const store: CheckpointStore = {
+    acquire: async () => true,
+    commit: async (item) => {
+      committed.push(item.seq);
+    },
+    load: async () => 100,
+    release: async () => {},
+    renew: async () => true,
+    resetCursor: async () => {},
+  };
+  await runJetstreamWorker({
+    apiKey: "test-key",
+    health,
+    invalidate: () => {},
+    logger,
+    async *replay(options: { afterSeq?: number; apiKey?: string }) {
+      replayCalls.push({ afterSeq: options.afterSeq, apiKey: options.apiKey });
+      yield event(101);
+      yield event(102);
+      replayed = true;
+    },
+    signal: controller.signal,
+    store,
+    // oxlint-disable-next-line require-yield -- mock throws before first frame
+    async *stream() {
+      liveCalls += 1;
+      throw new Error("boom CursorTooOld");
+    },
+    streamOptions: { dids: [did] },
+    wait: async () => {
+      if (replayed) {
+        controller.abort();
+      }
+    },
+  });
+  expect(liveCalls).toBe(1);
+  expect(replayCalls).toEqual([{ afterSeq: 100, apiKey: "test-key" }]);
+  // Batched checkpoint keeps only the latest sequence; both events processed.
+  expect(committed).toEqual([102]);
+  expect(health.processedEvents).toBe(2);
+  expect(logs).toContain(
+    "Jetstream cursor out of range; replaying missed events instead of resuming from live edge"
+  );
+  expect(logs).not.toContain(
+    "Jetstream cursor out of range or requires reconciliation; resuming from live edge"
+  );
+});

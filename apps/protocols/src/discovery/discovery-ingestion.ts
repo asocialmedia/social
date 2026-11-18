@@ -164,12 +164,13 @@ export function createDiscoveryIngestion(options: {
       const timestamp = now();
       for (let index = retries.length - 1; index >= 0; index -= 1) {
         const retry = retries[index];
-        if (
-          retry &&
-          (!retry.ids.length ||
-            timestamp - retry.startedAt > hydrationLifetimeMs)
-        ) {
+        if (!retry || !retry.ids.length) {
           retries.splice(index, 1);
+        } else if (timestamp - retry.startedAt > hydrationLifetimeMs) {
+          // Same outage case as the queue worker: the batch outwaited its
+          // fence, so re-fence with a current timestamp instead of dropping
+          // the posts. Attempt counts are preserved, so poison still dies.
+          retry.startedAt = timestamp;
         }
       }
       const retry = retries.find((candidate) => candidate.nextAt <= timestamp);

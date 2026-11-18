@@ -117,6 +117,44 @@ test("local retries stop after three failures and deletion removes deferred cand
   expect(put).not.toHaveBeenCalled();
 });
 
+test("outage-aged retries are re-fenced with a current timestamp instead of dropping posts", async () => {
+  let now = 10_000;
+  const getPosts = mock(() =>
+    Promise.reject(new ProtocolError("unavailable", "Down", 1))
+  );
+  const put = mock(() => Promise.resolve());
+  const ingestion = createDiscoveryIngestion({
+    client: {
+      allowsRecommendations: () => Promise.resolve(true),
+      getPosts,
+      invalidate() {},
+    },
+    now: () => now,
+    publish: () => Promise.resolve(),
+    store: {
+      invalidate: () => Promise.resolve(),
+      put,
+      read: () => Promise.resolve([]),
+    },
+  });
+  ingestion.watch(["TypeScript"]);
+  await ingestion.event(event(0));
+  await ingestion.tick();
+  expect(getPosts).toHaveBeenCalledTimes(1);
+  now += 1000;
+  await ingestion.tick();
+  expect(getPosts).toHaveBeenCalledTimes(2);
+  // Jump past the 5-minute hydration lifetime: the retry must be re-fenced
+  // and attempted a third time, not pruned while posts are still missing.
+  now = 10_000 + 300_001;
+  await ingestion.tick();
+  expect(getPosts).toHaveBeenCalledTimes(3);
+  // The third failure exhausts the attempt budget, so the retry is gone only
+  // because it failed three times, not because it aged out.
+  expect(ingestion.pendingCount).toBe(0);
+  expect(put).not.toHaveBeenCalled();
+});
+
 test.each(["capacity", "unavailable", "rate_limited"] as const)(
   "permission read %s fails the job before inventory writes and permits a complete retry",
   async (code) => {

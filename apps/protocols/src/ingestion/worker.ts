@@ -3,10 +3,11 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 import { ProtocolError } from "@asm/protocols/contracts";
-import { streamJetstream } from "@asm/protocols/jetstream";
+import { replayJetstream, streamJetstream } from "@asm/protocols/jetstream";
 import type {
   JetstreamEvent,
   JetstreamOptions,
+  ReplayOptions,
 } from "@asm/protocols/jetstream";
 import { metrics } from "@opentelemetry/api";
 
@@ -46,7 +47,7 @@ export interface JetstreamWorkerOptions {
   store: CheckpointStore;
   streamOptions: Pick<
     JetstreamOptions,
-    "dids" | "endpoint" | "collections" | "publicDiscovery"
+    "dids" | "endpoint" | "collections" | "publicDiscovery" | "apiKey"
   >;
   signal: AbortSignal;
   health: ProtocolsHealth;
@@ -54,9 +55,19 @@ export interface JetstreamWorkerOptions {
   invalidate: (event?: JetstreamEvent) => void;
   processEvent?: (event: JetstreamEvent) => Promise<void>;
   stream?: (options: JetstreamOptions) => AsyncIterable<JetstreamEvent>;
+  replay?: (options: ReplayOptions) => AsyncIterable<JetstreamEvent>;
+  // API key for metered replay catch-up. Absent means gaps resume from the
+  // live edge, as before; the key is never logged.
+  apiKey?: string;
   wait?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   renewEveryMs?: number;
   standbyWaitMs?: number;
+  // Checkpoint writes are the hottest Redis traffic on the firehose path, so
+  // commits are batched: flush after this many events or this many
+  // milliseconds, whichever comes first, plus on loop exit. At-least-once
+  // delivery plus the seq<=cursor skip makes redelivery harmless.
+  commitBatchEvents?: number;
+  commitBatchMs?: number;
 }
 
 export async function runJetstreamWorker(
@@ -64,14 +75,33 @@ export async function runJetstreamWorker(
 ): Promise<void> {
   const wait = options.wait ?? waitForRetry;
   const stream = options.stream ?? streamJetstream;
+  const replay = options.replay ?? replayJetstream;
+  const commitBatchEvents = options.commitBatchEvents ?? 50;
+  const commitBatchMs = options.commitBatchMs ?? 1000;
   const tracked = new Set(options.streamOptions.dids);
   let attempt = 0;
   let connectedAt: number | undefined;
+  let catchUpFrom: number | undefined;
   while (!options.signal.aborted) {
     let renewTimer: ReturnType<typeof setInterval> | undefined;
     const leaseAbort = new AbortController();
     let renewing = false;
     connectedAt = undefined;
+    let pendingCommit: JetstreamEvent | undefined;
+    let uncommitted = 0;
+    let lastCommitAt = Date.now();
+    const flushCommit = async () => {
+      const event = pendingCommit;
+      const count = uncommitted;
+      if (!event || count === 0) {
+        return;
+      }
+      pendingCommit = undefined;
+      uncommitted = 0;
+      lastCommitAt = Date.now();
+      await options.store.commit(event);
+      options.health.processedEvents += count;
+    };
     try {
       if (!(await options.store.acquire())) {
         options.logger.debug(
@@ -105,22 +135,39 @@ export async function runJetstreamWorker(
         })();
       }, options.renewEveryMs ?? 3000);
       renewTimer.unref();
-      for await (const event of stream({
-        ...options.streamOptions,
-        cursor,
-        onConnected: () => {
-          options.health.connected = true;
-          options.logger.info(
-            {
-              event: "jetstream.connected",
-              publicDiscovery: options.streamOptions.publicDiscovery ?? false,
-              trackedAccounts: tracked.size,
-            },
-            "Jetstream connected"
-          );
-        },
-        signal,
-      })) {
+      const useReplay =
+        catchUpFrom !== undefined && options.apiKey !== undefined;
+      const replayFrom = catchUpFrom;
+      catchUpFrom = undefined;
+      const onConnected = () => {
+        options.health.connected = true;
+        options.logger.info(
+          {
+            event: "jetstream.connected",
+            publicDiscovery: options.streamOptions.publicDiscovery ?? false,
+            trackedAccounts: tracked.size,
+          },
+          "Jetstream connected"
+        );
+      };
+      const source = useReplay
+        ? replay({
+            afterSeq: replayFrom as number,
+            apiKey: options.apiKey as string,
+            collections: options.streamOptions.collections,
+            dids: options.streamOptions.dids,
+            endpoint: options.streamOptions.endpoint,
+            onConnected,
+            publicDiscovery: options.streamOptions.publicDiscovery,
+            signal,
+          })
+        : stream({
+            ...options.streamOptions,
+            cursor,
+            onConnected,
+            signal,
+          });
+      for await (const event of source) {
         if (signal.aborted) {
           break;
         }
@@ -135,11 +182,17 @@ export async function runJetstreamWorker(
         }
         await options.processEvent?.(event);
         options.invalidate(event);
-        await options.store.commit(event);
         cursor = event.seq;
-        options.health.processedEvents += 1;
         options.health.lastEventAt = Date.now();
         events.add(1, { kind: event.kind });
+        pendingCommit = event;
+        uncommitted += 1;
+        if (
+          uncommitted >= commitBatchEvents ||
+          Date.now() - lastCommitAt >= commitBatchMs
+        ) {
+          await flushCommit();
+        }
         // Reset only after a connection proves it is healthy. Resetting on every
         // single event meant a stream that dies right after one frame retried at
         // the one-second floor forever, logging a warning each time.
@@ -148,25 +201,52 @@ export async function runJetstreamWorker(
           attempt = 0;
         }
       }
+      try {
+        await flushCommit();
+      } catch (error) {
+        if (!signal.aborted) {
+          throw error;
+        }
+      }
       if (!options.signal.aborted) {
         throw new ProtocolError("unavailable", "Jetstream connection ended");
       }
     } catch (error) {
       if (!options.signal.aborted) {
         attempt += 1;
+        try {
+          await flushCommit();
+        } catch {
+          // The original stream error drives the retry; lease loss also
+          // surfaces through the renewal heartbeat and standby handoff.
+        }
         const isReconciliation =
           (error instanceof ProtocolError &&
             (error.code === "unavailable" ||
               error.code === "invalid_response") &&
             error.message.toLowerCase().includes("reconciliation")) ||
           (error instanceof Error &&
-            error.message.toLowerCase().includes("cursortoold"));
+            error.message.toLowerCase().includes("cursortooold"));
         if (isReconciliation) {
-          options.logger.warn(
-            { attempt, event: "jetstream.cursor_reset" },
-            "Jetstream cursor out of range or requires reconciliation; resuming from live edge"
-          );
+          const lastSeq = await options.store.load().catch(() => {
+            /* empty */
+          });
           await options.store.resetCursor?.().catch(() => null);
+          if (options.apiKey !== undefined && lastSeq !== undefined) {
+            // Catch up through archive replay instead of jumping to the live
+            // edge: the gap replays idempotently (seq<=cursor skips) and the
+            // stream cuts over to live at the tip on its own.
+            catchUpFrom = lastSeq;
+            options.logger.info(
+              { attempt, event: "jetstream.replay_catchup", fromSeq: lastSeq },
+              "Jetstream cursor out of range; replaying missed events instead of resuming from live edge"
+            );
+          } else {
+            options.logger.warn(
+              { attempt, event: "jetstream.cursor_reset" },
+              "Jetstream cursor out of range or requires reconciliation; resuming from live edge"
+            );
+          }
         }
         const code =
           error instanceof ProtocolError
