@@ -5,7 +5,7 @@ export const feedAuthorityKeys = {
   media: "asm:{feed-authority}:media:v1",
   native: "asm:{feed-authority}:native:v1",
   protocols: "asm:{feed-authority}:protocols:v1",
-  workers: "asm:{feed-authority}:workers:v1",
+  workers: "asm:{feed-authority}:worker-ids:v2",
 };
 export const feedAuthorityExpirySeconds = 45;
 

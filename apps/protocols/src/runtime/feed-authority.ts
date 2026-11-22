@@ -10,7 +10,6 @@ import type { ProtocolFeedHealth } from "@asm/protocols/discovery";
 import type Redis from "ioredis";
 import { z } from "zod";
 
-import { readWorkerNodes } from "../reader/read-worker-config";
 import type { ReadWorkerNode } from "../reader/read-worker-config";
 import type { ProtocolLogger } from "./observability";
 
@@ -75,20 +74,29 @@ const readinessSchema = z.object({
   version: z.string(),
 });
 
+const rosterSchema = z.array(z.string()).max(8);
+
 export function createWorkerDiscovery(options: {
-  redis: Pick<Redis, "get">;
+  roster?: Pick<Redis, "get">;
   configured: ReadWorkerNode[];
   fetch?: (url: URL, init: RequestInit) => Promise<Response>;
 }) {
-  let desired = options.configured;
+  const approved = new Map(options.configured.map((node) => [node.id, node]));
+  let desired = options.roster ? [] : options.configured;
   return async () => {
     try {
-      const override = await options.redis.get(feedAuthorityKeys.workers);
-      if (override && override.length > 8192) {
-        throw new Error("Worker configuration exceeds limit");
+      const override = await options.roster?.get(feedAuthorityKeys.workers);
+      if (override === null) {
+        desired = options.configured;
+      } else if (override !== undefined && override.length <= 1024) {
+        const ids = rosterSchema.parse(JSON.parse(override));
+        if (new Set(ids).size === ids.length) {
+          const nodes = ids.map((id) => approved.get(id));
+          if (nodes.every((node) => node !== undefined)) {
+            desired = nodes;
+          }
+        }
       }
-      desired =
-        override === null ? options.configured : readWorkerNodes(override);
     } catch {
       // Preserve the last validated topology when Redis is unavailable or an edit is invalid.
     }

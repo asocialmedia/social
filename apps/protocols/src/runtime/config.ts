@@ -19,6 +19,7 @@ export interface ProtocolsConfig {
   port: number;
   token?: string;
   redisUrl?: string;
+  workerRosterRedisUrl?: string;
   jetstreamEnabled: boolean;
   dids: string[];
   endpoint: JetstreamEndpoint;
@@ -174,6 +175,8 @@ export function readConfig(
       "Jetstream requires REDIS_URL and either ASM registry credentials or seed DIDs"
     );
   }
+  const workerRosterRedisUrl =
+    env.PROTOCOLS_WORKER_ROSTER_REDIS_URL || undefined;
   if (redisUrl) {
     let parsed: URL;
     try {
@@ -184,6 +187,27 @@ export function readConfig(
     if (parsed.protocol !== "redis:" && parsed.protocol !== "rediss:") {
       throw new Error("REDIS_URL must be a Redis URL");
     }
+    if (workerRosterRedisUrl) {
+      const roster = URL.parse(workerRosterRedisUrl);
+      if (
+        mode !== "coordinator" ||
+        !roster?.hostname ||
+        !["redis:", "rediss:"].includes(roster.protocol) ||
+        roster.username !== "asm_roster_reader" ||
+        !roster.password ||
+        (roster.pathname !== "" && roster.pathname !== "/0") ||
+        roster.search ||
+        roster.hash ||
+        (roster.hostname === parsed.hostname &&
+          (roster.port || "6379") === (parsed.port || "6379"))
+      ) {
+        throw new Error(
+          "PROTOCOLS_WORKER_ROSTER_REDIS_URL requires the coordinator and a distinct Redis endpoint with the asm_roster_reader identity"
+        );
+      }
+    }
+  } else if (workerRosterRedisUrl) {
+    throw new Error("PROTOCOLS_WORKER_ROSTER_REDIS_URL requires REDIS_URL");
   }
   return {
     asmUrl,
@@ -200,6 +224,7 @@ export function readConfig(
     token,
     workerConcurrency,
     workerId,
+    workerRosterRedisUrl,
     workerTimeoutMs,
     workerToken,
     workers,

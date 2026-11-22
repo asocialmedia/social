@@ -1,6 +1,7 @@
 import { expect, mock, test } from "bun:test";
 
 import { createReadWorkerPool } from "../reader/read-worker-pool";
+import { readConfig } from "./config";
 import { createUpstreamHealth, createWorkerDiscovery } from "./feed-authority";
 
 const first = {
@@ -32,7 +33,8 @@ test("generator failures stay isolated and recovered upstream traffic expires ol
 });
 
 test("authenticated worker discovery updates read and hydration routing without restarting", async () => {
-  let config: string | null = null;
+  let config: string | null = '["first"]';
+  let rosterUnavailable = true;
   let draining = false;
   const fetcher = mock(async (input: URL, init?: RequestInit) => {
     const node = input.origin === first.url ? first : second;
@@ -52,14 +54,23 @@ test("authenticated worker discovery updates read and hydration routing without 
     );
   });
   const discover = createWorkerDiscovery({
-    configured: [first],
+    configured: [first, second],
     fetch: fetcher,
-    redis: { get: () => Promise.resolve(config) },
+    roster: {
+      get: () =>
+        rosterUnavailable
+          ? Promise.reject(new Error("Roster unavailable"))
+          : Promise.resolve(config),
+    },
   });
+  const beforeRosterRead = await discover();
+  expect(beforeRosterRead.readNodes).toEqual([]);
+  expect(fetcher).not.toHaveBeenCalled();
+  rosterUnavailable = false;
   const initial = await discover();
   expect(initial.hydrationNodes).toEqual(["first"]);
   expect(initial.readNodes).toEqual([first]);
-  config = JSON.stringify([second]);
+  config = '["second"]';
   const changed = await discover();
   expect(changed.hydrationNodes).toEqual([]);
   expect(changed.readNodes).toEqual([second]);
@@ -89,10 +100,57 @@ test("authenticated worker discovery updates read and hydration routing without 
   expect(read.mock.calls.some(([url]) => url.startsWith(first.url))).toBe(
     false
   );
-  config = "{ broken";
-  const retained = await discover();
-  expect(retained.readNodes).toEqual([second]);
+  for (const invalid of [
+    "{ broken",
+    JSON.stringify([{ ...first, url: "https://unapproved.example" }]),
+    '["first", "unapproved"]',
+    '["first", "first"]',
+    " ".repeat(1025),
+  ]) {
+    config = invalid;
+    fetcher.mockClear();
+    // oxlint-disable-next-line no-await-in-loop -- Each edit is applied to the same live roster.
+    const retained = await discover();
+    expect(retained.readNodes).toEqual([second]);
+    expect(fetcher.mock.calls.map(([url]) => url.origin)).toEqual([second.url]);
+  }
+  config = "[]";
+  fetcher.mockClear();
+  const drained = await discover();
+  expect(drained.readNodes).toEqual([]);
+  expect(fetcher).not.toHaveBeenCalled();
+  rosterUnavailable = true;
+  const unavailableWhileDrained = await discover();
+  expect(unavailableWhileDrained.readNodes).toEqual([]);
+  rosterUnavailable = false;
+  config = null;
+  const restored = await discover();
+  expect(restored.readNodes).toEqual([first, second]);
   draining = true;
   const unavailable = await discover();
   expect(unavailable.readNodes).toEqual([]);
+});
+
+test("worker roster configuration requires a distinct endpoint and a dedicated reader", () => {
+  const env = { REDIS_URL: "redis://shared:6379/5" };
+  const valid = "rediss://asm_roster_reader:password@roster:6379/0";
+  expect(
+    readConfig({ ...env, PROTOCOLS_WORKER_ROSTER_REDIS_URL: valid })
+      .workerRosterRedisUrl
+  ).toBe(valid);
+  for (const invalid of [
+    "redis://shared",
+    "redis://asm_roster_reader:password@shared",
+    "redis://asm_roster_reader@roster",
+    "redis://asm_roster_operator:password@roster",
+    "redis://asm_roster_reader:password@roster/1",
+    "https://asm_roster_reader:password@roster",
+  ]) {
+    expect(() =>
+      readConfig({ ...env, PROTOCOLS_WORKER_ROSTER_REDIS_URL: invalid })
+    ).toThrow("PROTOCOLS_WORKER_ROSTER_REDIS_URL");
+  }
+  expect(() =>
+    readConfig({ PROTOCOLS_WORKER_ROSTER_REDIS_URL: valid })
+  ).toThrow("requires REDIS_URL");
 });

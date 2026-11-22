@@ -50,17 +50,18 @@ export async function startProtocols() {
   } = await import("./runtime/feed-authority");
   // Cover the configured remote attempt and a usable local fallback in one bounded read.
   const readTimeoutMs = config.workerTimeoutMs + 1700;
+  const initialWorkers = config.workerRosterRedisUrl ? [] : config.workers;
   const pool =
     config.workers.length || config.redisUrl
       ? createReadWorkerPool({
           localReserveMs: 1300,
           logger,
-          nodes: config.workers,
+          nodes: initialWorkers,
           requestTimeoutMs: readTimeoutMs,
           timeoutMs: config.workerTimeoutMs,
         })
       : undefined;
-  let hydrationNodes = config.workers.map((node) => node.id);
+  let hydrationNodes = initialWorkers.map((node) => node.id);
   const [
     { createProtocolsApp },
     { createProtocolObserver, createDiscoveryWarmupFailureReporter },
@@ -497,9 +498,36 @@ export async function startProtocols() {
       // The subscriber reconnects in the background.
     });
     let renewPublicWatchAt = 0;
+    let workerRoster: RedisConnection | undefined;
+    if (config.workerRosterRedisUrl) {
+      const { default: Redis } = await import("ioredis");
+      workerRoster = new Redis(config.workerRosterRedisUrl, {
+        commandTimeout: 1000,
+        connectTimeout: 1500,
+        disableClientInfo: true,
+        enableOfflineQueue: false,
+        enableReadyCheck: false,
+        lazyConnect: true,
+        maxRetriesPerRequest: 0,
+        retryStrategy: () => 5000,
+      });
+      let lastRosterErrorAt = 0;
+      workerRoster.on("error", () => {
+        if (Date.now() - lastRosterErrorAt >= 30_000) {
+          lastRosterErrorAt = Date.now();
+          logger.warn(
+            { event: "feed.authority.roster_unavailable" },
+            "Worker roster unavailable; retaining approved routing"
+          );
+        }
+      });
+      void workerRoster.connect().catch(() => {
+        // The reader reconnects in the background.
+      });
+    }
     const discoverWorkers = createWorkerDiscovery({
       configured: config.workers,
-      redis,
+      roster: workerRoster,
     });
     const publishFeedHealth = createProtocolFeedPublisher(redis, logger);
     let reporting = false;
@@ -508,15 +536,20 @@ export async function startProtocols() {
       reporting = true;
       nextReportAt = Date.now() + 10_000;
       try {
-        const [
-          { readNodes, hydrationNodes: readyHydrationNodes, workers },
-          inventoryHealth,
-        ] = await Promise.all([discoverWorkers(), inventoryStore?.health()]);
+        const {
+          readNodes,
+          hydrationNodes: readyHydrationNodes,
+          workers,
+        } = await discoverWorkers();
         if (abort.signal.aborted) {
           return;
         }
         hydrationNodes = readyHydrationNodes;
         pool?.updateNodes(readNodes);
+        if (publisher.status !== "ready") {
+          return;
+        }
+        const inventoryHealth = await inventoryStore?.health();
         await publishFeedHealth({
           eligiblePostAt: inventoryHealth?.eligiblePostAt ?? null,
           inventoryCount: inventoryHealth?.inventoryCount ?? 0,
@@ -536,6 +569,9 @@ export async function startProtocols() {
       }
     };
     const timer = setInterval(() => {
+      if (!reporting && Date.now() >= nextReportAt) {
+        void report();
+      }
       if (publisher.status !== "ready") {
         return;
       }
@@ -543,9 +579,6 @@ export async function startProtocols() {
         // Keep an engagement-qualified shared pool warm even without viewer watches.
         live.watch({ locale: "all", mode: "latest", topics: [] });
         renewPublicWatchAt = Date.now() + 60_000;
-      }
-      if (!reporting && Date.now() >= nextReportAt) {
-        void report();
       }
       void live.tick().catch(() => {
         // A failed reconciliation is retried by the next tick.
@@ -557,6 +590,7 @@ export async function startProtocols() {
       clearInterval(timer);
       live.stop();
       subscriber.disconnect();
+      workerRoster?.disconnect();
     };
   }
   const app = createProtocolsApp({
