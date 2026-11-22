@@ -17,7 +17,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import Image from "next/image";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { FeedErrorState } from "@/components/feeds/feed-error-state";
@@ -128,6 +128,11 @@ export default function HomeFeed({
   relatedExternal = false,
 }: HomeFeedProps) {
   const { user } = useSession();
+  const deliveryStartedAt = useRef<number | null>(null);
+  useEffect(() => {
+    deliveryStartedAt.current = Date.now();
+  }, []);
+  const readDeliveryStart = useCallback(() => deliveryStartedAt.current, []);
   const canUseGuestBootstrap =
     !user && variant === "latest" && !communitySlug && !excludePostId;
   const hasGuestBootstrap =
@@ -144,7 +149,11 @@ export default function HomeFeed({
   const external = useBlueskyFeed(
     discoveryMode(variant),
     allowExternal && includeBluesky,
-    user?.id ?? "guest"
+    user?.id ?? "guest",
+    "all",
+    false,
+    "home",
+    source === "all"
   );
   const externalPosts = useMemo(
     () =>
@@ -691,7 +700,8 @@ export default function HomeFeed({
     !initialSourceLoading &&
     !isFetchingNextPage &&
     !sourceFetching &&
-    !sourceFailed;
+    !sourceFailed &&
+    !external.sourceDeferred;
 
   let nextSkeletonSource: FeedSource = "all";
   if (external.isFetchingNextPage) {
@@ -755,6 +765,9 @@ export default function HomeFeed({
                 : `${hashKey(queryKey)}:${source}`
             }
             externalPosts={allowExternal ? externalPosts : []}
+            deliveryMode={allowExternal ? discoveryMode(variant) : undefined}
+            deliveryReady={!initialSourceLoading}
+            readDeliveryStart={readDeliveryStart}
             source={source}
             cacheKey={queryKey}
             excludeIds={communityIds}
@@ -782,6 +795,11 @@ export default function HomeFeed({
             message="Some posts couldn’t load. Your loaded posts are still here—please try again."
             onRetry={retryFailedSources}
           />
+        ) : null}
+        {external.sourceDeferred && !sourceFailed ? (
+          <output className="text-muted-foreground block px-4 py-3 text-sm">
+            Bluesky is temporarily unavailable. ASM posts are still available.
+          </output>
         ) : null}
         {!isFetchingNextPage && !initialSourceLoading
           ? manualContinuation

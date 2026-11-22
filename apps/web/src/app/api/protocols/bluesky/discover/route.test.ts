@@ -6,13 +6,15 @@ import {
   defaultNetworkPreferences,
   discoveryTopicsSchema,
 } from "@asm/protocols/discovery";
-import type { DiscoveryPage } from "@asm/protocols/discovery";
+import type { DiscoveryPage, FeedSourceStatus } from "@asm/protocols/discovery";
 
 let session: { user: { id: string } } | null = { user: { id: "reader" } };
 let preferences = defaultNetworkPreferences();
 let cached: DiscoveryPage | null = null;
 let upstream: DiscoveryPage = { cursor: null, items: [], partial: false };
 let excluded = new Set<string>();
+let sourceStatus: FeedSourceStatus | undefined;
+let enqueueSafety = true;
 const publications: string[] = [];
 const cacheKeys: string[] = [];
 const profile: UserProfile = {
@@ -42,7 +44,14 @@ const persona = mock((_userId: string, requestedProfileId?: string) => {
   });
 });
 const read = mock(() => Promise.resolve(upstream));
-const safety = mock((posts: ExternalPost[]) => Promise.resolve(posts));
+const safety = mock((posts: ExternalPost[], _options?: { enqueue?: boolean }) =>
+  Promise.resolve(posts)
+);
+mock.module("@/lib/recommendations/feed-authority", () => ({
+  readFeedAuthority: () =>
+    Promise.resolve({ acceptSafetyJobs: enqueueSafety, bluesky: sourceStatus }),
+  reportFeedServing() {},
+}));
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: () => Promise.resolve(session),
 }));
@@ -89,6 +98,7 @@ mock.module("@/lib/protocols/budget", () => ({
 mock.module("next/server", () => ({ after: () => {} }));
 
 const { GET } = await import("./route");
+const { ProtocolGatewayError } = await import("@/lib/protocols/gateway");
 
 function post(id: string, text: string, video = false): ExternalPost {
   return {
@@ -125,6 +135,8 @@ function post(id: string, text: string, video = false): ExternalPost {
 
 beforeEach(() => {
   safety.mockClear();
+  sourceStatus = undefined;
+  enqueueSafety = true;
   session = { user: { id: "reader" } };
   preferences = {
     ...defaultNetworkPreferences(),
@@ -153,6 +165,84 @@ beforeEach(() => {
   cacheKeys.length = 0;
   persona.mockClear();
   read.mockClear();
+});
+
+test("a mixed head degrades immediately while explicit Bluesky reads keep their selected source", async () => {
+  sourceStatus = { reason: "rate_limited", retryAt: Date.now() + 20_000 };
+  read.mockClear();
+  const mixed = await GET(
+    new Request(
+      "http://localhost/api/protocols/bluesky/discover?mode=personalized&mixed=1"
+    )
+  );
+  expect(await mixed.json()).toMatchObject({
+    cursor: null,
+    items: [],
+    sourceStatus,
+  });
+  expect(read).not.toHaveBeenCalled();
+  const explicit = await GET(
+    new Request(
+      "http://localhost/api/protocols/bluesky/discover?mode=personalized"
+    )
+  );
+  const head = await explicit.json();
+  expect(head.items.length).toBeGreaterThan(0);
+  expect(head.sourceStatus).toBeUndefined();
+  expect(read).toHaveBeenCalledTimes(1);
+});
+
+test("a throttled mixed refresh reuses matching cached candidates and reads safety verdicts without queueing", async () => {
+  cached = upstream;
+  sourceStatus = { reason: "rate_limited", retryAt: Date.now() + 20_000 };
+  enqueueSafety = false;
+  read.mockClear();
+  const result = await GET(
+    new Request(
+      "http://localhost/api/protocols/bluesky/discover?mode=personalized&mixed=1&refresh=1"
+    )
+  );
+  const head = await result.json();
+  expect(head.items.map((item: ExternalPost) => item.id)).toContain(
+    upstream.items[1]?.id
+  );
+  expect(head.items.map((item: ExternalPost) => item.id)).not.toContain(
+    upstream.items[0]?.id
+  );
+  expect(head.cursor).toBeNull();
+  expect(head.sourceStatus).toEqual(sourceStatus);
+  expect(read).not.toHaveBeenCalled();
+  expect(safety).toHaveBeenCalledWith(expect.any(Array), { enqueue: false });
+});
+
+test("mixed reads surface a fresh rate limit with its Retry-After before shared health catches up", async () => {
+  read.mockRejectedValueOnce(
+    new ProtocolGatewayError(429, "upstream_unavailable", 60)
+  );
+  const startedAt = Date.now();
+  const response = await GET(
+    new Request(
+      "http://localhost/api/protocols/bluesky/discover?mode=personalized&mixed=1"
+    )
+  );
+  const body = await response.json();
+  expect(response.status).toBe(200);
+  expect(body.items).toEqual([]);
+  expect(body.sourceStatus.reason).toBe("rate_limited");
+  expect(body.sourceStatus.retryAt).toBeGreaterThanOrEqual(startedAt + 60_000);
+});
+
+test("a mixed cold read has a foreground deadline when its provider stalls", async () => {
+  read.mockReturnValueOnce(Promise.withResolvers<DiscoveryPage>().promise);
+  const response = await GET(
+    new Request(
+      "http://localhost/api/protocols/bluesky/discover?mode=personalized&mixed=1"
+    )
+  );
+  const body = await response.json();
+  expect(response.status).toBe(200);
+  expect(body.items).toEqual([]);
+  expect(body.sourceStatus.reason).toBe("upstream_unavailable");
 });
 
 test("all five discovery modes enforce chosen interests before popularity and learned-topic ranking", async () => {

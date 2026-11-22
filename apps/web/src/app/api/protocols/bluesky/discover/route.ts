@@ -20,6 +20,7 @@ import {
   isDiscoveryColdStart,
   isExternalTrendingPost,
 } from "@asm/protocols/discovery";
+import type { FeedSourceStatus } from "@asm/protocols/discovery";
 import { after } from "next/server";
 import { z } from "zod";
 
@@ -49,6 +50,10 @@ import {
 } from "@/lib/protocols/recommendations";
 import { readBlueskyDiscovery } from "@/lib/protocols/service";
 import { exploreTopics } from "@/lib/recommendations/explore-topics";
+import {
+  readFeedAuthority,
+  reportFeedServing,
+} from "@/lib/recommendations/feed-authority";
 import { feedTiming } from "@/lib/recommendations/feed-timing";
 import { diversifyExploreCandidates } from "@/lib/recommendations/mix-explore";
 import {
@@ -196,10 +201,29 @@ export function GET(request: Request) {
       includeExplicit,
       content.data
     );
+    const mixed = query.get("mixed") === "1";
+    const authority = await readFeedAuthority();
+    let sourceStatus = mixed ? authority.bluesky : undefined;
     const cached =
-      cursor || query.get("refresh") === "1"
+      cursor || (query.get("refresh") === "1" && !sourceStatus)
         ? null
         : await timing.measure("cache", () => cachedDiscoveryHead(cacheKey));
+    const deferredPage = () => ({
+      cursor: null,
+      items: [],
+      partial: false,
+      sourceStatus,
+    });
+    if (sourceStatus && !cached) {
+      reportFeedServing({
+        items: 0,
+        mode: mode.data,
+        newestAt: 0,
+        reason: sourceStatus.reason,
+        source: "bluesky",
+      });
+      return Response.json(deferredPage());
+    }
     const read = async (signal: AbortSignal) => {
       const page = await timing.measure("retrieval", () =>
         readBlueskyDiscovery(
@@ -220,7 +244,7 @@ export function GET(request: Request) {
       }
       return page;
     };
-    if (cached && Date.now() - cached.at > 20_000) {
+    const warmHead = () => {
       after(async () => {
         const lockKey = `${cacheKey}:refresh`;
         const owner = crypto.randomUUID();
@@ -240,20 +264,68 @@ export function GET(request: Request) {
           );
         }
       });
+    };
+    const readForViewer = async () => {
+      if (sourceStatus) {
+        return cached
+          ? { ...cached.page, cursor: null, sourceStatus }
+          : deferredPage();
+      }
+      if (cached) {
+        return cached.page;
+      }
+      const deadline = mixed ? AbortSignal.timeout(2500) : undefined;
+      const signal = deadline
+        ? AbortSignal.any([request.signal, deadline])
+        : request.signal;
+      try {
+        return await abortable(read(signal), signal);
+      } catch (error) {
+        if (
+          !mixed ||
+          request.signal.aborted ||
+          (error instanceof ProtocolGatewayError &&
+            error.status < 500 &&
+            error.status !== 429)
+        ) {
+          throw error;
+        }
+        if (deadline?.aborted && !cursor) {
+          warmHead();
+        }
+        const status: FeedSourceStatus = {
+          reason:
+            error instanceof ProtocolGatewayError && error.status === 429
+              ? "rate_limited"
+              : "upstream_unavailable",
+          retryAt:
+            Date.now() +
+            Math.max(
+              15,
+              error instanceof ProtocolGatewayError ? error.retryAfter : 0
+            ) *
+              1000,
+        };
+        sourceStatus = status;
+        return deferredPage();
+      }
+    };
+    if (cached && !sourceStatus && Date.now() - cached.at > 20_000) {
+      warmHead();
     }
     const includeSocialCandidates =
-      mode.data === "personalized" && !cursor && !exploring;
+      mode.data === "personalized" && !cursor && !exploring && !sourceStatus;
     const graphSignal = AbortSignal.any([
       request.signal,
       AbortSignal.timeout(1100),
     ]);
     const viewer = session?.user.id;
     const [page, excluded, social, followed] = await Promise.all([
-      cached ? Promise.resolve(cached.page) : read(request.signal),
-      viewer
+      readForViewer(),
+      viewer && (!sourceStatus || cached)
         ? readExternalFeedback(viewer)
         : Promise.resolve(new Set<string>()),
-      viewer
+      viewer && !sourceStatus
         ? timing.measure("graph", () =>
             abortable(
               socialExternalRecommendations(
@@ -266,7 +338,7 @@ export function GET(request: Request) {
             ).catch(() => null)
           )
         : null,
-      viewer
+      viewer && !sourceStatus
         ? timing.measure("graph", () =>
             abortable(
               followedExternalRecommendations(
@@ -342,7 +414,9 @@ export function GET(request: Request) {
     const filtered = includeExplicit
       ? eligibleCandidates
       : await timing.measure("safety", () =>
-          filterExternalMediaSafety(eligibleCandidates)
+          authority.acceptSafetyJobs
+            ? filterExternalMediaSafety(eligibleCandidates)
+            : filterExternalMediaSafety(eligibleCandidates, { enqueue: false })
         );
     const stopRanking = timing.start("ranking");
     let items =
@@ -373,6 +447,34 @@ export function GET(request: Request) {
       (post) => post.quote?.id ?? post.replyRoot ?? ""
     ).slice(0, 50);
     stopRanking();
+    let reason: string | undefined = sourceStatus?.reason;
+    if (!reason && eligibleCandidates.length > filtered.length) {
+      reason = "safety_pending_or_restricted";
+    } else if (!reason && !items.length) {
+      reason = "no_eligible_matches";
+    }
+    reportFeedServing({
+      eligible: eligibleCandidates.length,
+      items: items.length,
+      matches: network.selected.interests.length
+        ? items.filter(
+            (post) =>
+              externalNetworkInterestScore(
+                post,
+                network.selected.interests,
+                network.topicScope
+              ) > 0
+          ).length
+        : undefined,
+      mode: mode.data,
+      newestAt: Math.max(
+        0,
+        ...items.map((post) => Date.parse(post.createdAt) || 0)
+      ),
+      reason,
+      source: "bluesky",
+      withheld: eligibleCandidates.length - filtered.length,
+    });
     after(async () => {
       await Promise.all(
         items

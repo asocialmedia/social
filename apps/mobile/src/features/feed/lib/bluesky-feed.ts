@@ -6,7 +6,11 @@ import {
   readDiscoveryPage,
   readDiscoveryWindow,
 } from "@asm/protocols/discovery";
-import type { DiscoveryMode, DiscoveryPage } from "@asm/protocols/discovery";
+import type {
+  DiscoveryMode,
+  DiscoveryPage,
+  FeedSourceStatus,
+} from "@asm/protocols/discovery";
 
 export interface BlueskyReadContext {
   timeoutMs?: number;
@@ -15,6 +19,7 @@ export interface BlueskyReadContext {
   locale?: string;
   profile?: string;
   surface?: "home" | "explore";
+  mixed?: boolean;
 }
 
 interface DiscoveryState {
@@ -24,6 +29,7 @@ interface DiscoveryState {
   refreshing: boolean;
   pages: DiscoveryPage[];
   status: "loading" | "success" | "error";
+  sourceStatus?: FeedSourceStatus;
 }
 
 export function createBlueskyFeed(
@@ -123,9 +129,14 @@ export function createBlueskyFeed(
       }
       failedRead = null;
       retryable = false;
+      if (!replace && page.sourceStatus) {
+        update({ sourceStatus: page.sourceStatus });
+        return;
+      }
       update({
         newItems: replace ? [] : state.newItems,
         pages: replace || expired ? [page] : [...state.pages, page],
+        sourceStatus: page.sourceStatus,
         status: "success",
       });
     } catch (error) {
@@ -163,7 +174,11 @@ export function createBlueskyFeed(
     headController = null;
   };
   const probe = async () => {
-    if (headController || controller) {
+    if (
+      headController ||
+      controller ||
+      (state.sourceStatus?.retryAt ?? 0) > Date.now()
+    ) {
       return;
     }
     if (state.pages.length === 0) {
@@ -185,6 +200,7 @@ export function createBlueskyFeed(
       if (current.signal.aborted) {
         return;
       }
+      update({ sourceStatus: page.sourceStatus });
       const known = new Set(
         state.pages.flatMap((entry) => entry.items.map((item) => item.id))
       );
@@ -234,12 +250,13 @@ export function createBlueskyFeed(
         loadingMore: false,
         newItems: [],
         pages: [],
+        sourceStatus: undefined,
         status: "loading",
       });
     },
     fetchNext: () => {
       const cursor = state.pages.at(-1)?.cursor;
-      if (cursor && !state.error) {
+      if (cursor && !state.error && !state.sourceStatus) {
         return load(cursor, false);
       }
       return Promise.resolve();

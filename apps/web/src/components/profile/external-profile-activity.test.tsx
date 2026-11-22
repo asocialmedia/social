@@ -305,8 +305,7 @@ test("Amplified retains existing posts and shows a loader while loading another 
     );
     expect(html).toContain('data-source="bluesky"');
     expect(html).toContain('aria-label="Loading more amplified posts"');
-    expect(html).toContain('aria-label="Loading"');
-    expect(html).not.toContain("lucide-loader");
+    expect(html).toContain('aria-busy="true"');
   } finally {
     externalFetchingNextPage = false;
     client.clear();
@@ -336,8 +335,7 @@ test("Amplified shows a loader while fetching another native page", () => {
       </QueryClientProvider>
     );
     expect(html).toContain('aria-label="Loading more amplified posts"');
-    expect(html).toContain('aria-label="Loading"');
-    expect(html).not.toContain("lucide-loader");
+    expect(html).toContain('aria-busy="true"');
   } finally {
     client.clear();
   }

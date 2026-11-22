@@ -69,8 +69,41 @@ if (import.meta.main) {
   const { withTimeout } = await import("./transcode/ffmpeg");
   const { mediaMetricSnapshot } = await import("./metrics");
   const { registerSweepSchedulers } = await import("./sweeps");
+  const { createMediaFeedPublisher } = await import("./feed-health");
 
   let running = true;
+  const publishFeedHealth = createMediaFeedPublisher({
+    classifierToken: workerEnv.CLASSIFIER_API_TOKEN,
+    classifierUrl: workerEnv.CLASSIFIER_URL,
+    enrichment: getQueue(MEDIA_ANALYZE_QUEUE),
+    safety: getQueue(EXTERNAL_MEDIA_SAFETY_QUEUE),
+    write: (key, value, unit, seconds) => redis.set(key, value, unit, seconds),
+  });
+  let publishingHealth = false;
+  let classifierHealth: string | undefined;
+  const reportFeedHealth = async () => {
+    if (publishingHealth || !running) {
+      return;
+    }
+    publishingHealth = true;
+    try {
+      const report = await publishFeedHealth();
+      if (report.classifier !== classifierHealth) {
+        mediaLogger.info(
+          { ...report, event: "feed.authority.media" },
+          "Media feed capacity changed"
+        );
+        classifierHealth = report.classifier;
+      }
+    } catch {
+      // Expiring reports keep this reporter independent of queue and Redis recovery.
+    } finally {
+      publishingHealth = false;
+    }
+  };
+  const feedHealthTimer = setInterval(reportFeedHealth, 10_000);
+  feedHealthTimer.unref();
+  void reportFeedHealth();
 
   await configureAnalysisQueues({
     analyze: getQueue(MEDIA_ANALYZE_QUEUE),
@@ -559,6 +592,7 @@ if (import.meta.main) {
       return;
     }
     running = false;
+    clearInterval(feedHealthTimer);
     clearInterval(safetyWarmupTimer);
     clearInterval(operationalTimer);
     const forceExitTimer = setTimeout(() => {

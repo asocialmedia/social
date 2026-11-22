@@ -236,9 +236,9 @@ test("mixed sources stage a page-sized arrival until both peers finish, then int
   expect(feed.ids().slice(0, 5)).toEqual([
     "native-0",
     external[0].id,
-    external[1].id,
     "native-1",
-    external[2].id,
+    external[1].id,
+    "native-2",
   ]);
   const before = feed.ids();
   const moreNative = [
@@ -263,11 +263,13 @@ test("mixed sources stage a page-sized arrival until both peers finish, then int
     source: "all",
     sourcesPending: false,
   });
-  expect(feed.ids().slice(before.length, before.length + 4)).toEqual([
+  const after = feed.ids();
+  expect(after.slice(0, before.length)).toEqual(before);
+  expect(after.slice(before.length, before.length + 4)).toEqual([
     "next-0",
-    moreExternal[20].id,
-    moreExternal[21].id,
     "next-1",
+    "next-2",
+    moreExternal[20].id,
   ]);
 });
 
@@ -322,11 +324,11 @@ test("Following keeps a slow first page staged beyond the discovery grace period
   expect(feed.ids().slice(0, 7)).toEqual([
     native[0]?.id,
     remote[0]?.id,
-    remote[1]?.id,
     native[1]?.id,
-    remote[2]?.id,
-    remote[3]?.id,
+    remote[1]?.id,
     native[2]?.id,
+    remote[2]?.id,
+    native[3]?.id,
   ]);
 });
 

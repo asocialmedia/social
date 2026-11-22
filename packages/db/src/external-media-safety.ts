@@ -56,7 +56,8 @@ export function externalMediaSafetyInput(post: ExternalPost) {
 
 // Unknown or failed assessments never become safe through a cache miss or provider outage.
 export async function filterExternalMediaSafety(
-  posts: ExternalPost[]
+  posts: ExternalPost[],
+  options: { enqueue?: boolean } = {}
 ): Promise<ExternalPost[]> {
   const inputs = posts.map(externalMediaSafetyInput);
   const visual = inputs.filter((input) => input.images.length > 0);
@@ -76,7 +77,7 @@ export async function filterExternalMediaSafety(
     const pending = visual.filter(
       (input) => input.images.length <= 20 && !verdicts.get(input.key)
     );
-    if (pending.length) {
+    if (pending.length && options.enqueue !== false) {
       const queue = getQueue(EXTERNAL_MEDIA_SAFETY_QUEUE);
       const waiting = await abortable(
         queue.getWaitingCount(),

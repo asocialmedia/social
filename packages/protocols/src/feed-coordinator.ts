@@ -1,3 +1,6 @@
+import { mixRankedNetworks } from "./feed-authority";
+import type { FeedNetwork } from "./feed-authority";
+
 // Shared render and read admission rules for the web and native feed adapters.
 // Refresh owns the feed until it settles. Head reads and tail reads may finish
 // independently, but admission waits for the active tail to keep anchors stable.
@@ -40,7 +43,8 @@ export function mergeUnreadFeedHead<T extends { id: string }>(
 export function reconcileFeedOrder<T extends { id: string }>(
   previous: readonly T[],
   incoming: readonly T[],
-  sourceOrders: readonly (readonly string[])[]
+  sourceOrders: readonly (readonly string[])[],
+  network?: (item: T) => FeedNetwork
 ): T[] {
   const previousIds = new Set(previous.map((item) => item.id));
   const current = new Map(incoming.map((item) => [item.id, item]));
@@ -56,15 +60,27 @@ export function reconcileFeedOrder<T extends { id: string }>(
       }
     }
   }
-  return [
+  const committed = [
     ...incoming.filter((item) => prepended.has(item.id)),
     ...previous.flatMap((item) => {
       const updated = current.get(item.id);
       return updated ? [updated] : [];
     }),
-    ...incoming.filter(
-      (item) => !previousIds.has(item.id) && !prepended.has(item.id)
-    ),
+  ];
+  const tail = incoming.filter(
+    (item) => !previousIds.has(item.id) && !prepended.has(item.id)
+  );
+  if (!network) {
+    return [...committed, ...tail];
+  }
+  const entries = tail.map((item) => ({ item, kind: network(item) }));
+  return [
+    ...committed,
+    ...mixRankedNetworks(
+      entries.filter((entry) => entry.kind === "asm"),
+      entries.filter((entry) => entry.kind === "bluesky"),
+      committed.map((item) => ({ item, kind: network(item) }))
+    ).map((entry) => entry.item),
   ];
 }
 

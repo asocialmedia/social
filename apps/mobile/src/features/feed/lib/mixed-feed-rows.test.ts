@@ -156,7 +156,7 @@ test("ranked first batches interleave networks while latest merges by date", () 
   ];
   expect(
     mixedFeedRows(native, remote, "all", false).map((row) => row.kind)
-  ).toEqual(["asm", "bluesky", "bluesky", "asm"]);
+  ).toEqual(["asm", "bluesky", "asm", "bluesky"]);
   expect(
     mixedFeedRows(native, remote, "all", true).map((row) => row.id)
   ).toEqual(["asm:16", `bluesky:${external.id}`, "asm:14", "bluesky:second"]);

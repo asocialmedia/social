@@ -57,6 +57,7 @@ export function createReadWorkerApp(options: {
       return Response.json(
         {
           active: reader.status().active,
+          capacity: options.concurrency ?? 8,
           id: options.id,
           ingestion: options.background?.(),
           mode: "read-worker",

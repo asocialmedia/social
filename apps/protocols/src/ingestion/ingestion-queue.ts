@@ -108,7 +108,7 @@ export function createIngestionQueue(options: {
   logger: ProtocolLogger;
   node: string;
   coordinator: boolean;
-  allowedNodes?: string[];
+  allowedNodes?: string[] | (() => string[]);
   hydrate: (ids: string[], startedAt: number) => Promise<number>;
   concurrency?: number;
   scope?: string;
@@ -306,7 +306,11 @@ export function createIngestionQueue(options: {
       if (options.coordinator) {
         await options.redis.set(
           controlKey,
-          JSON.stringify(options.allowedNodes ?? []),
+          JSON.stringify(
+            typeof options.allowedNodes === "function"
+              ? options.allowedNodes()
+              : (options.allowedNodes ?? [])
+          ),
           "EX",
           30
         );

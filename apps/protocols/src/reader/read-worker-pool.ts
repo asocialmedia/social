@@ -17,6 +17,17 @@ import {
 
 type PublicFetch = (url: string, init: RequestInit) => Promise<Response>;
 
+const createNode = (node: ReadWorkerNode) => ({
+  ...node,
+  active: 0,
+  blocked: new Map<string, number>(),
+  blockedSearches: new Map<string, number>(),
+  deniedSearches: new Map<string, { resources: Set<string>; at: number }>(),
+  operationFailures: new Map<string, { count: number; at: number }>(),
+  recovering: new Set<string>(),
+  transportFailures: 0,
+});
+
 export function createReadWorkerPool(options: {
   nodes: ReadWorkerNode[];
   logger: ProtocolLogger;
@@ -28,30 +39,8 @@ export function createReadWorkerPool(options: {
 }) {
   const fetcher = options.fetch ?? globalThis.fetch;
   const now = options.now ?? Date.now;
-  const nodes = [
-    {
-      active: 0,
-      blocked: new Map<string, number>(),
-      blockedSearches: new Map<string, number>(),
-      deniedSearches: new Map<string, { resources: Set<string>; at: number }>(),
-      id: "local",
-      operationFailures: new Map<string, { count: number; at: number }>(),
-      recovering: new Set<string>(),
-      token: "",
-      transportFailures: 0,
-      url: "",
-    },
-    ...options.nodes.map((node) => ({
-      ...node,
-      active: 0,
-      blocked: new Map<string, number>(),
-      blockedSearches: new Map<string, number>(),
-      deniedSearches: new Map<string, { resources: Set<string>; at: number }>(),
-      operationFailures: new Map<string, { count: number; at: number }>(),
-      recovering: new Set<string>(),
-      transportFailures: 0,
-    })),
-  ];
+  const local = createNode({ id: "local", token: "", url: "" });
+  let nodes = [local, ...options.nodes.map(createNode)];
   const meter = metrics.getMeter("asm-protocols");
   const requests = meter.createCounter("asm.protocols.worker.requests");
   const duration = meter.createHistogram("asm.protocols.worker.duration", {
@@ -79,6 +68,7 @@ export function createReadWorkerPool(options: {
     ) {
       throw new Error("Only unauthenticated public reads may use read workers");
     }
+    const readNodes = nodes;
     const attempted = new Set<string>();
     const deadline = now() + (options.requestTimeoutMs ?? 2500);
     const search =
@@ -105,25 +95,31 @@ export function createReadWorkerPool(options: {
         );
       }
     };
-    const available = (candidate: (typeof nodes)[number]) =>
+    const available = (candidate: (typeof readNodes)[number]) =>
       !attempted.has(candidate.id) &&
-      candidate.active < (candidate.url ? 8 : 256) &&
+      candidate.active < (candidate.url ? (candidate.capacity ?? 8) : 256) &&
       (candidate.blocked.get(target.origin) ?? 0) <= now() &&
       (candidate.blocked.get(operationKey) ?? 0) <= now() &&
       ((search ? candidate.blockedSearches : candidate.blocked).get(resource) ??
         0) <= now() &&
       !candidate.recovering.has(operationKey) &&
       !candidate.recovering.has(resource);
-    for (let attempt = 0; attempt < Math.min(2, nodes.length); attempt += 1) {
+    for (
+      let attempt = 0;
+      attempt < Math.min(2, readNodes.length);
+      attempt += 1
+    ) {
       init.signal?.throwIfAborted();
       const remainingMs = deadline - now();
       if (remainingMs <= 0) {
         break;
       }
-      const ordered = [...nodes.slice(next), ...nodes.slice(0, next)];
+      const ordered = [...readNodes.slice(next), ...readNodes.slice(0, next)];
       const node =
         (attempt > 0
-          ? nodes.find((candidate) => !candidate.url && available(candidate))
+          ? readNodes.find(
+              (candidate) => !candidate.url && available(candidate)
+            )
           : undefined) ?? ordered.find(available);
       if (!node) {
         break;
@@ -132,7 +128,7 @@ export function createReadWorkerPool(options: {
       const reserveMs =
         attempt === 0 &&
         node.url &&
-        nodes.some((candidate) => !candidate.url && available(candidate))
+        readNodes.some((candidate) => !candidate.url && available(candidate))
           ? (options.localReserveMs ?? 1300)
           : 0;
       const attemptTimeoutMs = Math.max(
@@ -142,7 +138,7 @@ export function createReadWorkerPool(options: {
           remainingMs - reserveMs
         )
       );
-      next = (nodes.indexOf(node) + 1) % nodes.length;
+      next = (readNodes.indexOf(node) + 1) % readNodes.length;
       attempted.add(node.id);
       node.active += 1;
       if (node.operationFailures.has(operationKey)) {
@@ -361,7 +357,7 @@ export function createReadWorkerPool(options: {
     if (lastFailure) {
       return lastFailure;
     }
-    const remaining = nodes
+    const remaining = readNodes
       .map(
         (node) =>
           Math.max(
@@ -392,5 +388,21 @@ export function createReadWorkerPool(options: {
         cooldowns: Object.fromEntries(node.blocked),
         id: node.id,
       })),
+    updateNodes(configured: ReadWorkerNode[]) {
+      nodes = [
+        local,
+        ...configured.map((node) => {
+          const state =
+            nodes.find(
+              (current) =>
+                current.id === node.id &&
+                current.url === node.url &&
+                current.token === node.token
+            ) ?? createNode(node);
+          state.capacity = node.capacity;
+          return state;
+        }),
+      ];
+    },
   };
 }

@@ -864,7 +864,14 @@ export async function submitPost(input: CreatePostInput) {
     if (newPost) {
       const { publishFeedChange } =
         await import("@/lib/posts/publish-feed-change");
-      void publishFeedChange();
+      void publishFeedChange(
+        !communityId &&
+          !newPost.isGust &&
+          !newPost.moderated &&
+          !newPost.explicitContent
+          ? Date.now()
+          : undefined
+      );
     }
     return newPost;
   } catch (error) {

@@ -8,6 +8,7 @@ import {
 import { createLogger } from "@asm/logger";
 
 import { getSessionFromApi } from "@/lib/auth/session";
+import { reportFeedFeedback } from "@/lib/recommendations/feed-authority";
 
 const MAX_EVENTS_PER_REQUEST = 50;
 const MAX_DURATION_MS = 30 * 60 * 1000;
@@ -273,6 +274,7 @@ export async function POST(request: Request) {
       ]
     )
   );
+  reportFeedFeedback("asm", eventCounts);
   logger.info(
     {
       droppedCount: events.length - acceptedEvents.length,

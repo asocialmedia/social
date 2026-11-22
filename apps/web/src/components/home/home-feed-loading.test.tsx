@@ -124,6 +124,7 @@ test("completion appears only after both mixed-feed sources finish", () => {
       "all",
       "progressive-v9",
       "home",
+      "mixed",
     ],
     {
       pageParams: [{ cursor: null, level: 0, pages: 0, topicPage: 0 }],

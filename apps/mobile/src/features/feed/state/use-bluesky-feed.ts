@@ -20,11 +20,11 @@ export function useBlueskyFeed(
   enabled: boolean,
   viewer?: string,
   following = false,
-  context: Pick<BlueskyReadContext, "content" | "surface"> = {}
+  context: Pick<BlueskyReadContext, "content" | "surface" | "mixed"> = {}
 ) {
   const network = useNetworkSettings();
   const active = enabled && network.ready;
-  const { content, surface } = context;
+  const { content, mixed, surface } = context;
   const profile = network.settings.preferences.activeProfileId;
   const revision = useExternalFollowRevision(
     (state) => state.revisions[viewer ?? "guest"] ?? 0
@@ -51,6 +51,7 @@ export function useBlueskyFeed(
         {
           content,
           locale: network.locale,
+          mixed,
           profile,
           scope: network.scope,
           surface,
@@ -63,6 +64,7 @@ export function useBlueskyFeed(
       network.scope,
       network.locale,
       content,
+      mixed,
       surface,
       profile,
     ]
@@ -97,6 +99,23 @@ export function useBlueskyFeed(
       void store.refresh();
     }
   }, [active, revision, store]);
+  const retryAt = state.sourceStatus?.retryAt;
+  useEffect(() => {
+    if (!active || !retryAt) {
+      return;
+    }
+    const timer = setTimeout(
+      () => {
+        if (store.snapshot().pages.some((page) => page.items.length)) {
+          void store.probe();
+        } else {
+          void store.refresh();
+        }
+      },
+      Math.max(1000, retryAt - Date.now())
+    );
+    return () => clearTimeout(timer);
+  }, [active, retryAt, store]);
   useEffect(() => store.dispose, [store]);
   return {
     ...state,

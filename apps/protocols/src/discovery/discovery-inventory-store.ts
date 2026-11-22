@@ -20,6 +20,23 @@ local function invalidated(id)
   local author = string.match(id, '^at://([^/]+)/') or ''
   return math.max(tonumber(redis.call('HGET', KEYS[5], id) or '0'), tonumber(redis.call('HGET', KEYS[5], author) or '0'))
 end
+if ARGV[1] == 'health' then
+  local oldest = now - ${retentionMs}
+  local ids = redis.call('ZREVRANGEBYSCORE', KEYS[2], '+inf', oldest, 'LIMIT', 0, 128)
+  local result = {redis.call('ZCOUNT', KEYS[2], oldest, '+inf')}
+  for _, id in ipairs(ids) do
+    if tonumber(redis.call('ZSCORE', KEYS[2], id) or '0') > invalidated(id) then
+      local raw = redis.call('HGET', KEYS[1], id)
+      if raw then
+        local ok, post = pcall(cjson.decode, raw)
+        if ok and type(post) == 'table' and type(post.createdAt) == 'string' then
+          result[#result + 1] = post.createdAt
+        end
+      end
+    end
+  end
+  return result
+end
 if ARGV[1] == 'invalidate' then
   redis.call('HSET', KEYS[5], ARGV[3], now)
   redis.call('ZADD', KEYS[6], now, ARGV[3])
@@ -117,6 +134,29 @@ export class RedisInventoryStore implements InventoryStore {
           }
         })
       : [];
+  }
+  async health() {
+    const raw: unknown = await this.redis.eval(
+      inventoryScript,
+      this.keys.length,
+      ...this.keys,
+      "health",
+      Date.now()
+    );
+    if (!Array.isArray(raw)) {
+      throw new TypeError("Inventory health unavailable");
+    }
+    const [count, ...sample] = raw;
+    const latest = Math.max(
+      0,
+      ...sample.map((value: unknown) =>
+        typeof value === "string" ? Date.parse(value) || 0 : 0
+      )
+    );
+    return {
+      eligiblePostAt: latest || null,
+      inventoryCount: Number(count) || 0,
+    };
   }
   async put(posts: ExternalPost[], startedAt: number) {
     if (!posts.length) {

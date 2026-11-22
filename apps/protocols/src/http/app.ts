@@ -37,6 +37,7 @@ export interface ProtocolsHealth {
   leaseHeld: boolean;
   processedEvents: number;
   lastEventAt: number | null;
+  lastSourceEventAt?: number | null;
 }
 
 export interface ProtocolsAppOptions {
