@@ -36,8 +36,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import asmLogo from "@/assets/images/asm.png";
 import signupBgImage from "@/assets/images/signup-image.jpg";
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { toast } from "@/components/feedback/toast";
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { GoogleIcon } from "@/components/icons/google-icon";
 import { RedditIcon } from "@/components/icons/reddit-icon";
 import { validateSignup } from "@/features/auth/lib/auth-validation";
@@ -898,10 +898,9 @@ export default function SignupScreen() {
                             ]}
                           >
                             {activeSocial === "google" ? (
-                              <ZephLoader
-                                variant="security"
+                              <Spinner3D
                                 color={theme.socialBtnText}
-                                size="small"
+                                size={24}
                               />
                             ) : (
                               <GoogleIcon size={16} />
@@ -939,10 +938,9 @@ export default function SignupScreen() {
                             ]}
                           >
                             {activeSocial === "reddit" ? (
-                              <ZephLoader
-                                variant="security"
+                              <Spinner3D
                                 color={theme.socialBtnText}
-                                size="small"
+                                size={24}
                               />
                             ) : (
                               <RedditIcon size={16} />
@@ -1063,11 +1061,7 @@ export default function SignupScreen() {
                       />
                       {isVerifyingOtp ? (
                         <View className="flex-row items-center justify-center gap-2">
-                          <ZephLoader
-                            variant="security"
-                            color="#ff9500"
-                            size="small"
-                          />
+                          <Spinner3D color="#ff9500" size={24} />
                           <Text
                             className="text-sm"
                             style={[styles.fontMedium, { color: "#ff9500" }]}

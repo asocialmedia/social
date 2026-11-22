@@ -12,6 +12,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 import {
+  Loader2,
   ArrowUp,
   Check,
   FileText,
@@ -29,7 +30,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import KlipyGifPicker from "@/components/comments/composer/klipy-gif-picker";
 import type { KlipyGif } from "@/components/comments/composer/klipy-gif-picker";
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { MessageAttachmentStrip } from "@/components/messages/message-attachment-strip";
 import { MessageComposerInput } from "@/components/messages/message-composer-input";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
@@ -803,7 +803,7 @@ export function MessageComposer({
   // either request is in flight.
   function renderSendIcon() {
     if (busy) {
-      return <ZephLoader variant="messages" className="h-4 w-4" />;
+      return <Loader2 className="h-4 w-4 animate-spin" />;
     }
     if (editing) {
       return <Check className="h-4 w-4" />;

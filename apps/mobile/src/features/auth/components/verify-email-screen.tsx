@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { ZephLoader } from "@/components/feedback/zeph-loader";
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { verifyEmailToken } from "@/features/auth/lib/auth-api";
 import { resolveVerifyEmailState } from "@/features/auth/lib/email-verification";
 import { useSessionContext } from "@/features/auth/state/session";
@@ -263,7 +263,7 @@ export default function VerifyEmailScreen() {
                 Your email has been successfully verified. Redirecting you
                 now...
               </Text>
-              <ZephLoader size="small" variant="security" />
+              <Spinner3D size={24} />
             </View>
           ) : null}
           {status === "error" ? (

@@ -1,12 +1,9 @@
-import { CenteredLogoLoader } from "@/components/layouts/loaders/centered-logo-loader";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 
 export default function AuthLoading() {
   return (
-    <output
-      aria-label="Page is loading"
-      className="bg-background fixed inset-0 z-50 flex items-center justify-center"
-    >
-      <CenteredLogoLoader variant="security" size={64} />
-    </output>
+    <div className="bg-background fixed inset-0 z-50 flex items-center justify-center">
+      <Spinner3D label="Page is loading" className="size-16" />
+    </div>
   );
 }

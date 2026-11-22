@@ -26,7 +26,6 @@ import {
 } from "lucide-react";
 import { useDeferredValue, useEffect, useRef, useState } from "react";
 
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { cn } from "@/lib/utils";
 
 import { EmojiSkinTonePicker } from "./emoji-skin-tone-picker";
@@ -248,10 +247,7 @@ export function MessageReactionPicker({
                 Retry loading emojis
               </button>
             ) : (
-              <span className="flex flex-col items-center gap-2">
-                <ZephLoader size={48} />
-                Loading emojis…
-              </span>
+              "Loading emojis…"
             )}
           </output>
         )}

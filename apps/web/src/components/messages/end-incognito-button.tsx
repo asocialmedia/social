@@ -10,9 +10,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@asm/ui/shadui/dialog";
+import { Loader2 } from "lucide-react";
 import { useState } from "react";
-
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 
 import { useChatLifecycle } from "./chat-lifecycle-state";
 
@@ -73,9 +72,7 @@ export function EndIncognitoButton() {
               }
             }}
           >
-            {busy ? (
-              <ZephLoader variant="messages" className="mr-2 size-4" />
-            ) : null}
+            {busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
             End and delete messages
           </Button>
         </DialogFooter>

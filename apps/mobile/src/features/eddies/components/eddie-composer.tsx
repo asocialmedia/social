@@ -11,13 +11,19 @@
 import { useRouter } from "expo-router";
 import { Clapperboard, ImagePlus, SendHorizonal } from "lucide-react-native";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
 import {
   UserAvatar,
   useViewerAvatarUrl,
 } from "@/components/avatar/user-avatar";
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { GifPicker, reelsInput } from "@/components/media/gif-picker";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import {
@@ -143,7 +149,7 @@ export function SendButton({
           style={[styles.send, pressed && styles.pressed]}
         >
           {sending ? (
-            <ZephLoader variant="general" color="#ffffff" size={16} />
+            <ActivityIndicator color="#ffffff" size={16} />
           ) : (
             <>
               <Text style={styles.sendText}>Send</Text>

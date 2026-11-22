@@ -52,7 +52,7 @@ import {
 import { LoadingButton } from "@/components/auth/fields/loading-button";
 import { PasswordInput } from "@/components/auth/fields/password-input";
 import { TurnstileWidget } from "@/components/auth/fields/turnstile-widget";
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import { useSignupUrlState } from "@/hooks/auth/use-signup-url-state";
 // Imported statically (it guards window access itself) so component bodies
 // never contain dynamic import() expressions, which React Compiler cannot
@@ -978,6 +978,7 @@ export default function SignUpForm() {
                     />
 
                     <LoadingButton
+                      indicator="spinner"
                       className="my-4 w-full"
                       disabled={!turnstileToken}
                       loading={isPending || isLoading || isStarting}
@@ -1242,10 +1243,9 @@ export default function SignUpForm() {
                             initial={{ opacity: 0, y: -10 }}
                             transition={{ duration: 0.2 }}
                           >
-                            <ZephLoader
+                            <Spinner3D
                               label="Verifying your email"
-                              size={24}
-                              variant="security"
+                              className="size-6"
                             />
                             <span>Verifying your code...</span>
                           </motion.div>

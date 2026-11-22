@@ -1,13 +1,13 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Flame, Hash, RefreshCw, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import type React from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
@@ -254,7 +254,7 @@ const TrendingTopics: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
             variant="ghost"
           >
             {refreshing ? (
-              <ZephLoader variant="general" className="size-3.5" />
+              <Skeleton className="size-3.5" />
             ) : (
               <RefreshCw className="size-3.5" />
             )}
@@ -273,7 +273,7 @@ const TrendingTopics: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
             variant="ghost"
           >
             {refreshing ? (
-              <ZephLoader variant="general" className="size-3.5" />
+              <Skeleton className="size-3.5" />
             ) : (
               <RefreshCw className="size-3.5" />
             )}

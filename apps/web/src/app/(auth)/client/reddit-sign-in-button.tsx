@@ -1,6 +1,6 @@
 import { Button } from "@asm/ui/shadui/button";
 
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import { authClient } from "@/lib/auth/auth";
 import { useToast } from "@/lib/gooey-toast";
 
@@ -54,11 +54,7 @@ export default function RedditSignInButton({
       variant="premium-neutral"
     >
       <div className="flex items-center justify-center gap-2">
-        {loading ? (
-          <ZephLoader variant="security" className="h-4 w-4" />
-        ) : (
-          <RedditIcon />
-        )}
+        {loading ? <Spinner3D className="h-4 w-4" /> : <RedditIcon />}
         <span className="font-medium">Continue with Reddit</span>
       </div>
     </Button>

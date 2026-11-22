@@ -7,11 +7,17 @@ import {
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
-import { ChevronLeft, ChevronRight, Download, ImageOff, X } from "lucide-react";
+import {
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  ImageOff,
+  X,
+} from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { toast } from "@/lib/gooey-toast";
 import type { DecryptEntry } from "@/lib/messages/decryptor";
 import type { SharedRefsPage } from "@/lib/messages/shared-refs-format";
@@ -919,7 +925,7 @@ export function ConversationMediaViewer({
           ) : null}
           {!item && (waitingForServerAnchor || serverFetching.initial) ? (
             <span className="text-muted-foreground flex items-center gap-2 text-sm">
-              <ZephLoader variant="messages" aria-hidden className="size-4" />
+              <Loader2 aria-hidden className="size-4 animate-spin" />
               Loading media…
             </span>
           ) : null}
@@ -961,7 +967,7 @@ export function ConversationMediaViewer({
               type="button"
             >
               {extending === "older" || viewerFetchingOlder ? (
-                <ZephLoader variant="messages" className="h-6 w-6" />
+                <Loader2 className="h-6 w-6 animate-spin" />
               ) : (
                 <ChevronLeft className="h-6 w-6" />
               )}
@@ -974,7 +980,7 @@ export function ConversationMediaViewer({
               type="button"
             >
               {extending === "newer" || viewerFetchingNewer ? (
-                <ZephLoader variant="messages" className="h-6 w-6" />
+                <Loader2 className="h-6 w-6 animate-spin" />
               ) : (
                 <ChevronRight className="h-6 w-6" />
               )}

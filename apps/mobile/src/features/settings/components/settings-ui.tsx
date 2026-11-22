@@ -9,9 +9,15 @@
 import type { ComponentType, ReactNode } from "react";
 import { useState } from "react";
 import type { GestureResponderEvent } from "react-native";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import {
   btnGray,
@@ -287,11 +293,7 @@ export function SettingsButton({
               <LeadingIcon color={recipe.textColor} size={16} />
             ) : null}
             {loading ? (
-              <ZephLoader
-                variant="general"
-                color={recipe.textColor}
-                size="small"
-              />
+              <ActivityIndicator color={recipe.textColor} size="small" />
             ) : null}
             <Text style={[styles.buttonText, { color: recipe.textColor }]}>
               {label}

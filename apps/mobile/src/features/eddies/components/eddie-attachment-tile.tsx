@@ -5,9 +5,14 @@
 // when the upload failed.
 import { Image } from "expo-image";
 import { RefreshCw, X } from "lucide-react-native";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import type { DraftAttachment } from "@/features/media-upload/state/attachment-store";
 import { useAppTheme } from "@/theme";
 
@@ -53,7 +58,7 @@ export function EddieAttachmentTile({
       />
       {uploading ? (
         <View style={styles.veil}>
-          <ZephLoader variant="general" color="#ffffff" size={20} />
+          <ActivityIndicator color="#ffffff" size={20} />
         </View>
       ) : null}
       {failed ? (

@@ -16,6 +16,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+  Loader2,
   ArrowDown,
   ArrowLeft,
   Check,
@@ -40,7 +41,6 @@ import {
 } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import { ConversationDetailsPanel } from "@/components/messages/conversation-details-panel";
@@ -5275,7 +5275,7 @@ function NormalMessageThread({
                 {transcriptBusy ? (
                   <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
                     <span className="panel-3d text-muted-foreground flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium">
-                      <ZephLoader variant="messages" className="h-3.5 w-3.5" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       {transcriptLoadingLabel}
                     </span>
                   </div>

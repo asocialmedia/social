@@ -378,6 +378,7 @@ function InlineTwoFactorForm({
         </div>
 
         <LoadingButton
+          indicator="spinner"
           className="w-full"
           disabled={method === "email" && !sent}
           loading={isPending}
@@ -703,6 +704,7 @@ export default function LoginForm({
 
           <div className="flex items-center gap-2">
             <LoadingButton
+              indicator="spinner"
               className="flex-1"
               loading={isPending}
               type="submit"

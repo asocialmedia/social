@@ -23,7 +23,7 @@ import { Image as ExpoImage } from "expo-image";
 import { useFocusEffect } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { VideoView, useVideoPlayer } from "expo-video";
-import { Download, Eye, FileText, X } from "lucide-react-native";
+import { Loader2, Download, Eye, FileText, X } from "lucide-react-native";
 import {
   memo,
   useCallback,
@@ -54,7 +54,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
 import { toast } from "@/components/feedback/toast";
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { sentBubbleShadows } from "@/features/messages/lib/conversation-theme";
@@ -309,7 +308,7 @@ function ViewOncePhoto({
         style={[styles.fileCard, styles.viewOnceCard]}
       >
         {busy ? (
-          <ZephLoader variant="messages" color="#9a9a9a" size={20} />
+          <Loader2 color="#9a9a9a" size={20} />
         ) : (
           <Animated.View style={eyeStyle}>
             <Eye color="#9a9a9a" size={20} />

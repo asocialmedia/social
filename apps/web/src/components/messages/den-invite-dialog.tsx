@@ -12,10 +12,9 @@ import {
 } from "@asm/ui/shadui/dialog";
 import { Input } from "@asm/ui/shadui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@asm/ui/shadui/tabs";
-import { Check, Copy, RefreshCw } from "lucide-react";
+import { Loader2, Check, Copy, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { denInviteCountdown, denInviteUrl } from "@/lib/messages/den-invite";
 import { cn } from "@/lib/utils";
 
@@ -485,11 +484,10 @@ function DenInviteDialogSession({
                   }}
                   type="button"
                 >
-                  {linkBusy ? (
-                    <ZephLoader variant="messages" className="size-3.5" />
-                  ) : (
-                    <RefreshCw className="size-3.5" />
-                  )}
+                  <RefreshCw
+                    aria-hidden
+                    className={linkBusy ? "size-3.5 animate-spin" : "size-3.5"}
+                  />
                   {linkBusy ? "Creating…" : "Generate link"}
                 </Button>
               </div>
@@ -582,10 +580,9 @@ function DenInviteDialogSession({
             ) : (
               <div className="surface-3d flex flex-col items-center justify-center gap-3 rounded-2xl! p-4 text-center">
                 {codeError ? null : (
-                  <ZephLoader
-                    variant="messages"
+                  <Loader2
                     aria-hidden
-                    className="text-muted-foreground size-5 motion-reduce:animate-none"
+                    className="text-muted-foreground size-5 animate-spin motion-reduce:animate-none"
                   />
                 )}
                 <output className="text-muted-foreground text-xs">
@@ -625,11 +622,10 @@ function DenInviteDialogSession({
               }}
               type="button"
             >
-              {linkBusy ? (
-                <ZephLoader variant="messages" className="size-4" />
-              ) : (
-                <RefreshCw className="size-4" />
-              )}
+              <RefreshCw
+                aria-hidden
+                className={linkBusy ? "size-4 animate-spin" : "size-4"}
+              />
               {linkBusy ? "Creating…" : "Generate new link"}
             </Button>
           )}
@@ -643,11 +639,10 @@ function DenInviteDialogSession({
               }}
               type="button"
             >
-              {generatingCode ? (
-                <ZephLoader variant="messages" className="size-4" />
-              ) : (
-                <RefreshCw className="size-4" />
-              )}
+              <RefreshCw
+                aria-hidden
+                className={generatingCode ? "size-4 animate-spin" : "size-4"}
+              />
               {codeError
                 ? "Try again"
                 : codeButtonLabel(generatingCode, shownCode.code)}

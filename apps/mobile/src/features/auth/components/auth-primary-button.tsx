@@ -6,7 +6,7 @@ import { Pressable, StyleSheet, Text } from "react-native";
 // recipe's dual border collapses to a single ring. Used by login, signup,
 // reset-password, confirm-reset and help.
 
-import { ZephLoader } from "@/components/feedback/zeph-loader";
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import {
   ORANGE_DISABLED_GRADIENT,
@@ -79,9 +79,7 @@ export function AuthPrimaryButton({
             shadows={tone.shadows}
             style={[styles.btn, pressed && !isDisabled && styles.pressed]}
           >
-            {loading ? (
-              <ZephLoader variant="security" color="#ffffff" size="small" />
-            ) : null}
+            {loading ? <Spinner3D color="#ffffff" size={24} /> : null}
             <Text
               className="text-base tracking-tight text-white"
               style={[styles.label, isDisabled && styles.labelDisabled]}

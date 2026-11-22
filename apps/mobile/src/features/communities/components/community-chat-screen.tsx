@@ -33,6 +33,7 @@ import {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import {
+  ActivityIndicator,
   AppState,
   FlatList,
   Keyboard,
@@ -49,7 +50,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { StatusActionButton } from "@/components/feedback/status-action-button";
 import { toast } from "@/components/feedback/toast";
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { DialogPanel } from "@/components/surface/dialog-panel";
 import { premiumInput } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
@@ -265,7 +265,7 @@ function CommunityChatChannelsContent() {
       </View>
       {loading ? (
         <View style={styles.state}>
-          <ZephLoader variant="messages" color={communityAccent} />
+          <ActivityIndicator color={communityAccent} />
         </View>
       ) : loadError === null ? (
         channels.length === 0 ? (
@@ -464,7 +464,7 @@ const CommunityChatComposer = memo(
           ]}
         >
           {sending ? (
-            <ZephLoader variant="messages" color="#fff" size="small" />
+            <ActivityIndicator color="#fff" size="small" />
           ) : (
             <Send color="#fff" size={17} />
           )}
@@ -1460,7 +1460,7 @@ function CommunityChatTimelineScreen() {
     [detail, permissions?.canSend, theme.dividerText, theme.inputText]
   );
   const listFooter = useMemo(
-    () => <ZephLoader variant="messages" color={communityAccent} />,
+    () => <ActivityIndicator color={communityAccent} />,
     [communityAccent]
   );
   const handleClearReply = useCallback(() => {

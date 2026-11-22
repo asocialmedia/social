@@ -2,7 +2,7 @@
 
 import type { CommentData } from "@asm/db";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { CornerDownRight } from "lucide-react";
+import { Loader2, CornerDownRight } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useCallback, useMemo, useState } from "react";
@@ -14,7 +14,6 @@ import { CommentLinkEmbeds } from "@/components/comments/item/comment-link-embed
 import CommentMoreButton from "@/components/comments/item/comment-more-button";
 import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import CommentsSkeleton from "@/components/layouts/skeletons/comments-skeleton";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import AuraVoteButton from "@/components/posts/actions/aura-vote-button";
@@ -391,7 +390,7 @@ const UserRepliesFeed: React.FC<UserRepliesFeedProps> = ({ userId }) => {
       ) : null}
       {isFetchingNextPage || external.loading || external.isFetchingNextPage ? (
         <div className="flex justify-center py-4">
-          <ZephLoader variant="general" className="text-primary" />
+          <Loader2 className="text-primary animate-spin" />
         </div>
       ) : null}
       {status !== "error" &&
