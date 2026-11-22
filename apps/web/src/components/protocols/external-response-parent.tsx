@@ -1,16 +1,16 @@
 "use client";
 
 import type { ExternalPost } from "@asm/protocols/contracts";
+import { Button } from "@asm/ui/shadui/button";
 import { Skeleton } from "@asm/ui/shadui/skeleton";
 
-import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import { ResponseParentRow } from "@/components/responses/response-parent-card";
 import { externalPostView } from "@/lib/posts/presentation";
 
 import { useExternalPost } from "./use-external-post";
 
 export function ExternalResponseParent({ uri }: { uri: string }) {
-  const query = useExternalPost(uri);
+  const query = useExternalPost(uri, undefined, false);
   if (query.isPending) {
     return (
       <div
@@ -28,14 +28,19 @@ export function ExternalResponseParent({ uri }: { uri: string }) {
   }
   if (query.isError && !query.data) {
     return (
-      <FeedErrorState
-        compact
-        message="Couldn't load the original Bluesky post."
-        isRetrying={query.isFetching}
-        onRetry={() => {
-          void query.refetch();
-        }}
-      />
+      <div className="text-muted-foreground flex items-center gap-2 pb-2 text-xs">
+        <span>Original Bluesky post temporarily unavailable.</span>
+        <Button
+          disabled={query.isFetching}
+          onClick={async () => {
+            await query.refetch();
+          }}
+          size="sm"
+          variant="ghost"
+        >
+          Retry
+        </Button>
+      </div>
     );
   }
   return <ExternalResponseParentRow post={query.data ?? null} uri={uri} />;

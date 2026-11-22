@@ -250,6 +250,9 @@ export async function* streamJetstream(
             ? new TextEncoder().encode(message).byteLength
             : message.byteLength;
         if (size > maxMessageBytes) {
+          if (options.publicDiscovery) {
+            continue;
+          }
           throw new ProtocolError(
             "invalid_response",
             "Jetstream event exceeds the size limit"
@@ -364,9 +367,6 @@ export async function* streamJetstream(
       }
     }
     if (
-      (options.publicDiscovery &&
-        error instanceof ProtocolError &&
-        error.message === "Jetstream event exceeds the size limit") ||
       (options.publicDiscovery && error instanceof MalformedError) ||
       (options.publicDiscovery &&
         error instanceof Error &&
@@ -491,6 +491,9 @@ export async function* replayJetstream(
         new TextEncoder().encode(JSON.stringify(event)).byteLength >
         maxMessageBytes
       ) {
+        if (!parsed.data.dids.length) {
+          continue;
+        }
         throw new ProtocolError(
           "invalid_response",
           "Jetstream event exceeds the size limit"

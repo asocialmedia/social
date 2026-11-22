@@ -5,18 +5,16 @@ import { useCallback } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
-import { useSecondaryFeedReady } from "@/hooks/feed/use-secondary-feed-ready";
 import { CARD_QUERY_POLICY } from "@/lib/cards/query-policy";
 import { discoverySuggestionsSchema } from "@/lib/recommendations/suggestion-types";
 
 export function useDiscoverySuggestions(enabled = true, profileId?: string) {
   const { user } = useSession();
   const network = useNetworkSettings();
-  const primaryReady = useSecondaryFeedReady();
   const activeProfile =
     profileId ?? network.settings.preferences.activeProfileId;
   return useQuery({
-    enabled: enabled && network.ready && primaryReady,
+    enabled: enabled && network.ready,
     queryFn: async ({ signal }) => {
       const url = new URL(
         "/api/recommendations/suggestions",

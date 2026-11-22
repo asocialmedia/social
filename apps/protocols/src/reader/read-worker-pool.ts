@@ -9,7 +9,11 @@ import { context, metrics, propagation } from "@opentelemetry/api";
 
 import type { ProtocolLogger } from "../runtime/observability";
 import type { ReadWorkerNode } from "./read-worker-config";
-import { publicReadHeaders, publicReadTarget } from "./read-worker-policy";
+import {
+  publicReadHeaders,
+  publicReadRateLimitScope,
+  publicReadTarget,
+} from "./read-worker-policy";
 
 type PublicFetch = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -214,7 +218,9 @@ export function createReadWorkerPool(options: {
             retryAfterMs(response.headers.get("retry-after"), now()) ??
             defaultPauseMs;
           let cooldownKey = resource;
-          if (upstreamStatus === 429 || workerAuthFailure) {
+          if (upstreamStatus === 429) {
+            cooldownKey = publicReadRateLimitScope(target);
+          } else if (workerAuthFailure) {
             cooldownKey = target.origin;
           } else if (upstreamStatus === 403 && !search) {
             cooldownKey = operationKey;

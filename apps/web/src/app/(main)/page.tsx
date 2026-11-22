@@ -6,7 +6,6 @@ import { Suspense } from "react";
 
 import HomePageSkeleton from "@/components/layouts/skeletons/home-skeleton";
 import JsonLd from "@/components/seo/json-ld";
-import { getUserData } from "@/hooks/users/use-user-data";
 import { getSessionFromApi } from "@/lib/auth/session";
 import {
   getGuestBlueskyFeed,
@@ -77,7 +76,9 @@ async function HomeContent() {
 
   // Guests can browse the home feed; the client decides which tabs and
   // interactive features are available without an account.
-  const userData = session?.user ? await getUserData(session.user.id) : null;
+  if (session?.user) {
+    return <ClientHome composer={<HomeComposer />} />;
+  }
 
   const requestHeaders = await headers();
   const locale = guestDiscoveryLocale(
@@ -85,8 +86,8 @@ async function HomeContent() {
     requestHeaders.get("cf-ipcountry")
   );
   const [recentPosts, guestExternalPosts] = await Promise.all([
-    session?.user ? [] : getRecentPostDataForCrawl(12),
-    session?.user ? [] : getGuestBlueskyFeed(locale),
+    getRecentPostDataForCrawl(12),
+    getGuestBlueskyFeed(locale),
   ]);
 
   const itemListJsonLd =
@@ -108,12 +109,8 @@ async function HomeContent() {
     <>
       {itemListJsonLd ? <JsonLd data={itemListJsonLd} /> : null}
       <ClientHome
-        composer={session?.user ? <HomeComposer /> : undefined}
-        initialGuestExternalPosts={
-          session?.user ? undefined : guestExternalPosts
-        }
-        initialGuestPosts={session?.user ? undefined : recentPosts}
-        userData={userData}
+        initialGuestExternalPosts={guestExternalPosts}
+        initialGuestPosts={recentPosts}
       />
     </>
   );

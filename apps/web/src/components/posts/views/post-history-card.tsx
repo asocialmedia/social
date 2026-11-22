@@ -23,7 +23,6 @@ import {
 } from "@/components/posts/embeds/embed-utils";
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
-import { useSecondaryFeedReady } from "@/hooks/feed/use-secondary-feed-ready";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { useSession } from "@/lib/auth/session-context";
@@ -209,12 +208,13 @@ const PostHistoryCard: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
   const enabled = useMediaQuery(mediaQuery || "all", !mediaQuery);
   const { user } = useSession();
   const network = useNetworkSettings();
-  const primaryReady = useSecondaryFeedReady();
   const { data, status } = useQuery({
-    enabled: enabled && Boolean(user) && network.ready && primaryReady,
-    queryFn: () =>
-      kyInstance.get("/api/posts/history").json<{ posts: PresentedPost[] }>(),
-    queryKey: ["post-history", user?.id ?? "guest", network.scope],
+    enabled: enabled && Boolean(user),
+    queryFn: ({ signal }) =>
+      kyInstance
+        .get("/api/posts/history", { signal })
+        .json<{ posts: PresentedPost[] }>(),
+    queryKey: ["post-history", user?.id ?? "guest"],
     refetchInterval: 30 * 1000,
     refetchIntervalInBackground: false,
     staleTime: 30 * 1000,
@@ -229,7 +229,7 @@ const PostHistoryCard: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
   );
 
   let body: React.ReactNode;
-  if (!enabled || status === "pending") {
+  if (!enabled || !network.ready || status === "pending") {
     body = (
       <div className="flex flex-col gap-0.5">
         <HistoryRowSkeleton />

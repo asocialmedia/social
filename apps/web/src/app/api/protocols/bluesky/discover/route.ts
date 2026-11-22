@@ -10,6 +10,7 @@ import {
 } from "@asm/db";
 import { externalPostTopics } from "@asm/protocols/contracts";
 import {
+  abortable,
   matchesAvoidedTopic,
   discoveryContentSchema,
   discoveryModeSchema,
@@ -242,31 +243,42 @@ export function GET(request: Request) {
     }
     const includeSocialCandidates =
       mode.data === "personalized" && !cursor && !exploring;
+    const graphSignal = AbortSignal.any([
+      request.signal,
+      AbortSignal.timeout(1100),
+    ]);
+    const viewer = session?.user.id;
     const [page, excluded, social, followed] = await Promise.all([
       cached ? Promise.resolve(cached.page) : read(request.signal),
-      session?.user.id
-        ? readExternalFeedback(session.user.id)
+      viewer
+        ? readExternalFeedback(viewer)
         : Promise.resolve(new Set<string>()),
-      session?.user.id
+      viewer
         ? timing.measure("graph", () =>
-            socialExternalRecommendations(
-              session.user.id,
-              includeSocialCandidates,
-              request.signal,
-              id
-            )
+            abortable(
+              socialExternalRecommendations(
+                viewer,
+                includeSocialCandidates,
+                graphSignal,
+                id
+              ),
+              graphSignal
+            ).catch(() => null)
           )
         : null,
-      session?.user.id
+      viewer
         ? timing.measure("graph", () =>
-            followedExternalRecommendations(
-              session.user.id,
-              includeSocialCandidates,
-              request.signal,
-              id,
-              String(network.revision),
-              includeExplicit
-            )
+            abortable(
+              followedExternalRecommendations(
+                viewer,
+                includeSocialCandidates,
+                graphSignal,
+                id,
+                String(network.revision),
+                includeExplicit
+              ),
+              graphSignal
+            ).catch(() => null)
           )
         : null,
     ]);

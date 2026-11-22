@@ -414,11 +414,11 @@ export async function startProtocols() {
           : selectedDiscovery.read(mode, undefined, locale, topics, content));
         await retain(page, startedAt);
         // Replenish continuation inventory off the viewer's request path.
-        if (selectedInventory) {
+        if (selectedInventory && !page.partial && page.cursor) {
           void runWarmup(() =>
             warmDiscoveryInventory({
               head: page,
-              maxPages: content === "video" ? 3 : 2,
+              maxPages: 1,
               read: (cursor) =>
                 selectedDiscovery.read(mode, cursor, locale, topics, content),
               retain: (next, began) => selectedInventory.put(next.items, began),
@@ -482,9 +482,15 @@ export async function startProtocols() {
     void subscriber.connect().catch(() => {
       // The subscriber reconnects in the background.
     });
+    let renewPublicWatchAt = 0;
     const timer = setInterval(() => {
       if (publisher.status !== "ready") {
         return;
+      }
+      if (config.jetstreamEnabled && Date.now() >= renewPublicWatchAt) {
+        // Keep an engagement-qualified shared pool warm even without viewer watches.
+        live.watch({ locale: "all", mode: "latest", topics: [] });
+        renewPublicWatchAt = Date.now() + 60_000;
       }
       void live.tick().catch(() => {
         // A failed reconciliation is retried by the next tick.

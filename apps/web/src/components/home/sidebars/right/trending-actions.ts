@@ -9,6 +9,7 @@ import {
   SYSTEM_MODERATION_USER_ID,
 } from "@asm/db";
 import type { CommunityRoleRow } from "@asm/db";
+import { abortable } from "@asm/protocols/discovery";
 
 import { getTrendingTopics } from "./topic-actions";
 import { selectTopAuraUsers, weaveTrendingItems } from "./trending-utils";
@@ -64,29 +65,53 @@ export interface TrendingFeed {
   unavailable: ("hashtags" | "mentions" | "bluesky" | "aura")[];
 }
 
-const BLUESKY_TRENDING_KEY = "trending:bluesky:topics:v2";
-const BLUESKY_TRENDING_TTL = 600; // 10 minutes
+const BLUESKY_TRENDING_KEY = "trending:bluesky:topics:v3";
+const BLUESKY_TRENDING_FRESH_MS = 5 * 60_000;
+const BLUESKY_TRENDING_RETENTION_SECONDS = 60 * 60;
+let pendingBlueskyTrending: Promise<TrendingBlueskyTopic[]> | undefined;
 
 export async function fetchBlueskyTrendingTopics(
   bypassCache = false
 ): Promise<TrendingBlueskyTopic[]> {
-  if (!bypassCache) {
-    try {
-      const cached = await redis.get(BLUESKY_TRENDING_KEY);
-      if (cached) {
-        return JSON.parse(cached) as TrendingBlueskyTopic[];
+  let snapshot: { at: number; topics: TrendingBlueskyTopic[] } | undefined;
+  try {
+    const cached = await redis.get(BLUESKY_TRENDING_KEY);
+    if (cached) {
+      snapshot = JSON.parse(cached) as typeof snapshot;
+      if (
+        snapshot &&
+        !bypassCache &&
+        Date.now() - snapshot.at < BLUESKY_TRENDING_FRESH_MS
+      ) {
+        return snapshot.topics;
       }
-    } catch (error) {
-      console.error("Error reading Bluesky trending topics from cache:", error);
+    }
+  } catch {
+    // Public trends can still be read while Redis recovers.
+  }
+  const read = pendingBlueskyTrending ?? refreshBlueskyTrending();
+  pendingBlueskyTrending = read;
+  try {
+    return await read;
+  } catch (error) {
+    if (snapshot) {
+      return snapshot.topics;
+    }
+    throw error;
+  } finally {
+    if (pendingBlueskyTrending === read) {
+      pendingBlueskyTrending = undefined;
     }
   }
+}
 
+async function refreshBlueskyTrending(): Promise<TrendingBlueskyTopic[]> {
   try {
     const res = await fetch(
       "https://public.api.bsky.app/xrpc/app.bsky.unspecced.getTrendingTopics",
       {
         headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(4000),
+        signal: AbortSignal.timeout(1500),
       }
     );
 
@@ -105,7 +130,10 @@ export async function fetchBlueskyTrendingTopics(
       }[];
     };
 
-    const rawTopics = Array.isArray(data.topics) ? data.topics : [];
+    if (!Array.isArray(data.topics)) {
+      throw new TypeError("Bluesky returned invalid trending topics");
+    }
+    const rawTopics = data.topics;
     const topics: TrendingBlueskyTopic[] = rawTopics
       .filter((t) => typeof t?.topic === "string" && t.topic.trim().length > 0)
       .slice(0, 20)
@@ -118,17 +146,15 @@ export async function fetchBlueskyTrendingTopics(
         type: "bluesky_topic",
       }));
 
-    if (topics.length > 0) {
-      try {
-        await redis.set(
-          BLUESKY_TRENDING_KEY,
-          JSON.stringify(topics),
-          "EX",
-          BLUESKY_TRENDING_TTL
-        );
-      } catch (error) {
-        console.error("Error caching Bluesky trending topics in Redis:", error);
-      }
+    try {
+      await redis.set(
+        BLUESKY_TRENDING_KEY,
+        JSON.stringify({ at: Date.now(), topics }),
+        "EX",
+        BLUESKY_TRENDING_RETENTION_SECONDS
+      );
+    } catch (error) {
+      console.error("Error caching Bluesky trending topics in Redis:", error);
     }
 
     return topics;
@@ -231,12 +257,13 @@ export async function getTrendingFeed(
   bypassCache = false,
   includeBluesky = true
 ): Promise<TrendingFeed> {
+  const signal = AbortSignal.timeout(2500);
   const results = await Promise.allSettled([
-    getTrendingTopics(bypassCache),
-    getTopMentionedUsers(),
-    getTopAuraUsers(),
+    abortable(getTrendingTopics(bypassCache), signal),
+    abortable(getTopMentionedUsers(), signal),
+    abortable(getTopAuraUsers(), signal),
     includeBluesky
-      ? fetchBlueskyTrendingTopics(bypassCache)
+      ? abortable(fetchBlueskyTrendingTopics(bypassCache), signal)
       : Promise.resolve([]),
   ]);
 

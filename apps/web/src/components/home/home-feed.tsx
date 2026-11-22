@@ -521,9 +521,6 @@ export default function HomeFeed({
     showCommunitySection ||
     (source !== "bluesky" && visibleGlobalPosts.length > 0) ||
     (allowExternal && source !== "asm" && externalPosts.length > 0);
-  // Keep the initial batch behind the skeleton until both networks settle.
-  const holdSourceStaging = initialSourceLoading && !hasGuestBootstrap;
-  const showInitialSourceSkeleton = holdSourceStaging;
   const sourceFailed =
     (source !== "bluesky" && (communityFailed || globalStatus === "error")) ||
     (allowExternal && includeBluesky && external.isError);
@@ -721,7 +718,6 @@ export default function HomeFeed({
         </div>
       ) : null}
       <InfiniteScrollContainer
-        paused={holdSourceStaging}
         continuationDelay={Math.max(
           source !== "bluesky" && globalHasNextPage
             ? feedContinuationDelay(data?.pages, (page) => page.posts)
@@ -734,7 +730,7 @@ export default function HomeFeed({
       >
         {/* Community segment leads. `showCommunity={false}` because every post
             here already belongs to the community being read. */}
-        {showCommunitySection && !holdSourceStaging ? (
+        {showCommunitySection ? (
           <FeedView
             key={hashKey(communityQueryKey)}
             cacheKey={communityQueryKey}
@@ -746,14 +742,12 @@ export default function HomeFeed({
         ) : null}
         {/* The hand-off between the community and the platform. Only rendered
             when both segments actually have posts on screen. */}
-        {showCommunitySection &&
-        !holdSourceStaging &&
-        visibleGlobalPosts.length > 0 ? (
+        {showCommunitySection && visibleGlobalPosts.length > 0 ? (
           <h3 className="text-muted-foreground border-border/60 border-t px-4 pt-4 pb-2 text-xs font-semibold tracking-wide uppercase">
             More from asocialmedia
           </h3>
         ) : null}
-        {hasAnyPosts && !holdSourceStaging ? (
+        {hasAnyPosts ? (
           <FeedView
             key={
               hasGuestBootstrap
@@ -761,8 +755,6 @@ export default function HomeFeed({
                 : `${hashKey(queryKey)}:${source}`
             }
             externalPosts={allowExternal ? externalPosts : []}
-            sourcesPending={holdSourceStaging}
-            sourceWaitMs={null}
             source={source}
             cacheKey={queryKey}
             excludeIds={communityIds}
@@ -775,8 +767,9 @@ export default function HomeFeed({
             sortBy={isTrending || isPersonalized ? "server" : "newest"}
           />
         ) : null}
-        {showInitialSourceSkeleton ? (
-          <FeedViewSkeleton
+        {initialSourceLoading && !hasGuestBootstrap ? (
+          <LoadMoreSkeleton
+            count={1}
             source={externalInitialLoading ? "bluesky" : source}
           />
         ) : null}

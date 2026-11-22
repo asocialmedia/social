@@ -1,9 +1,57 @@
 import { expect, test } from "bun:test";
 
+import { ProtocolError } from "@asm/protocols/contracts";
+
 import { createDiscoveryLive } from "./discovery-live";
 import { MemoryDiscoveryStore } from "./discovery-store";
 
 const watch = { locale: "en", mode: "latest", topics: [] };
+
+test("the shared latest pool refreshes on a steady cadence regardless of invalidation traffic", async () => {
+  let now = 0;
+  let reads = 0;
+  const live = createDiscoveryLive({
+    now: () => now,
+    publish: () => Promise.resolve(),
+    read: () => {
+      reads += 1;
+      return Promise.resolve({ cursor: null, items: [], partial: false });
+    },
+    store: new MemoryDiscoveryStore(),
+  });
+  live.watch({ ...watch, locale: "all" });
+  await live.tick();
+  live.invalidate();
+  now = 59_999;
+  await live.tick();
+  expect(reads).toBe(1);
+  now = 60_000;
+  await live.tick();
+  expect(reads).toBe(2);
+});
+
+test("stream invalidations respect source backoff after a failed refresh", async () => {
+  let now = 0;
+  let reads = 0;
+  const live = createDiscoveryLive({
+    now: () => now,
+    publish: () => Promise.resolve(),
+    read: () => {
+      reads += 1;
+      return Promise.reject(new ProtocolError("rate_limited", "Cooldown", 45));
+    },
+    store: new MemoryDiscoveryStore(),
+  });
+  live.watch(watch);
+  await live.tick();
+  live.invalidate();
+  now = 44_999;
+  await live.tick();
+  expect(reads).toBe(1);
+  now = 45_000;
+  await live.tick();
+  expect(reads).toBe(2);
+});
 
 test("safe and opt-in viewers refresh separate pools and renew only their own policy", async () => {
   let now = 1_000_000;

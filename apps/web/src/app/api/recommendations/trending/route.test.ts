@@ -3,6 +3,7 @@ import { beforeEach, expect, mock, test } from "bun:test";
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { defaultNetworkPreferences } from "@asm/protocols/discovery";
 
+import type { TrendingItem } from "@/components/home/sidebars/right/trending-actions";
 import { mergeTrendingFeed } from "@/components/home/sidebars/right/trending-utils";
 import { interestTrendingTopics } from "@/lib/recommendations/interest-trending";
 
@@ -12,6 +13,7 @@ let offline = false;
 let cached = false;
 let partial = false;
 let globalOffline = false;
+let globalItems: TrendingItem[] = [];
 let posts: ExternalPost[] = [];
 const preferences = defaultNetworkPreferences();
 const context = (interests = ["anime"]) => ({
@@ -24,7 +26,7 @@ const context = (interests = ["anime"]) => ({
 const globalRead = mock((_refresh: boolean, _includeBluesky: boolean) =>
   globalOffline
     ? Promise.reject(new Error("all global sources unavailable"))
-    : Promise.resolve({ items: [], topAura: [], unavailable: [] })
+    : Promise.resolve({ items: globalItems, topAura: [], unavailable: [] })
 );
 const discovery = mock(() =>
   offline
@@ -68,6 +70,7 @@ beforeEach(() => {
   cached = false;
   partial = false;
   globalOffline = false;
+  globalItems = [];
   posts = [];
   preferences.showExplicitContent = false;
   preferences.avoidedTopics = [];
@@ -147,7 +150,7 @@ test("current preferences and avoided topics apply even when the global cache co
   const data = await response.json();
   expect(response.status).toBe(200);
   expect(data.items[0].topic).toBe("anime");
-  expect(globalRead).toHaveBeenCalledWith(false, false);
+  expect(globalRead).toHaveBeenCalledWith(false, true);
   preferences.avoidedTopics = ["anime"];
   const avoidedResponse = await GET(
     new Request("https://asm.test/api/recommendations/trending")
@@ -185,6 +188,30 @@ test("warm feed evidence avoids another upstream read, and failures preserve ind
   );
   const failedData = await failedResponse.json();
   expect(failedData.unavailable).toContain("bluesky");
+});
+
+test("public topics matching the active profile survive a discovery outage", async () => {
+  offline = true;
+  globalItems = [
+    {
+      displayName: "Anime",
+      source: "bluesky",
+      topic: "anime",
+      type: "bluesky_topic",
+    },
+    {
+      displayName: "Politics",
+      source: "bluesky",
+      topic: "politics",
+      type: "bluesky_topic",
+    },
+  ];
+  const response = await GET(
+    new Request("https://asm.test/api/recommendations/trending")
+  );
+  expect(response.status).toBe(200);
+  const data = await response.json();
+  expect(data.items).toEqual([globalItems[0]]);
 });
 
 test("guest discovery stays global and excessive refreshes retain a retry boundary", async () => {

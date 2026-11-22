@@ -2,8 +2,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { asmDbMockBase } from "@/posts/test-support/asm-db-mock";
 
-import { GET } from "./route";
-
 const USER_ID = "user1";
 
 const mockGetSession = mock((): { user: { id: string } } | null => ({
@@ -119,10 +117,8 @@ const mockGetPosts = mock(
   > => Promise.resolve([])
 );
 
-mock.module("@asm/protocols/bluesky", () => ({
-  BlueskyClient: class {
-    getPosts = mockGetPosts;
-  },
+mock.module("@/lib/protocols/service", () => ({
+  readBlueskyPosts: mockGetPosts,
 }));
 
 mock.module("@asm/db", () => ({
@@ -173,6 +169,7 @@ mock.module("@asm/db", () => ({
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
+const { GET } = await import("./route");
 
 describe("GET /api/posts/history", () => {
   beforeEach(() => {

@@ -3,6 +3,7 @@ import type React from "react";
 import { Suspense } from "react";
 
 import { GooeyToaster } from "@/components/auth/shell/gooey-toaster";
+import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import FloatingPostComposer from "@/components/layouts/feed/floating-post-composer";
 import { GuestAuthBar } from "@/components/layouts/shell/guest-auth-bar";
 import { MainShell } from "@/components/layouts/shell/main-shell";
@@ -44,11 +45,6 @@ async function AuthenticatedShell({ children }: { children: React.ReactNode }) {
   const session = await getSessionFromApi();
   const isLoggedIn = Boolean(session?.user);
   const currentSessionId = session?.session.id;
-  // Resolve the user once here and share it with the persistent left nav so
-  // the nav doesn't re-fetch on every route change. Pages receive their own
-  // full userData from their data layer, unrelated to this cached lookup.
-  const userData = session?.user ? await getUserData(session.user.id) : null;
-
   return (
     <SessionProvider value={session}>
       {currentSessionId ? (
@@ -63,9 +59,25 @@ async function AuthenticatedShell({ children }: { children: React.ReactNode }) {
             immersive routes (post, gust, profile) intentionally omit it. Media
             routes are standalone fullscreen pages, so MainShell skips the chrome
             there entirely. */}
-        <MainShell userData={userData}>{children}</MainShell>
+        <MainShell
+          sidebar={
+            session?.user ? (
+              <Suspense fallback={<LeftSidebar userData={null} />}>
+                <ShellSidebar userId={session.user.id} />
+              </Suspense>
+            ) : (
+              <LeftSidebar userData={null} />
+            )
+          }
+        >
+          {children}
+        </MainShell>
         {isLoggedIn ? <FloatingPostComposer /> : <GuestAuthBar />}
       </SpotlightProvider>
     </SessionProvider>
   );
+}
+
+async function ShellSidebar({ userId }: { userId: string }) {
+  return <LeftSidebar userData={await getUserData(userId)} />;
 }

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { ProtocolError } from "@asm/protocols/contracts";
 import {
   discoveryContentSchema,
   discoveryLocaleSchema,
@@ -20,6 +21,16 @@ export const discoveryWatchSchema = z.object({
   topics: discoveryTopicsSchema,
 });
 type Watch = z.infer<typeof discoveryWatchSchema>;
+function isPublicLatestPool(watch: Watch) {
+  return (
+    watch.locale === "all" &&
+    watch.mode === "latest" &&
+    !watch.explicit &&
+    watch.content === "all" &&
+    watch.topics.length === 0
+  );
+}
+
 const watchRetentionMs = 24 * 60 * 60_000;
 const registryKey = "live:watch-registry:v2";
 const savedWatchSchema = z
@@ -38,7 +49,7 @@ export function createDiscoveryLive(options: {
 }) {
   const watches = new Map<
     string,
-    { watch: Watch; expires: number; due: number }
+    { watch: Watch; expires: number; due: number; failures: number }
   >();
   const now = options.now ?? Date.now;
   let running = false;
@@ -48,7 +59,9 @@ export function createDiscoveryLive(options: {
   return {
     invalidate: () => {
       for (const entry of watches.values()) {
-        entry.due = Math.min(entry.due, now() + 2000);
+        if (!entry.failures && !isPublicLatestPool(entry.watch)) {
+          entry.due = Math.min(entry.due, now() + 2000);
+        }
       }
     },
     stop: () => {
@@ -78,7 +91,7 @@ export function createDiscoveryLive(options: {
                   !watches.has(id) &&
                   watches.size < 64
                 ) {
-                  watches.set(id, { ...entry, due: 0 });
+                  watches.set(id, { ...entry, due: 0, failures: 0 });
                 }
               }
             }
@@ -105,7 +118,9 @@ export function createDiscoveryLive(options: {
           .slice(0, 2);
         await Promise.all(
           due.map(async ([id, entry]) => {
-            entry.due = now() + 20_000;
+            const shared = isPublicLatestPool(entry.watch);
+            const interval = shared ? 60_000 : 20_000;
+            entry.due = now() + interval;
             const key = `live:v1:${id}`;
             const owner = crypto.randomUUID();
             if (!(await options.store.acquire(key, owner))) {
@@ -127,9 +142,9 @@ export function createDiscoveryLive(options: {
                   )
                 )
                 .digest("hex");
-              if (page.partial) {
-                entry.due = now() + 5000;
-              }
+              entry.failures = page.partial ? entry.failures + 1 : 0;
+              entry.due =
+                now() + Math.min(120_000, interval * 2 ** entry.failures);
               await options.store.set(
                 key,
                 JSON.stringify({ at: now(), fingerprint }),
@@ -140,14 +155,25 @@ export function createDiscoveryLive(options: {
                 await options.publish(
                   FEED_EVENTS_CHANNEL,
                   JSON.stringify({
-                    locale: entry.watch.locale,
-                    mode: entry.watch.mode,
+                    ...(shared
+                      ? {}
+                      : { locale: entry.watch.locale, mode: entry.watch.mode }),
                     source: "bluesky",
                   })
                 );
               }
-            } catch {
-              entry.due = now() + 5000;
+            } catch (error) {
+              entry.failures += 1;
+              const retryAfter =
+                error instanceof ProtocolError
+                  ? error.retryAfterSeconds
+                  : undefined;
+              entry.due =
+                now() +
+                Math.max(
+                  Math.min(120_000, interval * 2 ** entry.failures),
+                  (retryAfter ?? 0) * 1000
+                );
             } finally {
               await options.store.release(key, owner);
             }
@@ -201,11 +227,16 @@ export function createDiscoveryLive(options: {
         }
       }
       const previous = watches.get(key);
-      watches.set(key, {
-        due: previous?.due ?? 0,
-        expires: now() + watchRetentionMs,
-        watch: parsed.data,
-      });
+      if (previous) {
+        previous.expires = now() + watchRetentionMs;
+      } else {
+        watches.set(key, {
+          due: 0,
+          expires: now() + watchRetentionMs,
+          failures: 0,
+          watch: parsed.data,
+        });
+      }
     },
   };
 }

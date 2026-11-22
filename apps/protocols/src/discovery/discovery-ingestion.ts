@@ -1,6 +1,7 @@
 // Hydration batches finish before their successor starts; the socket handler only enqueues IDs.
 // oxlint-disable no-await-in-loop
 import type { BlueskyClient } from "@asm/protocols/bluesky";
+import { ProtocolError } from "@asm/protocols/contracts";
 import { BoundedReadQueue } from "@asm/protocols/discovery";
 import { jetstreamRecordUri } from "@asm/protocols/jetstream";
 import type { JetstreamEvent } from "@asm/protocols/jetstream";
@@ -96,6 +97,8 @@ export function createDiscoveryIngestion(options: {
     nextAt: number;
   }[] = [];
   let running = false;
+  let nextGeneralAt = 0;
+  let pausedUntil = 0;
   return {
     async event(event: JetstreamEvent) {
       if (event.kind !== "commit") {
@@ -125,17 +128,55 @@ export function createDiscoveryIngestion(options: {
       if (event.commit.operation === "delete") {
         return;
       }
-      const text = JSON.stringify(event.commit.record ?? {}).toLowerCase();
+      const { record } = event.commit;
+      if (
+        !record ||
+        typeof record !== "object" ||
+        !("text" in record) ||
+        typeof record.text !== "string"
+      ) {
+        return;
+      }
+      const { text } = record;
+      const tags =
+        "tags" in record && Array.isArray(record.tags)
+          ? record.tags
+              .slice(0, 8)
+              .filter((tag): tag is string => typeof tag === "string")
+          : [];
+      const searchable = [text, ...tags].join(" ").toLowerCase();
       const active = [...watches.values()].filter(
         (watch) => watch.expires > now()
       );
       const matching = active.some((watch) =>
-        watch.patterns.some((pattern) => pattern.test(text))
+        watch.patterns.some((pattern) => pattern.test(searchable))
       );
-      const video = text.includes("app.bsky.embed.video");
-      const broad = active.some((watch) => watch.topics.length === 0);
-      if (!active.length || (!matching && (!video || !broad))) {
-        return;
+      const embed = "embed" in record ? record.embed : null;
+      const media =
+        embed && typeof embed === "object" && "media" in embed
+          ? embed.media
+          : embed;
+      const video =
+        media !== null &&
+        typeof media === "object" &&
+        "$type" in media &&
+        media.$type === "app.bsky.embed.video";
+      if (
+        !matching &&
+        !(video && active.some((watch) => !watch.topics.length))
+      ) {
+        const at = now();
+        // Keep a bounded sample of new public root posts warm even when nobody is online.
+        if (
+          at < nextGeneralAt ||
+          pending.size >= 20 ||
+          "reply" in record ||
+          (!video && text.trim().length < 40) ||
+          at - Date.parse(event.time) > 120_000
+        ) {
+          return;
+        }
+        nextGeneralAt = at + 2500;
       }
       // Interest matches displace general video traffic instead of waiting behind the full network.
       let priority = 1;
@@ -161,7 +202,7 @@ export function createDiscoveryIngestion(options: {
       );
     },
     async tick() {
-      if (running) {
+      if (running || now() < pausedUntil) {
         return;
       }
       const timestamp = now();
@@ -180,7 +221,7 @@ export function createDiscoveryIngestion(options: {
       if (retry) {
         retries.splice(retries.indexOf(retry), 1);
       }
-      if (!retry && !pending.size) {
+      if (!retry && (!pending.size || retries.length >= 4)) {
         return;
       }
       running = true;
@@ -209,6 +250,14 @@ export function createDiscoveryIngestion(options: {
           await hydrateDiscoveryBatch(options, ids, startedAt);
         }
       } catch (error) {
+        const delay = hydrationRetryDelay(error);
+        if (
+          error instanceof ProtocolError &&
+          error.code === "rate_limited" &&
+          delay
+        ) {
+          pausedUntil = now() + delay;
+        }
         // Retain at most four batches for three attempts, with the original invalidation fence.
         if (
           attempts < 3 &&
@@ -218,9 +267,7 @@ export function createDiscoveryIngestion(options: {
           retries.push({
             attempts,
             ids,
-            nextAt:
-              now() +
-              (hydrationRetryDelay(error) ?? 1000 * 2 ** (attempts - 1)),
+            nextAt: now() + (delay ?? 1000 * 2 ** (attempts - 1)),
             startedAt,
           });
         } else {

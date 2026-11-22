@@ -15,7 +15,11 @@ import {
 } from "@/lib/protocols/external-cache";
 import { readProtocolResource } from "@/lib/protocols/read-resource";
 
-export function useExternalPost(uri: string, initialPost?: ExternalPost) {
+export function useExternalPost(
+  uri: string,
+  initialPost?: ExternalPost,
+  includeDiscussion = true
+) {
   const { user } = useSession();
   const viewer = user?.id ?? "guest";
   const client = useQueryClient();
@@ -34,27 +38,38 @@ export function useExternalPost(uri: string, initialPost?: ExternalPost) {
     },
     initialDataUpdatedAt: 0,
     queryFn: async ({ signal }) => {
+      const params = new URLSearchParams({ uri });
+      if (!includeDiscussion) {
+        params.set("kind", "post");
+      }
       const data = z
-        .object({ comments: z.unknown(), post: z.unknown() })
+        .object({ comments: z.unknown(), post: externalPostSchema.nullable() })
         .parse(
           await readProtocolResource(
-            `/api/protocols/bluesky/interactions?${new URLSearchParams({ uri })}`,
+            `/api/protocols/bluesky/interactions?${params}`,
             signal
           )
         );
-      const comments = externalCommentPageSchema.parse(data.comments);
-      // Seed the first discussion page without replacing an already paginated thread.
-      client.setQueryData(
-        ["external-discussion", uri],
-        (current: unknown) =>
-          current ?? {
-            pageParams: [null],
-            pages: [comments],
-          }
-      );
-      return data.post === null ? null : externalPostSchema.parse(data.post);
+      if (includeDiscussion) {
+        const comments = externalCommentPageSchema.parse(data.comments);
+        // Seed the first discussion page without replacing an already paginated thread.
+        client.setQueryData(
+          ["external-discussion", uri],
+          (current: unknown) =>
+            current ?? {
+              pageParams: [null],
+              pages: [comments],
+            }
+        );
+      }
+      return data.post;
     },
-    queryKey: ["external-post", uri, viewer],
+    queryKey: [
+      "external-post",
+      uri,
+      viewer,
+      ...(includeDiscussion ? [] : ["parent"]),
+    ],
     retry: false,
     staleTime: 30_000,
   });

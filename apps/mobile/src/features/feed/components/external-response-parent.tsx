@@ -1,14 +1,12 @@
 // Native port of web's ExternalResponseParent
 // (components/protocols/external-response-parent.tsx): the Bluesky post an ASM
 // response replies to. While it loads, a 36px avatar plus two lines of
-// skeleton; a failed read with nothing cached is web's compact FeedErrorState;
+// skeleton while loading and an inline retry when the source is unavailable.
 // otherwise the same ResponseParentRow a native parent uses, so a Bluesky
 // source reads like any other parent (avatar on the rail, name, handle, time).
-import { Image } from "expo-image";
 import { StyleSheet, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
-import errorImage from "@/assets/images/error.png";
 import { StatusActionButton } from "@/components/feedback/status-action-button";
 import { useSkeletonPulse } from "@/components/feedback/use-skeleton-pulse";
 import { useSessionContext } from "@/features/auth/state/session";
@@ -16,7 +14,7 @@ import { useProtocolResource } from "@/features/network/state/use-protocol-resou
 import { useAppTheme } from "@/theme";
 
 import { cachedExternalPost } from "../lib/external-cache";
-import { readExternal } from "../lib/external-interactions";
+import { readExternalParent } from "../lib/external-interactions";
 import type { FeedPost } from "../lib/feed-types";
 import { ResponseParentRow } from "./post-embeds";
 
@@ -46,10 +44,7 @@ export function ExternalResponseParent({ post }: { post: FeedPost }) {
   const viewer = user?.id ?? "guest";
   const query = useProtocolResource(
     `external-parent:${viewer}:${uri}`,
-    async (signal) => {
-      const result = await readExternal(uri, undefined, signal);
-      return result.post;
-    }
+    (signal) => readExternalParent(uri, signal)
   );
   const source =
     query.data === undefined ? cachedExternalPost(uri, viewer) : query.data;
@@ -60,12 +55,11 @@ export function ExternalResponseParent({ post }: { post: FeedPost }) {
   if (query.error && !source) {
     return (
       <View style={styles.error}>
-        <Image contentFit="contain" source={errorImage} style={styles.art} />
         <Text
           accessibilityRole="alert"
           style={[styles.message, { color: theme.dividerText }]}
         >
-          Couldn't load the original Bluesky post.
+          Original Bluesky post temporarily unavailable.
         </Text>
         <StatusActionButton
           disabled={query.loading}
@@ -81,18 +75,16 @@ export function ExternalResponseParent({ post }: { post: FeedPost }) {
 }
 
 const styles = StyleSheet.create({
-  art: { height: 64, width: 64 },
-  // `flex flex-col items-center gap-3 p-4 text-center`.
   error: {
     alignItems: "center",
-    gap: 12,
-    padding: 16,
+    flexDirection: "row",
+    gap: 8,
+    paddingBottom: 8,
   },
   message: {
+    flex: 1,
     fontFamily: "SofiaProReg",
     fontSize: 14,
-    maxWidth: 320,
-    textAlign: "center",
   },
   // `flex gap-3 pb-3`.
   skeleton: {

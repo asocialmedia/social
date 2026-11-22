@@ -38,7 +38,8 @@ if ARGV[1] == 'put' then
   for index = 4, #ARGV, 2 do
     local id, value = ARGV[index], ARGV[index + 1]
     local bytes = string.len(id) + string.len(value)
-    if bytes <= 32768 and invalidated(id) < started then
+    local existing = tonumber(redis.call('ZSCORE', KEYS[2], id) or '0')
+    if bytes <= 32768 and invalidated(id) < started and existing <= started then
       remove(id)
       redis.call('HSET', KEYS[1], id, value)
       redis.call('ZADD', KEYS[2], started, id)

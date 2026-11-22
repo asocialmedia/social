@@ -178,8 +178,8 @@ export function createBlueskyFeed(
         cursor: null,
         fetch: baseFetch,
         following,
-        mode,
-        refresh: following,
+        mode: !following && mode === "personalized" ? "latest" : mode,
+        refresh: true,
         signal: current.signal,
       });
       if (current.signal.aborted) {

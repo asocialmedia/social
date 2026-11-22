@@ -75,3 +75,11 @@ export async function readExternal(
   }
   return detailSchema.parse(await externalRequest(query, { signal }));
 }
+
+export async function readExternalParent(uri: string, signal: AbortSignal) {
+  const response = await externalRequest(
+    new URLSearchParams({ kind: "post", uri }),
+    { signal }
+  );
+  return z.object({ post: externalPostSchema.nullable() }).parse(response).post;
+}

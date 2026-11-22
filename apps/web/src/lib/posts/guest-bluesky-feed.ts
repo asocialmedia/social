@@ -6,9 +6,13 @@ import {
   blueskyMediaIsExplicit,
   discoveryLocaleSchema,
   hasRestrictedDiscoveryLabels,
+  isExternalTrendingPost,
 } from "@asm/protocols/discovery";
 
-import { readBlueskyDiscovery } from "@/lib/protocols/service";
+import {
+  cachedDiscoveryHead,
+  discoveryCacheKey,
+} from "@/lib/protocols/discovery-cache";
 
 export function guestDiscoveryLocale(
   languageHeader: string | null,
@@ -25,7 +29,7 @@ export function guestDiscoveryLocale(
 }
 
 function isPublicPost(post: ExternalPost) {
-  if (blueskyMediaIsExplicit(post)) {
+  if (!isExternalTrendingPost(post) || blueskyMediaIsExplicit(post)) {
     return false;
   }
   let current: ExternalPost | undefined = post;
@@ -52,23 +56,17 @@ function publicSnapshot(post: ExternalPost): ExternalPost {
 export async function getGuestBlueskyFeed(
   locale: string
 ): Promise<ExternalPost[]> {
-  const signal = AbortSignal.timeout(800);
+  const signal = AbortSignal.timeout(250);
   try {
-    const page = await abortable(
-      readBlueskyDiscovery(
-        "latest",
-        undefined,
-        signal,
-        undefined,
-        locale,
-        [],
-        false,
-        "all"
-      ),
+    const cached = await abortable(
+      cachedDiscoveryHead(discoveryCacheKey("latest", locale, [])),
       signal
     );
+    if (!cached) {
+      return [];
+    }
     const posts = await abortable(
-      filterExternalMediaSafety(page.items.filter(isPublicPost)),
+      filterExternalMediaSafety(cached.page.items.filter(isPublicPost)),
       signal
     );
     return posts.map(publicSnapshot);

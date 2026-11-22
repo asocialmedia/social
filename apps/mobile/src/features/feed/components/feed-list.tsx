@@ -939,18 +939,11 @@ export const FeedList = memo(
       rows: TimelineRow[];
     }>({ rows: [], scope: rowScope });
     const stableRows = rowState.scope === rowScope ? rowState.rows : [];
-    const initialPeerPending =
-      (source !== "bluesky" &&
-        (status === "loading" || (status === "idle" && enabled))) ||
-      (source !== "asm" && external.status === "loading");
-    const previousRows = initialPeerPending ? [] : stableRows;
-    const orderedRows = initialPeerPending
-      ? []
-      : reconcileFeedOrder(previousRows, freshRows, [
-          posts.map((post) => `asm:${post.id}`),
-          externalPosts.map((post) => `bluesky:${post.id}`),
-        ]);
-    const stabilizedRows = stableTimelineRows(previousRows, orderedRows);
+    const orderedRows = reconcileFeedOrder(stableRows, freshRows, [
+      posts.map((post) => `asm:${post.id}`),
+      externalPosts.map((post) => `bluesky:${post.id}`),
+    ]);
+    const stabilizedRows = stableTimelineRows(stableRows, orderedRows);
     if (
       rowState.scope !== rowScope ||
       !areTimelineRowsIdentical(stabilizedRows, stableRows)
@@ -958,7 +951,10 @@ export const FeedList = memo(
       setRowState({ rows: stabilizedRows, scope: rowScope });
     }
     const rows = stableRows;
-    const externalPending = source !== "asm" && external.status === "loading";
+    const externalPending = includeBluesky && external.status === "loading";
+    const nativePending =
+      source !== "bluesky" &&
+      (status === "loading" || (status === "idle" && enabled));
     const preferencesFailed = !network.ready && Boolean(network.error);
     const availability = preferencesFailed
       ? "error"
@@ -969,19 +965,12 @@ export const FeedList = memo(
           externalLoading: externalPending,
           nativeEnabled: source !== "bluesky",
           nativeError: status === "error",
-          nativeLoading: status === "loading" || (status === "idle" && enabled),
+          nativeLoading: nativePending,
         });
     const combinedHasMore =
       (source !== "bluesky" && hasMore) ||
       (source !== "asm" && external.hasMore);
-    // Reveal the first batch only after both reads settle, so late arrivals
-    // cannot move posts the reader has already started reading.
-    const sourcesPending =
-      (source !== "bluesky" &&
-        (status === "loading" || (status === "idle" && enabled))) ||
-      (includeBluesky && external.status === "loading");
-    const initialSourceLoading = sourcesPending;
-    const visibleRows = sourcesPending ? [] : rows;
+    const sourcesPending = nativePending || externalPending;
     const nativeFailed = source !== "bluesky" && status === "error";
     const externalFailed = source !== "asm" && external.status === "error";
     const sourceFailed = nativeFailed || externalFailed;
@@ -1019,13 +1008,11 @@ export const FeedList = memo(
     const showLoader =
       (source !== "bluesky" && status === "loading-more") ||
       (source !== "asm" && external.loadingMore) ||
-      sourcesPending ||
-      (initialSourceLoading && rows.length > 0);
+      sourcesPending;
     // Web's feedComplete: no more pages, nothing loading or fetching, and
     // no source failed. A failed Bluesky read never claims "caught up".
     const feedComplete =
       !combinedHasMore &&
-      !initialSourceLoading &&
       !showLoader &&
       !sourceFetching &&
       !sourceFailed &&
@@ -1187,7 +1174,7 @@ export const FeedList = memo(
     }
 
     // The shared editor stays above loading and empty feeds as well as populated lists.
-    if (availability === "loading" || (sourcesPending && !preferencesFailed)) {
+    if (availability === "loading") {
       return (
         <FeedState>
           {listHeader}
@@ -1319,7 +1306,7 @@ export const FeedList = memo(
                 contentContainerStyle={{
                   paddingBottom: HEADER_BAR_HEIGHT + bottomInset,
                 }}
-                data={visibleRows}
+                data={rows}
                 // FlashList maintains visible content by default, so head
                 // merges and view-count reconciles do not shift the reader.
                 drawDistance={HOME_FEED_DRAW_DISTANCE}
@@ -1331,7 +1318,7 @@ export const FeedList = memo(
                   if (
                     !feedRenderPolicy({
                       active: isActive,
-                      initialLoading: sourcesPending,
+                      initialLoading: sourcesPending && !rows.length,
                       offset: scrollOffset.get(),
                       paging: status === "loading-more" || external.loadingMore,
                       pendingHeadCount: 0,

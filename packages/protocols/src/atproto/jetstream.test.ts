@@ -185,25 +185,31 @@ const frame = (seq: number, record: unknown) =>
     },
   });
 
-test("public discovery skips one malformed record and continues, and an oversized replay requests reconciliation", async () => {
+test("public discovery skips an invalid record and an oversized frame without reconnecting", async () => {
   const stream = streamJetstream({
     dids: [],
     publicDiscovery: true,
     transport: {
       async *stream() {
         yield frame(1, {});
-        yield frame(2, eventFixture.commit.record);
+        yield frame(2, {
+          ...eventFixture.commit.record,
+          text: "x".repeat(300_000),
+        });
+        yield frame(3, eventFixture.commit.record);
       },
     },
   });
   const first = await stream.next();
   const completed = await stream.next();
-  expect(first.value?.seq).toBe(2);
+  expect(first.value?.seq).toBe(3);
   expect(completed.done).toBe(true);
+});
+
+test("a tracked subscription rejects an oversized frame before it can advance its checkpoint", async () => {
   const oversized = streamJetstream({
-    dids: [],
+    dids: [authorDid],
     maxMessageBytes: 100,
-    publicDiscovery: true,
     transport: {
       async *stream() {
         yield frame(1, eventFixture.commit.record);
@@ -212,7 +218,7 @@ test("public discovery skips one malformed record and continues, and an oversize
   });
   await expect(oversized.next()).rejects.toMatchObject({
     code: "invalid_response",
-    message: "Jetstream cursor requires reconciliation",
+    message: "Jetstream event exceeds the size limit",
   });
 });
 

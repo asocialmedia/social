@@ -162,7 +162,7 @@ export class BlueskyClient {
     { until: number; code: "restricted" | "unavailable" | "invalid_input" }
   >();
   private active = 0;
-  private blockedUntil = 0;
+  private readonly blockedUntil = new Map<string, number>();
   private generation = 0;
   private failures = 0;
   private lastFailureAt = 0;
@@ -670,7 +670,7 @@ export class BlueskyClient {
     const key = `${this.generation}:${operation}:${language ?? ""}:${query}`;
     const resource = postSearchOperations.has(operation)
       ? `${operation}:${query}`
-      : `${operation}:${parameters.feed ?? parameters.actor ?? parameters.repo ?? parameters.q ?? ""}:${parameters.collection ?? ""}`;
+      : `${operation}:${parameters.feed ?? parameters.actor ?? parameters.repo ?? parameters.q ?? parameters.uri ?? parameters.uris ?? ""}:${parameters.collection ?? ""}`;
     const continuationResource = `${resource}:cursor:${parameters.cursor ?? ""}`;
     const resourceFailure = [
       this.unavailable.get(resource),
@@ -705,13 +705,6 @@ export class BlueskyClient {
         this.active >= this.options.maxConcurrentRequests
       ) {
         throw new ProtocolError("capacity", "Protocol reader is busy", 1);
-      }
-      if (this.blockedUntil > this.options.now()) {
-        throw new ProtocolError(
-          "rate_limited",
-          "Upstream is cooling down",
-          Math.ceil((this.blockedUntil - this.options.now()) / 1000)
-        );
       }
       if (this.shutdown.signal.aborted) {
         throw new ProtocolError("cancelled", "Protocol reader is stopping");
@@ -1079,8 +1072,26 @@ export class BlueskyClient {
           ) {
             origin = "https://api.bsky.app";
           }
+          const target = new URL(path, origin);
+          const generator =
+            target.pathname === "/xrpc/app.bsky.feed.getFeed"
+              ? target.searchParams.get("feed")
+              : null;
+          const scope = generator ? `${origin}:${generator}` : origin;
+          const remaining =
+            Math.max(
+              this.blockedUntil.get(origin) ?? 0,
+              this.blockedUntil.get(scope) ?? 0
+            ) - this.options.now();
+          if (remaining > 0) {
+            throw new ProtocolError(
+              "rate_limited",
+              "Upstream is cooling down",
+              Math.ceil(remaining / 1000)
+            );
+          }
           const response = await abortable(
-            this.options.fetch(`${origin}${path}`, {
+            this.options.fetch(target.href, {
               ...init,
               redirect: "error",
               signal,
@@ -1113,9 +1124,23 @@ export class BlueskyClient {
               const jitteredMs =
                 baseWaitMs + Math.floor(Math.random() * baseWaitMs * 0.25);
               const wait = Math.ceil(jitteredMs / 1000);
-              this.blockedUntil = Math.max(
-                this.blockedUntil,
-                this.options.now() + jitteredMs
+              const now = this.options.now();
+              for (const [key, until] of this.blockedUntil) {
+                if (until <= now) {
+                  this.blockedUntil.delete(key);
+                }
+              }
+              if (
+                this.blockedUntil.size >= 256 &&
+                !this.blockedUntil.has(scope)
+              ) {
+                this.blockedUntil.delete(
+                  this.blockedUntil.keys().next().value ?? ""
+                );
+              }
+              this.blockedUntil.set(
+                scope,
+                Math.max(this.blockedUntil.get(scope) ?? 0, now + jitteredMs)
               );
               throw new ProtocolError(
                 "rate_limited",

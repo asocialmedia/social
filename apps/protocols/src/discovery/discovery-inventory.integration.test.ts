@@ -35,6 +35,15 @@ test("validated inventory survives a slow warmup cycle while deletion fences rem
   expect(await store.read([post.id])).toEqual([]);
 });
 
+test("late hydration cannot overwrite a newer source snapshot", async () => {
+  const post = inventoryPost(901, "older-snapshot");
+  const updated = { ...post, revision: "newer" };
+  const now = Date.now();
+  await store.put([updated], now);
+  await store.put([post], now - 1000);
+  expect(await store.read([post.id])).toEqual([updated]);
+});
+
 test("real Redis inventory serves isolated personas and video/engagement gates without any upstream client", async () => {
   const posts = Array.from({ length: 65 }, (_, index) =>
     inventoryPost(

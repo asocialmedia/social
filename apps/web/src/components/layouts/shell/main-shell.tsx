@@ -1,10 +1,8 @@
 "use client";
 
-import type { UserData } from "@asm/db";
 import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
 
-import LeftSidebar from "@/components/home/sidebars/left-side-bar";
 import { PostCacheRepair } from "@/components/posts/effects/post-cache-repair";
 
 // Media routes (/posts/[postId]/media/[index]) and the camera are standalone
@@ -26,10 +24,10 @@ function isBareRoute(pathname: string): boolean {
 
 export function MainShell({
   children,
-  userData,
+  sidebar,
 }: {
   children: React.ReactNode;
-  userData: UserData | null;
+  sidebar: React.ReactNode;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -49,7 +47,7 @@ export function MainShell({
     <>
       <PostCacheRepair />
       <div className="relative flex h-dvh overflow-hidden bg-[hsl(var(--background-alt))]">
-        <LeftSidebar userData={userData} />
+        {sidebar}
         <div className="flex min-w-0 flex-1 items-stretch bg-[hsl(var(--background-alt))]">
           {children}
         </div>
