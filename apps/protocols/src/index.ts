@@ -1,3 +1,4 @@
+import type { ProtocolDiagnostic } from "@asm/protocols/contracts";
 // oxlint-disable promise/prefer-await-to-then
 import type RedisConnection from "ioredis";
 
@@ -42,17 +43,25 @@ export async function startProtocols() {
     }
   }
   const { createReadWorkerPool } = await import("./reader/read-worker-pool");
+  const {
+    createProtocolFeedPublisher,
+    createUpstreamHealth,
+    createWorkerDiscovery,
+  } = await import("./runtime/feed-authority");
   // Cover the configured remote attempt and a usable local fallback in one bounded read.
   const readTimeoutMs = config.workerTimeoutMs + 1700;
-  const pool = config.workers.length
-    ? createReadWorkerPool({
-        localReserveMs: 1300,
-        logger,
-        nodes: config.workers,
-        requestTimeoutMs: readTimeoutMs,
-        timeoutMs: config.workerTimeoutMs,
-      })
-    : undefined;
+  const initialWorkers = config.workerRosterRedisUrl ? [] : config.workers;
+  const pool =
+    config.workers.length || config.redisUrl
+      ? createReadWorkerPool({
+          localReserveMs: 1300,
+          logger,
+          nodes: initialWorkers,
+          requestTimeoutMs: readTimeoutMs,
+          timeoutMs: config.workerTimeoutMs,
+        })
+      : undefined;
+  let hydrationNodes = initialWorkers.map((node) => node.id);
   const [
     { createProtocolsApp },
     { createProtocolObserver, createDiscoveryWarmupFailureReporter },
@@ -62,7 +71,12 @@ export async function startProtocols() {
     import("./runtime/observability"),
     import("@asm/protocols/bluesky"),
   ]);
-  const observe = createProtocolObserver(logger);
+  const reportUpstream = createProtocolObserver(logger);
+  const upstreamHealth = createUpstreamHealth();
+  const observe = (event: ProtocolDiagnostic) => {
+    reportUpstream(event);
+    upstreamHealth.observe(event);
+  };
   const client = new BlueskyClient({
     fetch: pool?.fetch,
     maxConcurrentRequests: 16,
@@ -98,6 +112,7 @@ export async function startProtocols() {
     draining: false,
     jetstreamEnabled: config.jetstreamEnabled,
     lastEventAt: null as number | null,
+    lastSourceEventAt: null as number | null,
     leaseHeld: false,
     processedEvents: 0,
   };
@@ -197,7 +212,7 @@ export async function startProtocols() {
       await import("./ingestion/ingestion-queue");
     const connection = redis;
     ingestionQueue = createIngestionQueue({
-      allowedNodes: config.workers.map((node) => node.id),
+      allowedNodes: () => hydrationNodes,
       coordinator: true,
       hydrate: (ids, startedAt) =>
         hydrateDiscoveryBatch(
@@ -414,11 +429,11 @@ export async function startProtocols() {
           : selectedDiscovery.read(mode, undefined, locale, topics, content));
         await retain(page, startedAt);
         // Replenish continuation inventory off the viewer's request path.
-        if (selectedInventory) {
+        if (selectedInventory && !page.partial && page.cursor) {
           void runWarmup(() =>
             warmDiscoveryInventory({
               head: page,
-              maxPages: content === "video" ? 3 : 2,
+              maxPages: 1,
               read: (cursor) =>
                 selectedDiscovery.read(mode, cursor, locale, topics, content),
               retain: (next, began) => selectedInventory.put(next.items, began),
@@ -482,9 +497,88 @@ export async function startProtocols() {
     void subscriber.connect().catch(() => {
       // The subscriber reconnects in the background.
     });
+    let renewPublicWatchAt = 0;
+    let workerRoster: RedisConnection | undefined;
+    if (config.workerRosterRedisUrl) {
+      const { default: Redis } = await import("ioredis");
+      workerRoster = new Redis(config.workerRosterRedisUrl, {
+        commandTimeout: 1000,
+        connectTimeout: 1500,
+        disableClientInfo: true,
+        enableOfflineQueue: false,
+        enableReadyCheck: false,
+        lazyConnect: true,
+        maxRetriesPerRequest: 0,
+        retryStrategy: () => 5000,
+      });
+      let lastRosterErrorAt = 0;
+      workerRoster.on("error", () => {
+        if (Date.now() - lastRosterErrorAt >= 30_000) {
+          lastRosterErrorAt = Date.now();
+          logger.warn(
+            { event: "feed.authority.roster_unavailable" },
+            "Worker roster unavailable; retaining approved routing"
+          );
+        }
+      });
+      void workerRoster.connect().catch(() => {
+        // The reader reconnects in the background.
+      });
+    }
+    const discoverWorkers = createWorkerDiscovery({
+      configured: config.workers,
+      roster: workerRoster,
+    });
+    const publishFeedHealth = createProtocolFeedPublisher(redis, logger);
+    let reporting = false;
+    let nextReportAt = 0;
+    const report = async () => {
+      reporting = true;
+      nextReportAt = Date.now() + 10_000;
+      try {
+        const {
+          readNodes,
+          hydrationNodes: readyHydrationNodes,
+          workers,
+        } = await discoverWorkers();
+        if (abort.signal.aborted) {
+          return;
+        }
+        hydrationNodes = readyHydrationNodes;
+        pool?.updateNodes(readNodes);
+        if (publisher.status !== "ready") {
+          return;
+        }
+        const inventoryHealth = await inventoryStore?.health();
+        await publishFeedHealth({
+          eligiblePostAt: inventoryHealth?.eligiblePostAt ?? null,
+          inventoryCount: inventoryHealth?.inventoryCount ?? 0,
+          observedAt: Date.now(),
+          readyWorkers: workers.length,
+          streamConnected: discoveryHealth.connected,
+          streamEnabled: config.jetstreamEnabled,
+          streamEventAt: discoveryHealth.lastEventAt,
+          streamSourceAt: discoveryHealth.lastSourceEventAt,
+          upstream: upstreamHealth.snapshot(),
+          workers,
+        });
+      } catch {
+        // Expiring snapshots restore independent reads during storage outages.
+      } finally {
+        reporting = false;
+      }
+    };
     const timer = setInterval(() => {
+      if (!reporting && Date.now() >= nextReportAt) {
+        void report();
+      }
       if (publisher.status !== "ready") {
         return;
+      }
+      if (config.jetstreamEnabled && Date.now() >= renewPublicWatchAt) {
+        // Keep an engagement-qualified shared pool warm even without viewer watches.
+        live.watch({ locale: "all", mode: "latest", topics: [] });
+        renewPublicWatchAt = Date.now() + 60_000;
       }
       void live.tick().catch(() => {
         // A failed reconciliation is retried by the next tick.
@@ -496,6 +590,7 @@ export async function startProtocols() {
       clearInterval(timer);
       live.stop();
       subscriber.disconnect();
+      workerRoster?.disconnect();
     };
   }
   const app = createProtocolsApp({

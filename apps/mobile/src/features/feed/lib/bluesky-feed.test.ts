@@ -169,6 +169,48 @@ test("event reads buffer new rows until acceptance without replacing loaded page
   store.dispose();
 });
 
+test("a deferred mixed continuation preserves visible posts and resumes the same cursor after recovery", async () => {
+  const old = external("old");
+  const fresh = external("fresh");
+  const urls: string[] = [];
+  const responses = [
+    { ...page, cursor: "tail", items: [old] },
+    {
+      ...page,
+      cursor: null,
+      items: [],
+      sourceStatus: { reason: "rate_limited", retryAt: Date.now() - 1 },
+    },
+    { ...page, cursor: "new-head", items: [fresh] },
+    { ...page, cursor: null, items: [] },
+  ];
+  const store = createBlueskyFeed(
+    "https://asm.test",
+    "personalized",
+    (url) => {
+      urls.push(url);
+      return Promise.resolve(Response.json(responses.shift()));
+    },
+    false,
+    { mixed: true }
+  );
+  await store.refresh();
+  await store.fetchNext();
+  expect(store.snapshot().pages[0]?.items).toEqual([old]);
+  expect(store.snapshot().pages[0]?.cursor).toBe("tail");
+  expect(store.snapshot().sourceStatus?.reason).toBe("rate_limited");
+  await store.probe();
+  expect(store.snapshot().sourceStatus).toBeUndefined();
+  expect(store.snapshot().newItems).toEqual([fresh]);
+  await store.fetchNext();
+  expect(
+    urls.every((url) => new URL(url).searchParams.get("mixed") === "1")
+  ).toBe(true);
+  expect(
+    new URL(urls[3] ?? "https://asm.test").searchParams.get("cursor")
+  ).toBe("tail");
+});
+
 test("accepting new head posts keeps downward pagination on its existing cursor", async () => {
   const urls: string[] = [];
   const old = external("anchor");

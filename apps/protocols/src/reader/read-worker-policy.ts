@@ -10,6 +10,14 @@ const publicOperations = new Set([
   "com.atproto.repo.getRecord",
 ]);
 
+export function publicReadRateLimitScope(target: URL): string {
+  const feed =
+    target.pathname === "/xrpc/app.bsky.feed.getFeed"
+      ? target.searchParams.get("feed")
+      : null;
+  return feed ? `${target.origin}${target.pathname}:${feed}` : target.origin;
+}
+
 export function publicReadHeaders(input?: HeadersInit): Headers {
   const headers = new Headers({ accept: "application/json" });
   const language = new Headers(input).get("accept-language");

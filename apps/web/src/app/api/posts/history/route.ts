@@ -2,6 +2,7 @@ import {
   and,
   externalPostId,
   externalPostStates,
+  filterExternalMediaSafety,
   fromPrismaDateTime,
   getPostDataQuery,
   hydrateViewCounts,
@@ -13,14 +14,14 @@ import {
   readNetworkPreferences,
 } from "@asm/db";
 import type { PostData } from "@asm/db";
-import { BlueskyClient } from "@asm/protocols/bluesky";
 import type { ExternalPost } from "@asm/protocols/contracts";
-import { externalPostSchema } from "@asm/protocols/discovery";
+import { abortable, externalPostSchema } from "@asm/protocols/discovery";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { networkPostAllowed } from "@/lib/posts/network-content-policy";
 import { externalPostView } from "@/lib/posts/presentation";
 import type { PresentedPost } from "@/lib/posts/presentation";
+import { readBlueskyPosts } from "@/lib/protocols/service";
 
 interface ParsedVisit {
   id: string;
@@ -158,6 +159,26 @@ export async function GET() {
   const bskyUris = [
     ...new Set(parsedVisits.filter((v) => v.type === "bsky").map((v) => v.id)),
   ].slice(0, 25);
+  const bluesky = bskyUris.length
+    ? (async () => {
+        const signal = AbortSignal.timeout(1400);
+        try {
+          return await abortable(
+            readBlueskyPosts(
+              bskyUris,
+              signal,
+              undefined,
+              false,
+              true,
+              preferences.showExplicitContent
+            ),
+            signal
+          );
+        } catch {
+          return null;
+        }
+      })()
+    : null;
 
   const asmPostMap = new Map<string, PostData>();
   if (asmIds.length > 0) {
@@ -172,19 +193,9 @@ export async function GET() {
 
   const bskyPostMap = new Map<string, PresentedPost>();
   if (bskyUris.length > 0) {
-    let livePosts: ExternalPost[] = [];
-    let fetchFailed = false;
-    try {
-      const client = new BlueskyClient({
-        allowExplicitMedia: preferences.showExplicitContent,
-      });
-      livePosts = await client.getPosts(bskyUris);
-    } catch (error) {
-      fetchFailed = true;
-      console.error("Error fetching Bluesky posts for history:", error);
-    }
+    const livePosts = await bluesky;
 
-    if (fetchFailed) {
+    if (livePosts === null) {
       // Upstream Bluesky API failed: fall back to cached snapshots in Postgres
       const cachedRows = await prisma.orm.public.ExternalPosts.where((row) =>
         row.id.in(bskyUris.map(externalPostId))
@@ -195,13 +206,20 @@ export async function GET() {
       const availableUris = availableRows.map((r) => r.uri);
       if (availableUris.length > 0) {
         const states = await externalPostStates(availableUris, userId);
-        for (const row of availableRows) {
+        const snapshots = availableRows.flatMap((row) => {
           const parsed = externalPostSchema.safeParse(row.snapshot);
-          if (parsed.success) {
-            const post = parsed.data;
-            post.asm = states.get(row.uri);
-            bskyPostMap.set(row.uri, externalPostView(post));
-          }
+          return parsed.success && parsed.data.id === row.uri
+            ? [parsed.data]
+            : [];
+        });
+        const safe = preferences.showExplicitContent
+          ? snapshots
+          : await filterExternalMediaSafety(snapshots).catch(() => []);
+        for (const post of safe) {
+          bskyPostMap.set(
+            post.id,
+            externalPostView({ ...post, asm: states.get(post.id) })
+          );
         }
       }
     } else {

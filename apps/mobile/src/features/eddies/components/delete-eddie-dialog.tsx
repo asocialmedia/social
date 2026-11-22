@@ -2,9 +2,15 @@
 // shadcn Dialog: black/80 overlay, centered panel-3d card (p-6, gap-4),
 // title + description, and the footer stacked on phones (sm:flex-row) with
 // the destructive Delete (spinner while pending) over the outline Cancel.
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { APPLE_PANEL_TOKENS, themeText } from "@/components/surface/recipes";
 import { useAppTheme } from "@/theme";
 
@@ -73,7 +79,7 @@ export function DeleteEddieDialog({
               ]}
             >
               {deleting ? (
-                <ZephLoader variant="general" color="#ffffff" size={14} />
+                <ActivityIndicator color="#ffffff" size={14} />
               ) : null}
               <Text style={[styles.buttonText, { color: "#ffffff" }]}>
                 Delete

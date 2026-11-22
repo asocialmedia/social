@@ -17,6 +17,7 @@ import { StatusBar } from "expo-status-bar";
 import { Images, RefreshCw, X, Zap, ZapOff } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   Linking,
@@ -29,7 +30,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Circle, Svg } from "react-native-svg";
 
 import { toast } from "@/components/feedback/toast";
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { POST_SCOPE } from "@/features/composer/components/post-editor";
 import { pickPhotosAndVideos } from "@/features/composer/lib/pick-media";
@@ -550,7 +550,7 @@ export function CameraScreen() {
       </View>
       {permissionLoading ? (
         <View style={styles.centerGate}>
-          <ZephLoader variant="media" color="#ffffff" />
+          <ActivityIndicator color="#ffffff" />
           <Text style={styles.gateText}>Warming up the camera…</Text>
         </View>
       ) : null}
@@ -663,7 +663,7 @@ export function CameraScreen() {
                     >
                       {recording ? <View style={styles.stopMark} /> : null}
                       {showCaptureSpinner ? (
-                        <ZephLoader variant="media" color="#ffffff" />
+                        <ActivityIndicator color="#ffffff" />
                       ) : null}
                     </Gradient3D>
                   </View>

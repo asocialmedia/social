@@ -5,7 +5,11 @@ import {
   retryAfterMs,
 } from "@asm/protocols/discovery";
 
-import { publicReadHeaders, publicReadTarget } from "./read-worker-policy";
+import {
+  publicReadHeaders,
+  publicReadRateLimitScope,
+  publicReadTarget,
+} from "./read-worker-policy";
 
 export function createWorkerReader(options: {
   concurrency?: number;
@@ -43,7 +47,10 @@ export function createWorkerReader(options: {
           { headers: { ...headers, "retry-after": "1" }, status: 503 }
         );
       }
-      const remaining = (blocked.get(target.origin) ?? 0) - now();
+      const scope = publicReadRateLimitScope(target);
+      const remaining =
+        Math.max(blocked.get(target.origin) ?? 0, blocked.get(scope) ?? 0) -
+        now();
       if (remaining > 0) {
         return Response.json(
           { error: "upstream_cooldown" },
@@ -78,7 +85,15 @@ export function createWorkerReader(options: {
         if (response.status === 429) {
           const delay =
             retryAfterMs(response.headers.get("retry-after"), now()) ?? 30_000;
-          blocked.set(target.origin, now() + delay);
+          for (const [key, until] of blocked) {
+            if (until <= now()) {
+              blocked.delete(key);
+            }
+          }
+          if (blocked.size >= 512 && !blocked.has(scope)) {
+            blocked.delete(blocked.keys().next().value ?? "");
+          }
+          blocked.set(scope, now() + delay);
           retryAfter = String(Math.ceil(delay / 1000));
         }
         let body: unknown;

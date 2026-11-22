@@ -45,6 +45,7 @@ import { uniqueFeedContent } from "@/lib/posts/unique-feed-content";
 
 import { exploreTopics } from "./explore-topics";
 import { admitFeedRead } from "./feed-admission";
+import { readFeedAuthority, reportFeedServing } from "./feed-authority";
 import { feedTiming } from "./feed-timing";
 import type { FeedTiming } from "./feed-timing";
 import { reportRecommendationHealth } from "./health";
@@ -781,6 +782,28 @@ async function buildNetworkNativeFeed(
     observed.map((post) => post.id)
   );
   const stopSerialization = timing.start("serialization");
+  const authority = await readFeedAuthority();
+  reportFeedServing({
+    items: observed.length,
+    matches: context.selected.interests.length
+      ? observed.filter(
+          (post) =>
+            postNetworkInterestScore(
+              post,
+              context.selected.interests,
+              context.topicScope
+            ) > 0
+        ).length
+      : undefined,
+    mode,
+    nativePublishedAt: authority.nativePublishedAt,
+    newestAt: Math.max(
+      0,
+      ...observed.map((post) => new Date(post.createdAt).getTime() || 0)
+    ),
+    reason: observed.length ? undefined : "no_eligible_matches",
+    source: "asm",
+  });
   const response = Response.json(
     {
       nextCursor:

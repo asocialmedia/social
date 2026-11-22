@@ -115,10 +115,15 @@ function mapResponsePosts(posts: PostData[]): ExternalComment[] {
   }));
 }
 
-async function readCurrent(uris: string[], request: Request, id: string) {
+async function readCurrent(
+  uris: string[],
+  request: Request,
+  id: string,
+  signal = request.signal
+) {
   let posts: ExternalPost[];
   try {
-    posts = uris.length ? await readBlueskyPosts(uris, request.signal, id) : [];
+    posts = uris.length ? await readBlueskyPosts(uris, signal, id) : [];
   } catch (error) {
     if (request.signal.aborted) {
       throw error;
@@ -131,13 +136,7 @@ async function readCurrent(uris: string[], request: Request, id: string) {
     return { posts, readSucceeded: true, verified: true };
   }
   try {
-    const checked = await readBlueskyPosts(
-      omitted,
-      request.signal,
-      id,
-      false,
-      true
-    );
+    const checked = await readBlueskyPosts(omitted, signal, id, false, true);
     return {
       posts: [...posts, ...checked],
       readSucceeded: true,
@@ -222,6 +221,31 @@ export function GET(request: Request) {
         await externalResponses(uri.data, viewer, parsed?.data)
       );
     }
+    if (kind === "post") {
+      const signal = AbortSignal.any([
+        request.signal,
+        AbortSignal.timeout(2500),
+      ]);
+      const current = await readCurrent([uri.data], request, requestId, signal);
+      if (current.verified) {
+        return Response.json({
+          post: current.posts.find((post) => post.id === uri.data) ?? null,
+        });
+      }
+      if (current.readSucceeded) {
+        throw new ProtocolGatewayError(503, "source_read_failed");
+      }
+      const thread = await readBlueskyThread(
+        uri.data,
+        0,
+        AbortSignal.any([request.signal, AbortSignal.timeout(2500)]),
+        requestId
+      );
+      if (thread.post?.id !== uri.data) {
+        throw new ProtocolGatewayError(503, "source_read_failed");
+      }
+      return Response.json({ post: thread.post });
+    }
     if (kind === "comments") {
       const local = await externalComments(uri.data, parsed?.data);
       let bskyReplies: ExternalPost[] = [];
@@ -271,10 +295,16 @@ export function GET(request: Request) {
             })),
       ]
     );
-    if (!posts.verified) {
+    const verifiedThreadPost =
+      !posts.readSucceeded && thread?.post?.id === uri.data
+        ? thread.post
+        : null;
+    if (!posts.verified && !verifiedThreadPost) {
       throw new ProtocolGatewayError(503, "source_read_failed");
     }
-    let post = posts.posts.find((entry) => entry.id === uri.data) ?? null;
+    let post = posts.verified
+      ? (posts.posts.find((entry) => entry.id === uri.data) ?? null)
+      : verifiedThreadPost;
     if (post && thread?.post) {
       post = {
         ...post,

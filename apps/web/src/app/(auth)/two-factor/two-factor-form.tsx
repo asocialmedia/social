@@ -164,6 +164,7 @@ export default function TwoFactorForm() {
         </label>
 
         <LoadingButton
+          indicator="spinner"
           className="w-full"
           loading={isPending}
           type="submit"

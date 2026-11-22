@@ -17,7 +17,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import Image from "next/image";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { FeedErrorState } from "@/components/feeds/feed-error-state";
@@ -128,6 +128,11 @@ export default function HomeFeed({
   relatedExternal = false,
 }: HomeFeedProps) {
   const { user } = useSession();
+  const deliveryStartedAt = useRef<number | null>(null);
+  useEffect(() => {
+    deliveryStartedAt.current = Date.now();
+  }, []);
+  const readDeliveryStart = useCallback(() => deliveryStartedAt.current, []);
   const canUseGuestBootstrap =
     !user && variant === "latest" && !communitySlug && !excludePostId;
   const hasGuestBootstrap =
@@ -144,7 +149,11 @@ export default function HomeFeed({
   const external = useBlueskyFeed(
     discoveryMode(variant),
     allowExternal && includeBluesky,
-    user?.id ?? "guest"
+    user?.id ?? "guest",
+    "all",
+    false,
+    "home",
+    source === "all"
   );
   const externalPosts = useMemo(
     () =>
@@ -521,9 +530,6 @@ export default function HomeFeed({
     showCommunitySection ||
     (source !== "bluesky" && visibleGlobalPosts.length > 0) ||
     (allowExternal && source !== "asm" && externalPosts.length > 0);
-  // Keep the initial batch behind the skeleton until both networks settle.
-  const holdSourceStaging = initialSourceLoading && !hasGuestBootstrap;
-  const showInitialSourceSkeleton = holdSourceStaging;
   const sourceFailed =
     (source !== "bluesky" && (communityFailed || globalStatus === "error")) ||
     (allowExternal && includeBluesky && external.isError);
@@ -694,7 +700,8 @@ export default function HomeFeed({
     !initialSourceLoading &&
     !isFetchingNextPage &&
     !sourceFetching &&
-    !sourceFailed;
+    !sourceFailed &&
+    !external.sourceDeferred;
 
   let nextSkeletonSource: FeedSource = "all";
   if (external.isFetchingNextPage) {
@@ -721,7 +728,6 @@ export default function HomeFeed({
         </div>
       ) : null}
       <InfiniteScrollContainer
-        paused={holdSourceStaging}
         continuationDelay={Math.max(
           source !== "bluesky" && globalHasNextPage
             ? feedContinuationDelay(data?.pages, (page) => page.posts)
@@ -734,7 +740,7 @@ export default function HomeFeed({
       >
         {/* Community segment leads. `showCommunity={false}` because every post
             here already belongs to the community being read. */}
-        {showCommunitySection && !holdSourceStaging ? (
+        {showCommunitySection ? (
           <FeedView
             key={hashKey(communityQueryKey)}
             cacheKey={communityQueryKey}
@@ -746,14 +752,12 @@ export default function HomeFeed({
         ) : null}
         {/* The hand-off between the community and the platform. Only rendered
             when both segments actually have posts on screen. */}
-        {showCommunitySection &&
-        !holdSourceStaging &&
-        visibleGlobalPosts.length > 0 ? (
+        {showCommunitySection && visibleGlobalPosts.length > 0 ? (
           <h3 className="text-muted-foreground border-border/60 border-t px-4 pt-4 pb-2 text-xs font-semibold tracking-wide uppercase">
             More from asocialmedia
           </h3>
         ) : null}
-        {hasAnyPosts && !holdSourceStaging ? (
+        {hasAnyPosts ? (
           <FeedView
             key={
               hasGuestBootstrap
@@ -761,8 +765,9 @@ export default function HomeFeed({
                 : `${hashKey(queryKey)}:${source}`
             }
             externalPosts={allowExternal ? externalPosts : []}
-            sourcesPending={holdSourceStaging}
-            sourceWaitMs={null}
+            deliveryMode={allowExternal ? discoveryMode(variant) : undefined}
+            deliveryReady={!initialSourceLoading}
+            readDeliveryStart={readDeliveryStart}
             source={source}
             cacheKey={queryKey}
             excludeIds={communityIds}
@@ -775,8 +780,9 @@ export default function HomeFeed({
             sortBy={isTrending || isPersonalized ? "server" : "newest"}
           />
         ) : null}
-        {showInitialSourceSkeleton ? (
-          <FeedViewSkeleton
+        {initialSourceLoading && !hasGuestBootstrap ? (
+          <LoadMoreSkeleton
+            count={1}
             source={externalInitialLoading ? "bluesky" : source}
           />
         ) : null}
@@ -789,6 +795,11 @@ export default function HomeFeed({
             message="Some posts couldn’t load. Your loaded posts are still here—please try again."
             onRetry={retryFailedSources}
           />
+        ) : null}
+        {external.sourceDeferred && !sourceFailed ? (
+          <output className="text-muted-foreground block px-4 py-3 text-sm">
+            Bluesky is temporarily unavailable. ASM posts are still available.
+          </output>
         ) : null}
         {!isFetchingNextPage && !initialSourceLoading
           ? manualContinuation

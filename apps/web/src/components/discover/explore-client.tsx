@@ -27,7 +27,7 @@ import { AnimatedTabTrigger } from "@/components/home/feedview/animated-tab-trig
 import TrendingTopics from "@/components/home/sidebars/right/trending-topics";
 import { FeedScrollbar } from "@/components/layouts/feed/feed-scrollbar";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import { CollapsibleTopBar } from "@/components/layouts/shell/collapsible-top-bar";
@@ -747,8 +747,8 @@ const ExploreClient: React.FC<{ publicLinks?: React.ReactNode }> = ({
   const searchField = (
     <div className="relative">
       {isFetching && debouncedSearch.trim() ? (
-        <ZephLoader
-          variant="search"
+        <Spinner3D
+          label="Searching"
           className="absolute top-1/2 left-3 size-4 -translate-y-1/2"
         />
       ) : (

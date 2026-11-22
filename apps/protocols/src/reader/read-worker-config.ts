@@ -1,4 +1,5 @@
 export interface ReadWorkerNode {
+  capacity?: number;
   id: string;
   url: string;
   token: string;

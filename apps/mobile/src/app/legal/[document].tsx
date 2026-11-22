@@ -12,11 +12,17 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { FileText, Shield, X } from "lucide-react-native";
 import { useCallback, useState } from "react";
-import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Linking,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { IconButton3D } from "@/components/surface/icon-button-3d";
 import {
   legalDocumentPath,
@@ -187,7 +193,7 @@ function LegalDocumentScreen({ document }: { document: LegalDocument }) {
         <View style={{ flex: 1 }}>
           {loading && !failed ? (
             <View style={styles.overlay} pointerEvents="none">
-              <ZephLoader variant="general" color="#ff9500" />
+              <ActivityIndicator color="#ff9500" />
             </View>
           ) : null}
           {failed ? (

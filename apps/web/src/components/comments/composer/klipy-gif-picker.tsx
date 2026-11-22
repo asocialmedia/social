@@ -5,7 +5,6 @@ import Image from "next/image";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { useToast } from "@/lib/gooey-toast";
 import kyInstance from "@/lib/ky";
 
@@ -90,12 +89,12 @@ export default function KlipyGifPicker({
 
   let gridContent: React.ReactNode;
   if (isLoading) {
-    gridContent = (
-      <div className="text-muted-foreground flex w-full flex-col items-center gap-3 py-10 text-sm">
-        <ZephLoader label="Loading GIFs" size={64} variant="media" />
-        <span>Loading GIFs…</span>
-      </div>
-    );
+    gridContent = Array.from({ length: 8 }, (_, i) => (
+      <div
+        className="bg-muted/60 aspect-square w-[calc((100%-24px)/4)] shrink-0 animate-pulse rounded-lg"
+        key={`gif-skeleton-${i}`}
+      />
+    ));
   } else if (gifs.length === 0) {
     gridContent = (
       <p className="text-muted-foreground w-full py-12 text-center text-sm">

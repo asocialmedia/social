@@ -537,7 +537,7 @@ test("guest source snapshots keep their feed node through locale hydration and l
   }
 });
 
-test("a slow initial peer keeps posts hidden until the mixed batch is ready", async () => {
+test("a slow initial peer preserves the already rendered feed when it arrives", async () => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -582,13 +582,11 @@ test("a slow initial peer keeps posts hidden until the mixed batch is ready", as
       )
     );
     const feed = host.querySelector("[data-loaded]");
-    expect(feed).toBeNull();
-    expect(host.querySelector('[aria-label="Loading feed"]')).not.toBeNull();
-    await act(async () => {
-      await Bun.sleep(680);
-    });
-    expect(host.querySelector("[data-loaded]")).toBeNull();
-    expect(host.querySelector('[aria-label="Loading feed"]')).not.toBeNull();
+    expect(feed).not.toBeNull();
+    expect(host.querySelector('[aria-label="Loading feed"]')).toBeNull();
+    expect(
+      host.querySelector('[aria-label="Loading Bluesky posts"]')
+    ).not.toBeNull();
     bootstrapPending = false;
     await act(() =>
       root.render(
@@ -597,7 +595,7 @@ test("a slow initial peer keeps posts hidden until the mixed batch is ready", as
         </QueryClientProvider>
       )
     );
-    expect(host.querySelector("[data-loaded]")).not.toBeNull();
+    expect(host.querySelector("[data-loaded]")).toBe(feed);
     expect(host.querySelector('[aria-label="Loading feed"]')).toBeNull();
   } finally {
     await act(() => root.unmount());

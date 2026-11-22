@@ -195,6 +195,7 @@ export async function runJetstreamWorker(
         options.invalidate(event);
         cursor = event.seq;
         options.health.lastEventAt = Date.now();
+        options.health.lastSourceEventAt = Date.parse(event.time);
         events.add(1, { kind: event.kind });
         replayStrikes = 0;
         pendingEvents.push(event);

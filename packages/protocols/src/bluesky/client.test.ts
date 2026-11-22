@@ -45,6 +45,32 @@ test("malformed generator responses cool down without blocking healthy generator
   client.close();
 });
 
+test("a rate-limited generator respects Retry-After without blocking a post lookup", async () => {
+  const generator = `at://${authorDid}/app.bsky.feed.generator/throttled`;
+  let feedReads = 0;
+  const client = new BlueskyClient({
+    fetch: async (url) => {
+      if (new URL(url).searchParams.get("feed") === generator) {
+        feedReads += 1;
+        return Response.json(
+          {},
+          { headers: { "retry-after": "45" }, status: 429 }
+        );
+      }
+      return Response.json({ posts: [] });
+    },
+  });
+  await expect(client.getFeed(generator)).rejects.toMatchObject({
+    code: "rate_limited",
+  });
+  await expect(
+    client.getFeed(generator, { cursor: "next" })
+  ).rejects.toMatchObject({ code: "rate_limited" });
+  expect(await client.getPosts([postFixture.uri])).toEqual([]);
+  expect(feedReads).toBe(1);
+  client.close();
+});
+
 test("rejected social repository reads pause per actor instead of retrying every registry pass", async () => {
   let now = 0;
   let reads = 0;

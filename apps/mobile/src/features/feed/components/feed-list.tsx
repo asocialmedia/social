@@ -9,6 +9,7 @@ import {
   externalNetworkPostRecommended,
   networkPostAllowed,
   networkPostRecommended,
+  sendFeedMixReport,
 } from "@asm/protocols/discovery";
 // One tab's feed list: thread-grouped post cards in a FlatList with
 // pull-refresh, infinite scroll, per-tab scroll memory (restores position
@@ -55,6 +56,7 @@ import { useNetworkSettings } from "@/features/network/state/use-network-setting
 import { haptic } from "@/lib/interaction/haptics";
 import { SHOWS_SCROLL_INDICATOR } from "@/lib/layout/scroll-indicator";
 import { getApiBaseUrl } from "@/lib/network/api-env";
+import { withAuthHeaders } from "@/lib/network/auth-headers";
 import { useAppTheme } from "@/theme";
 
 import { getExternalPostView } from "../lib/external-post-view";
@@ -319,7 +321,8 @@ export const FeedList = memo(
       discoveryMode(variant),
       enabled && includeBluesky && (variant !== "following" || Boolean(userId)),
       userId,
-      variant === "following"
+      variant === "following",
+      { mixed: source === "all" }
     );
     const externalPosts = useMemo(
       () =>
@@ -939,18 +942,18 @@ export const FeedList = memo(
       rows: TimelineRow[];
     }>({ rows: [], scope: rowScope });
     const stableRows = rowState.scope === rowScope ? rowState.rows : [];
-    const initialPeerPending =
-      (source !== "bluesky" &&
-        (status === "loading" || (status === "idle" && enabled))) ||
-      (source !== "asm" && external.status === "loading");
-    const previousRows = initialPeerPending ? [] : stableRows;
-    const orderedRows = initialPeerPending
-      ? []
-      : reconcileFeedOrder(previousRows, freshRows, [
-          posts.map((post) => `asm:${post.id}`),
-          externalPosts.map((post) => `bluesky:${post.id}`),
-        ]);
-    const stabilizedRows = stableTimelineRows(previousRows, orderedRows);
+    const orderedRows = reconcileFeedOrder(
+      stableRows,
+      freshRows,
+      [
+        posts.map((post) => `asm:${post.id}`),
+        externalPosts.map((post) => `bluesky:${post.id}`),
+      ],
+      source === "all" && variant !== "latest" && variant !== "following"
+        ? (item) => item.kind
+        : undefined
+    );
+    const stabilizedRows = stableTimelineRows(stableRows, orderedRows);
     if (
       rowState.scope !== rowScope ||
       !areTimelineRowsIdentical(stabilizedRows, stableRows)
@@ -958,7 +961,10 @@ export const FeedList = memo(
       setRowState({ rows: stabilizedRows, scope: rowScope });
     }
     const rows = stableRows;
-    const externalPending = source !== "asm" && external.status === "loading";
+    const externalPending = includeBluesky && external.status === "loading";
+    const nativePending =
+      source !== "bluesky" &&
+      (status === "loading" || (status === "idle" && enabled));
     const preferencesFailed = !network.ready && Boolean(network.error);
     const availability = preferencesFailed
       ? "error"
@@ -969,21 +975,72 @@ export const FeedList = memo(
           externalLoading: externalPending,
           nativeEnabled: source !== "bluesky",
           nativeError: status === "error",
-          nativeLoading: status === "loading" || (status === "idle" && enabled),
+          nativeLoading: nativePending,
         });
     const combinedHasMore =
       (source !== "bluesky" && hasMore) ||
       (source !== "asm" && external.hasMore);
-    // Reveal the first batch only after both reads settle, so late arrivals
-    // cannot move posts the reader has already started reading.
-    const sourcesPending =
-      (source !== "bluesky" &&
-        (status === "loading" || (status === "idle" && enabled))) ||
-      (includeBluesky && external.status === "loading");
-    const initialSourceLoading = sourcesPending;
-    const visibleRows = sourcesPending ? [] : rows;
+    const sourcesPending = nativePending || externalPending;
+    const delivery = useRef({
+      firstAt: 0,
+      reported: false,
+      scope: rowScope,
+      startedAt: 0,
+    });
+    useEffect(() => {
+      if (delivery.current.scope !== rowScope || !delivery.current.startedAt) {
+        delivery.current = {
+          firstAt: 0,
+          reported: false,
+          scope: rowScope,
+          startedAt: Date.now(),
+        };
+      }
+      if (
+        !isActive ||
+        !userId ||
+        source !== "all" ||
+        !rows.length ||
+        variant === "following"
+      ) {
+        return;
+      }
+      const state = delivery.current;
+      if (!state.firstAt) {
+        state.firstAt = Date.now();
+      }
+      if (sourcesPending || state.reported) {
+        return;
+      }
+      state.reported = true;
+      const report = async () => {
+        let cookie: string | null;
+        try {
+          cookie = await authClient.getCookie();
+        } catch {
+          return;
+        }
+        await sendFeedMixReport(
+          {
+            client: "mobile",
+            durationMs: Math.min(
+              60_000,
+              Math.max(0, state.firstAt - state.startedAt)
+            ),
+            mode: discoveryMode(variant),
+            sources: rows.slice(0, 20).map((row) => row.kind),
+          },
+          {
+            baseUrl: getApiBaseUrl(),
+            headers: withAuthHeaders({ "x-asm-client": "mobile" }, cookie),
+          }
+        );
+      };
+      void report();
+    }, [isActive, rowScope, rows, source, sourcesPending, userId, variant]);
     const nativeFailed = source !== "bluesky" && status === "error";
     const externalFailed = source !== "asm" && external.status === "error";
+    const sourceDeferred = source === "all" && Boolean(external.sourceStatus);
     const sourceFailed = nativeFailed || externalFailed;
     const sourceFetching =
       (source !== "bluesky" &&
@@ -1019,16 +1076,15 @@ export const FeedList = memo(
     const showLoader =
       (source !== "bluesky" && status === "loading-more") ||
       (source !== "asm" && external.loadingMore) ||
-      sourcesPending ||
-      (initialSourceLoading && rows.length > 0);
+      sourcesPending;
     // Web's feedComplete: no more pages, nothing loading or fetching, and
     // no source failed. A failed Bluesky read never claims "caught up".
     const feedComplete =
       !combinedHasMore &&
-      !initialSourceLoading &&
       !showLoader &&
       !sourceFetching &&
       !sourceFailed &&
+      !sourceDeferred &&
       rows.length > 0;
     // Web's manual continuation: offered only after a source failed, when
     // nothing is in flight. Healthy paging stays automatic.
@@ -1129,6 +1185,16 @@ export const FeedList = memo(
       if (manualContinuation) {
         return <LoadMoreButton onPress={retryFailedSources} />;
       }
+      if (sourceDeferred) {
+        return (
+          <Text
+            accessibilityLiveRegion="polite"
+            style={[styles.endText, { color: theme.dividerText }]}
+          >
+            Bluesky is temporarily unavailable. ASM posts are still available.
+          </Text>
+        );
+      }
       if (feedComplete) {
         return (
           <View style={styles.endWrap}>
@@ -1150,6 +1216,7 @@ export const FeedList = memo(
       retryFailedSources,
       showLoader,
       source,
+      sourceDeferred,
       sourceFailed,
       theme.cardBorder,
       theme.dividerText,
@@ -1187,7 +1254,7 @@ export const FeedList = memo(
     }
 
     // The shared editor stays above loading and empty feeds as well as populated lists.
-    if (availability === "loading" || (sourcesPending && !preferencesFailed)) {
+    if (availability === "loading") {
       return (
         <FeedState>
           {listHeader}
@@ -1319,7 +1386,7 @@ export const FeedList = memo(
                 contentContainerStyle={{
                   paddingBottom: HEADER_BAR_HEIGHT + bottomInset,
                 }}
-                data={visibleRows}
+                data={rows}
                 // FlashList maintains visible content by default, so head
                 // merges and view-count reconciles do not shift the reader.
                 drawDistance={HOME_FEED_DRAW_DISTANCE}
@@ -1331,7 +1398,7 @@ export const FeedList = memo(
                   if (
                     !feedRenderPolicy({
                       active: isActive,
-                      initialLoading: sourcesPending,
+                      initialLoading: sourcesPending && !rows.length,
                       offset: scrollOffset.get(),
                       paging: status === "loading-more" || external.loadingMore,
                       pendingHeadCount: 0,

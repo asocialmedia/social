@@ -15,6 +15,7 @@ import {
 import { Input } from "@asm/ui/shadui/input";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  Loader2,
   Clock3,
   Download,
   ChevronRight,
@@ -26,7 +27,6 @@ import { useEffect, useId, useState } from "react";
 import type React from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import type { ConversationDetailResponse } from "@/lib/messages/client";
 import {
   ChatControlError,
@@ -433,7 +433,7 @@ export function ChatLifecycleTools({
                         aria-live="polite"
                         className="flex items-center gap-3 py-3"
                       >
-                        <ZephLoader variant="messages" className="size-5" />
+                        <Loader2 className="size-5 animate-spin" />
                         <div>
                           <p className="text-sm font-medium">
                             {job.status === "processing"
@@ -495,10 +495,7 @@ export function ChatLifecycleTools({
                           }}
                         >
                           {exportBusy ? (
-                            <ZephLoader
-                              variant="messages"
-                              className="mr-2 size-4"
-                            />
+                            <Loader2 className="mr-2 size-4 animate-spin" />
                           ) : (
                             <Download className="mr-2 size-4" />
                           )}
@@ -541,7 +538,7 @@ export function ChatLifecycleTools({
                   }}
                 >
                   {busy ? (
-                    <ZephLoader variant="messages" className="mr-2 size-4" />
+                    <Loader2 className="mr-2 size-4 animate-spin" />
                   ) : null}
                   {(() => {
                     if (dialog === "clear") {

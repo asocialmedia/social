@@ -8,6 +8,7 @@ import {
   protocolJsonBody,
   protocolRoute,
 } from "@/lib/protocols/gateway";
+import { reportFeedFeedback } from "@/lib/recommendations/feed-authority";
 
 function handle(request: Request, remove: boolean) {
   return protocolRoute(request, "feedback", async () => {
@@ -29,6 +30,8 @@ function handle(request: Request, remove: boolean) {
     }
     await consumeProtocolBudget(session.user.id, "feedback", true);
     await writeExternalFeedback(session.user.id, feedback.data, remove);
+    const event = remove ? "UNDO_NOT_INTERESTED" : "NOT_INTERESTED";
+    reportFeedFeedback("bluesky", { [event]: 1 });
     return Response.json({ saved: true });
   });
 }

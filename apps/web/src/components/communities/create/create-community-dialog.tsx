@@ -15,7 +15,7 @@ import { Input } from "@asm/ui/shadui/input";
 import { RadioGroup, RadioGroupItem } from "@asm/ui/shadui/radio-group";
 import { Textarea } from "@asm/ui/shadui/textarea";
 import avatarPlaceholder from "@assets/general/avatar-placeholder.png";
-import { ArrowLeft, ArrowRight, X } from "lucide-react";
+import { Loader2, ArrowLeft, ArrowRight, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
@@ -23,7 +23,6 @@ import { useCreateCommunityMutation } from "@/communities/mutations";
 import CommunityAccentPicker from "@/components/communities/create/community-accent-picker";
 import CommunityTopicPicker from "@/components/communities/create/community-topic-picker";
 import CreateCommunityPreview from "@/components/communities/create/create-community-preview";
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import {
   AvatarInput,
   BannerInput,
@@ -783,7 +782,7 @@ export default function CreateCommunityDialog({
               variant="premium"
             >
               {isSubmitting ? (
-                <ZephLoader variant="general" className="size-4" />
+                <Loader2 className="size-4 animate-spin" />
               ) : null}
               {isUploadingMedia ? "Uploading…" : "Create community"}
             </Button>

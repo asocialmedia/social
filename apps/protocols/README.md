@@ -232,3 +232,29 @@ Run the deterministic component load test with `BUN_CONFIG_MAX_HTTP_REQUESTS=204
 A passing component benchmark is not a release capacity guarantee. Release acceptance still needs a production build on the target deployment resources, representative database size, realistic simultaneous search and feed traffic, real upstream latency/rate-limit behavior, and sustained p95/error-rate and resource monitoring. The 1,000-user target must specify simultaneous activity and searches per second; it does not imply that one replica can complete 1,000 different cold upstream searches at once.
 
 For the initial 2-vCPU / 16GB VPS, use one web and one protocol instance as the measurement baseline. Search guest admission is separate from signed-in limits: one signed HttpOnly browser identity shares an atomic Redis budget of 60 API requests per minute and 24 per ten seconds across both sources. A combined search usually makes two requests. Refused hits do not spend another budget, receive HTTP 429 plus Retry-After, and do not start database or upstream work. Guests receive a retryable 503 if the rate-limit store is unavailable. Existing per-IP API limits still apply.
+
+## Feed authority
+
+The coordinator publishes a feed-health snapshot every ten seconds to the existing Redis. The snapshot expires after 45 seconds. It includes the last Jetstream event received, the source timestamp, the newest post in a bounded sample of eligible inventory, a retained inventory count, ready worker capacity, and recent upstream outcomes. Treat the inventory sample as a freshness signal for the shared pool. The served-page metrics measure freshness separately for each requested feed.
+
+Media Processing publishes safety and enrichment queue age and polls the configured classifier's authenticated `/v1/model` endpoint for queue capacity. High safety pressure suspends new assessments requested by the feed. Text and media with existing safe verdicts remain eligible. Optional enrichment never gates an otherwise eligible feed.
+
+Web and mobile request independent source pages using the same policy. Mixed reads can use a matching cached Bluesky head during a sustained upstream outage and can proceed with ASM if the head has no usable posts. Explicit Bluesky reads keep their selected source. Missing or expired health data restores independent reads. Ranked feeds use a bounded rolling source mix across new rows and preserve visible row positions. Latest keeps chronological ordering.
+
+The coordinator checks configured worker readiness over authenticated HTTPS. Keep worker origins and individual bearer tokens in the coordinator's Dokploy `PROTOCOLS_READ_WORKERS` secret. Keep each worker's own token in its Dokploy `PROTOCOLS_WORKER_TOKEN` secret.
+
+To enable roster changes without a restart, provision a dedicated Redis instance on a private network with no public port. Use TLS for connections that cross hosts. Give its reader and operator distinct random passwords and use an ACL file that persists across restarts. Substitute each password's SHA-256 hash in this ACL file.
+
+```text
+user default off resetpass resetkeys resetchannels -@all
+user asm_roster_reader on #READER_SHA256 ~asm:{feed-authority}:worker-ids:v2 +get
+user asm_roster_operator on #OPERATOR_SHA256 ~asm:{feed-authority}:worker-ids:v2 +get +set +del
+```
+
+Set `PROTOCOLS_WORKER_ROSTER_REDIS_URL=redis://asm_roster_reader:<password>@<private-roster-host>:6379/0` on the coordinator only. Store the operator password in the operator's secret store. The shared application cache and the read workers have no roster identity.
+
+The operator can `SET` `asm:{feed-authority}:worker-ids:v2` to a JSON array of approved IDs such as `["us-east"]`. An empty array drains remote routing. Deleting the key restores the environment list. Invalid data and connection failures retain the in-memory selection. After a restart, remote routing waits for a successful roster read. With no roster URL, the coordinator uses its configured workers. Only matching, ready workers receive reads. Only workers reporting healthy ingestion storage are authorized to claim new hydration jobs.
+
+The coordinator ignores the legacy `asm:{feed-authority}:workers:v1` key. If it held worker credentials, rotate those tokens and remove the legacy key after upgrading every coordinator.
+
+In OpenObserve, use `feed.authority.protocols`, `feed.authority.media`, `feed.authority.served`, and `feed.authority.delivered` to distinguish upstream failures, safety pressure, empty policy scopes, post age, and streaks in the displayed feed. Served-page interest counts use explicit profile interests. Signed-in delivery reports contain a bounded prefix of source labels and elapsed time. They omit post IDs and viewer IDs.

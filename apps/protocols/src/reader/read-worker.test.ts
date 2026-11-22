@@ -16,6 +16,8 @@ const node = { id: "us-east", token, url: "https://worker.example" };
 const profile =
   "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=did:plc:alice";
 const search = "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=hello";
+const throttledFeed =
+  "https://public.api.bsky.app/xrpc/app.bsky.feed.getFeed?feed=at://did:plc:alice/app.bsky.feed.generator/example";
 const logger = () => ({
   debug: mock(),
   error: mock(),
@@ -379,6 +381,33 @@ test("worker applies upstream host cooldown across callers while independent hos
   now = 46_000;
   await worker.app.handle(request(profile));
   expect(fetcher).toHaveBeenCalledTimes(3);
+});
+
+test("one rate-limited generator leaves other AppView reads available in the worker and pool", async () => {
+  const fetcher = mock(async (url: string) => {
+    const target = url.startsWith(node.url)
+      ? new URL(url).searchParams.get("url")
+      : url;
+    return response({}, target?.includes("app.bsky.feed.getFeed") ? 429 : 200);
+  });
+  const worker = createReadWorkerApp({
+    fetch: fetcher,
+    id: node.id,
+    logger: logger(),
+    token,
+  });
+  expect((await worker.app.handle(request(throttledFeed))).status).toBe(429);
+  expect((await worker.app.handle(request(throttledFeed))).status).toBe(429);
+  expect((await worker.app.handle(request(profile))).status).toBe(200);
+  expect(fetcher).toHaveBeenCalledTimes(2);
+
+  const pool = createReadWorkerPool({
+    fetch: fetcher,
+    logger: logger(),
+    nodes: [node],
+  });
+  expect((await pool.fetch(throttledFeed, {})).status).toBe(429);
+  expect((await pool.fetch(profile, {})).status).toBe(200);
 });
 
 test("negotiated worker capacity errors preserve their retry delay through edge proxies", async () => {

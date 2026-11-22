@@ -6,7 +6,7 @@ import { useCallback, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 
 import resetBgImage from "@/assets/images/password-reset-image.jpg";
-import { ZephLoader } from "@/components/feedback/zeph-loader";
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { requestPasswordReset } from "@/features/auth/lib/auth-api";
 import { validateIdentifier } from "@/features/auth/lib/auth-validation";
 import { INPUT_FOCUS_SHADOWS, INPUT_SHADOWS, useAppTheme } from "@/theme";
@@ -71,9 +71,7 @@ export default function ResetPasswordScreen() {
             If an account exists with that username or email, you&apos;ll
             receive password reset instructions.
           </Text>
-          {isLoading ? (
-            <ZephLoader variant="security" color="#ff9500" size="small" />
-          ) : null}
+          {isLoading ? <Spinner3D color="#ff9500" size={24} /> : null}
           <Pressable
             className="mt-4 flex-row items-center gap-2"
             hitSlop={6}

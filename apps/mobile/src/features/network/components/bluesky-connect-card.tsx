@@ -20,8 +20,8 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { toast } from "@/components/feedback/toast";
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { DialogPanel } from "@/components/surface/dialog-panel";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { useSessionContext } from "@/features/auth/state/session";
@@ -146,11 +146,7 @@ function CardButton({
             pressed && !gated ? styles.pressed : null,
           ]}
         >
-          {loading ? (
-            <ZephLoader color={recipe.text} size="small" variant="general" />
-          ) : (
-            icon
-          )}
+          {loading ? <Spinner3D color={recipe.text} size={24} /> : icon}
           <Text
             style={[
               styles.cardButtonText,

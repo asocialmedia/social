@@ -67,7 +67,7 @@ test("a cold mixed feed keeps a full-height skeleton after an empty asocialmedia
   client.clear();
 });
 
-test("a pending Bluesky source holds asocialmedia posts behind the initial skeleton", () => {
+test("ready asocialmedia posts render while Bluesky is still loading", () => {
   const client = new QueryClient();
   const native = {
     ...externalPostView(source),
@@ -86,12 +86,11 @@ test("a pending Bluesky source holds asocialmedia posts behind the initial skele
       <HomeFeed variant="latest" />
     </QueryClientProvider>
   );
-  expect(html).toContain('aria-label="Loading feed"');
-  expect(html).toContain("min-h-dvh");
-  expect(html).not.toContain("Native content remains visible");
-  expect(html).not.toContain('data-post-id="native-post"');
+  expect(html).toContain('aria-label="Loading Bluesky posts"');
+  expect(html).not.toContain('aria-label="Loading feed"');
+  expect(html).toContain("Native content remains visible");
+  expect(html).toContain('data-post-id="native-post"');
   expect(html).not.toContain("caught up");
-  expect(html.match(/data-skeleton-media=/g)?.length).toBeGreaterThan(1);
   client.clear();
 });
 
@@ -125,6 +124,7 @@ test("completion appears only after both mixed-feed sources finish", () => {
       "all",
       "progressive-v9",
       "home",
+      "mixed",
     ],
     {
       pageParams: [{ cursor: null, level: 0, pages: 0, topicPage: 0 }],

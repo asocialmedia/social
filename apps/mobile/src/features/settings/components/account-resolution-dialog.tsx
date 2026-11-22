@@ -4,10 +4,9 @@ import type {
 } from "@asm/auth/validation";
 import { Check, GitMerge, ShieldCheck, Trash2 } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
 import { UserAvatar } from "@/components/avatar/user-avatar";
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { DialogPanel } from "@/components/surface/dialog-panel";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { useSessionContext } from "@/features/auth/state/session";
@@ -388,7 +387,7 @@ export function AccountResolutionDialog({
         ) : (
           <>
             {!review && !errorMessage ? (
-              <ZephLoader variant="general" color={theme.inputText} />
+              <ActivityIndicator color={theme.inputText} />
             ) : null}
             {review && (
               <>

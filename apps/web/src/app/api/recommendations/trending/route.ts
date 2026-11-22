@@ -1,4 +1,5 @@
 import { consumeRateLimit, getClientIpFromRequest } from "@asm/db";
+import { abortable } from "@asm/protocols/discovery";
 
 import { getTrendingFeed } from "@/components/home/sidebars/right/trending-actions";
 import {
@@ -37,6 +38,8 @@ export async function GET(request: Request) {
       }
     );
   }
+  const refresh = query.get("refresh") === "1";
+  const global = Promise.allSettled([getTrendingFeed(refresh, true)]);
   const context = await networkFeedContext(
     session?.user.id,
     query.get("profile") ?? undefined
@@ -52,36 +55,45 @@ export async function GET(request: Request) {
   const focused = interests.length > 0;
   const locale = networkRegionalLocale(context, "en");
   const explicit = Boolean(session && context.preferences.showExplicitContent);
-  const [global, personalized] = await Promise.allSettled([
-    getTrendingFeed(query.get("refresh") === "1", !focused),
-    focused
-      ? (async () => {
-          const cached = await cachedDiscoveryHead(
-            discoveryCacheKey("personalized", locale, topics, explicit)
-          );
-          const page =
-            cached?.page ??
-            (await readBlueskyDiscovery(
-              "personalized",
-              undefined,
-              AbortSignal.any([request.signal, AbortSignal.timeout(3000)]),
-              crypto.randomUUID(),
-              locale,
-              topics,
-              explicit
-            ));
-          return {
-            items: interestTrendingTopics(page.items, {
-              ...context,
-              selected: { ...context.selected, interests },
-            }),
-            partial: page.partial,
-          };
-        })()
-      : Promise.resolve({ items: [], partial: false }),
+  const [[globalResult], [personalized]] = await Promise.all([
+    global,
+    Promise.allSettled([
+      focused
+        ? (async () => {
+            const cached = await cachedDiscoveryHead(
+              discoveryCacheKey("personalized", locale, topics, explicit)
+            );
+            const signal = AbortSignal.any([
+              request.signal,
+              AbortSignal.timeout(750),
+            ]);
+            const page =
+              cached?.page ??
+              (await abortable(
+                readBlueskyDiscovery(
+                  "personalized",
+                  undefined,
+                  signal,
+                  crypto.randomUUID(),
+                  locale,
+                  topics,
+                  explicit
+                ),
+                signal
+              ));
+            return {
+              items: interestTrendingTopics(page.items, {
+                ...context,
+                selected: { ...context.selected, interests },
+              }),
+              partial: page.partial,
+            };
+          })()
+        : Promise.resolve({ items: [], partial: false }),
+    ]),
   ]);
   if (
-    global.status === "rejected" &&
+    globalResult.status === "rejected" &&
     (!focused || personalized.status === "rejected")
   ) {
     return Response.json(
@@ -90,37 +102,56 @@ export async function GET(request: Request) {
     );
   }
   const data =
-    global.status === "fulfilled"
-      ? global.value
+    globalResult.status === "fulfilled"
+      ? globalResult.value
       : {
           items: [],
           topAura: [],
           unavailable: ["hashtags", "mentions", "aura"] as const,
         };
-  const items = filterTrendingForInterests(
+  let items = filterTrendingForInterests(
     data.items,
     interests,
     context.preferences.avoidedTopics,
     context.topicScope
   );
+  const related =
+    personalized.status === "fulfilled" ? personalized.value.items : [];
+  if (!related.length && !items.length && !context.selected.interests.length) {
+    items = filterTrendingForInterests(
+      data.items,
+      [],
+      context.preferences.avoidedTopics,
+      context.topicScope
+    );
+  }
+  const networkTopics = [
+    ...new Map(
+      [
+        ...items.filter((item) => item.type === "bluesky_topic"),
+        ...related,
+      ].map((item) => [item.topic.toLowerCase(), item])
+    ).values(),
+  ];
+  const hasBluesky = networkTopics.length > 0;
   return Response.json(
     {
       items: weaveTrendingItems(
         items.filter((item) => item.type !== "bluesky_topic"),
-        [
-          ...(personalized.status === "fulfilled"
-            ? personalized.value.items
-            : []),
-          ...items.filter((item) => item.type === "bluesky_topic"),
-        ],
+        networkTopics,
         30
       ),
       topAura: data.topAura,
       unavailable: [
-        ...data.unavailable,
-        ...(personalized.status === "rejected" || personalized.value.partial
-          ? ["bluesky"]
-          : []),
+        ...new Set([
+          ...data.unavailable.filter(
+            (source) => source !== "bluesky" || !hasBluesky
+          ),
+          ...(focused &&
+          (personalized.status === "rejected" || personalized.value.partial)
+            ? ["bluesky"]
+            : []),
+        ]),
       ],
     },
     { headers }

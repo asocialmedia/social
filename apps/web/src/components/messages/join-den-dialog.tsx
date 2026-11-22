@@ -15,12 +15,11 @@ import {
   InputOTPGroup,
   InputOTPSlot,
 } from "@asm/ui/shadui/input-otp";
-import { ArrowLeft, KeyRound, Users } from "lucide-react";
+import { Loader2, ArrowLeft, KeyRound, Users } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { fetchDenInvitePreview, joinDen } from "@/lib/messages/client";
 import {
   createDenCodeEntryController,
@@ -208,10 +207,9 @@ function JoinDenDialogSession({ onOpenChange, open }: JoinDenDialogProps) {
                   variant="premium"
                 >
                   {joining ? (
-                    <ZephLoader
-                      variant="messages"
+                    <Loader2
                       aria-hidden
-                      className="size-4 motion-reduce:animate-none"
+                      className="size-4 animate-spin motion-reduce:animate-none"
                     />
                   ) : null}
                   {denJoinActionLabel(entry.outcome, joining)}
@@ -293,10 +291,9 @@ function JoinDenDialogSession({ onOpenChange, open }: JoinDenDialogProps) {
                   ) : (
                     <output className="text-muted-foreground flex items-center gap-2 text-xs">
                       {entry.status === "checking" ? (
-                        <ZephLoader
-                          variant="messages"
+                        <Loader2
                           aria-hidden
-                          className="size-3.5 motion-reduce:animate-none"
+                          className="size-3.5 animate-spin motion-reduce:animate-none"
                         />
                       ) : null}
                       {entry.status === "checking"

@@ -413,6 +413,39 @@ test("unrelated records do not hydrate; deletes cancel queued creates; queue is 
   expect(ingestion.pendingCount).toBe(100);
 });
 
+test("the idle stream hydrates a bounded sample of recent public root posts without a watch", async () => {
+  const reads: string[][] = [];
+  const ingestion = createDiscoveryIngestion({
+    client: {
+      allowsRecommendations: () => Promise.resolve(true),
+      getPosts: (ids) => {
+        reads.push(ids);
+        return Promise.resolve([]);
+      },
+      invalidate() {},
+    },
+    publish: () => Promise.resolve(),
+    store: {
+      invalidate: () => Promise.resolve(),
+      put: () => Promise.resolve(),
+      read: () => Promise.resolve([]),
+    },
+  });
+  for (const index of [0, 1, 2, 3]) {
+    const item = event(index);
+    if (item.kind === "commit") {
+      item.commit.record = {
+        ...(index === 0 ? { reply: {} } : {}),
+        text: "A public Bluesky post with enough text to sample for the latest feed",
+      };
+    }
+    // oxlint-disable-next-line no-await-in-loop -- assert sequential stream admission.
+    await ingestion.event(item);
+  }
+  await ingestion.tick();
+  expect(reads).toEqual([[inventoryPost(1).id]]);
+});
+
 test("matching posts displace general video traffic instead of starving niche interests", async () => {
   const reads: string[][] = [];
   const ingestion = createDiscoveryIngestion({

@@ -8,10 +8,16 @@
 import { ShieldCheck, Trash2 } from "lucide-react-native";
 import type * as React from "react";
 import { useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import { toast } from "@/components/feedback/toast";
-import { ZephLoader } from "@/components/feedback/zeph-loader";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import { APPLE_PANEL_TOKENS, themeText } from "@/components/surface/recipes";
 import { authClient } from "@/features/auth/lib/auth-client";
@@ -199,9 +205,7 @@ function GradientButton({
       ]}
     >
       <Gradient3D colors={colors} shadows={shadows} style={styles.pill}>
-        {busy ? (
-          <ZephLoader variant="general" color="#ffffff" size={14} />
-        ) : null}
+        {busy ? <ActivityIndicator color="#ffffff" size={14} /> : null}
         <Text style={styles.buttonText}>{label}</Text>
       </Gradient3D>
     </Pressable>

@@ -5,7 +5,6 @@ import { Check, Copy, Search } from "lucide-react";
 import Image from "next/image";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { parseWebVttCues } from "@/components/media/video-transcript-drawer";
 import type { TranscriptCue } from "@/components/media/video-transcript-drawer";
 import { useToast } from "@/lib/gooey-toast";
@@ -203,7 +202,7 @@ export const VideoTranscriptSidebar: React.FC<VideoTranscriptSidebarProps> = ({
           if (isLoading) {
             return (
               <div className="flex h-20 items-center justify-center">
-                <ZephLoader variant="media" className="size-4" />
+                <div className="size-4 animate-spin rounded-full border-2 border-orange-500 border-t-transparent" />
               </div>
             );
           }

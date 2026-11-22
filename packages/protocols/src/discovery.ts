@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { isAuthenticationNotice } from "./bluesky/auth-feeds";
 import type { ExternalPost } from "./contracts";
+import { feedSourceStatusSchema, mixRankedNetworks } from "./feed-authority";
 import {
   abortable,
   canRetryRead,
@@ -23,6 +24,25 @@ export {
 } from "./content-safety";
 export type { BlueskyContentLabels } from "./content-safety";
 export { isDiscoveryColdStart } from "./discovery-quality";
+export {
+  decideFeedAuthority,
+  feedAuthorityExpirySeconds,
+  feedAuthorityKeys,
+  feedAuthorityVersion,
+  feedMixReportSchema,
+  feedSourceStatusSchema,
+  feedSourceStreak,
+  mediaFeedHealthSchema,
+  protocolFeedHealthSchema,
+  readFeedHealth,
+  sendFeedMixReport,
+} from "./feed-authority";
+export type {
+  FeedMixReport,
+  FeedSourceStatus,
+  MediaFeedHealth,
+  ProtocolFeedHealth,
+} from "./feed-authority";
 export { BoundedReadQueue } from "./read-queue";
 export { SharedReadCache, createRedisReadStore } from "./shared-read-cache";
 export type { SharedReadStore } from "./shared-read-cache";
@@ -272,6 +292,7 @@ export const discoveryPageSchema = z.object({
   items: z.array(externalPostSchema).max(50),
   moreRelatedTopics: z.boolean().optional(),
   partial: z.boolean(),
+  sourceStatus: feedSourceStatusSchema.optional(),
 });
 export type DiscoveryPage = z.infer<typeof discoveryPageSchema>;
 
@@ -328,19 +349,7 @@ export function mixFeedItems<T>(
     }
     return result;
   }
-  // Keep native ranking intact; outside content fills the feed as native activity grows.
-  for (
-    let index = 0;
-    index < Math.max(local.length, Math.ceil(remote.length / 2));
-    index += 1
-  ) {
-    const original = local[index];
-    if (original) {
-      result.push(original);
-    }
-    result.push(...remote.slice(index * 2, index * 2 + 2));
-  }
-  return result;
+  return mixRankedNetworks(local, remote);
 }
 
 export const feedSourceLabels: Record<FeedSource, string> = {
@@ -377,6 +386,7 @@ export async function readDiscoveryPage(options: {
   discoveryLevel?: number;
   topicPage?: number;
   following?: boolean;
+  mixed?: boolean;
   refresh?: boolean;
   content?: DiscoveryContent;
   profile?: string;
@@ -408,6 +418,9 @@ export async function readDiscoveryPage(options: {
       }
       if (options.refresh) {
         query.set("refresh", "1");
+      }
+      if (options.mixed && !options.following) {
+        query.set("mixed", "1");
       }
       if (options.content) {
         query.set("content", options.content);

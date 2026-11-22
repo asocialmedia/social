@@ -2,6 +2,7 @@
 
 import { Button } from "@asm/ui/shadui/button";
 import {
+  Loader2,
   AlertCircle,
   Ghost,
   Link2Off,
@@ -14,7 +15,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import {
   MessagesApiError,
   createConversation,
@@ -207,10 +207,7 @@ export default function ClientJoinDen({ code }: { code: string }) {
   if (state.kind === "loading") {
     return (
       <Screen>
-        <ZephLoader
-          variant="messages"
-          className="text-muted-foreground h-6 w-6"
-        />
+        <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
         <h1 className="text-base font-semibold">Checking this link…</h1>
         {/* An `<output>` rather than a `role="status"` paragraph: it is the
             element for a result, it is implicitly a polite live region, and it
@@ -296,9 +293,7 @@ export default function ClientJoinDen({ code }: { code: string }) {
             type="button"
             variant="premium"
           >
-            {joining ? (
-              <ZephLoader variant="messages" className="size-4" />
-            ) : null}
+            {joining ? <Loader2 className="size-4 animate-spin" /> : null}
             {action}
           </Button>
         ) : null}
@@ -445,7 +440,7 @@ export function DenExpiredScreen({
           type="button"
           variant="premium"
         >
-          {asking ? <ZephLoader variant="messages" className="size-4" /> : null}
+          {asking ? <Loader2 className="size-4 animate-spin" /> : null}
           {asking ? "Opening…" : "Ask for a new invite"}
         </Button>
         <Button

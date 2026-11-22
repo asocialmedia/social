@@ -4,12 +4,11 @@ import type { getCommunityPreview } from "@asm/db";
 import { Button } from "@asm/ui/shadui/button";
 import { Card } from "@asm/ui/shadui/card";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock3, LockKeyhole } from "lucide-react";
+import { Loader2, Clock3, LockKeyhole } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
@@ -162,10 +161,9 @@ export default function CommunityPrivateLanding({
                       }}
                     >
                       {busy ? (
-                        <ZephLoader
-                          variant="general"
+                        <Loader2
                           aria-hidden="true"
-                          className="motion-reduce:animate-none"
+                          className="animate-spin motion-reduce:animate-none"
                         />
                       ) : null}
                       {requestLabel}

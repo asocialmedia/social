@@ -3,7 +3,7 @@
 import { Button } from "@asm/ui/shadui/button";
 import { Fingerprint } from "lucide-react";
 
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import { authClient } from "@/lib/auth/auth";
 
 interface PasskeySignInButtonProps {
@@ -55,7 +55,7 @@ export default function PasskeySignInButton({
       variant="ghost"
     >
       {loading ? (
-        <ZephLoader variant="security" className="size-5" />
+        <Spinner3D className="size-5" />
       ) : (
         <Fingerprint className="size-5" />
       )}

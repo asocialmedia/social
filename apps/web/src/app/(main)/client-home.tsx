@@ -1,6 +1,6 @@
 "use client";
 
-import type { PostData, UserData } from "@asm/db";
+import type { PostData } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
 import {
   discoveryFleetFeed,
@@ -53,7 +53,6 @@ interface ClientHomeProps {
   initialGuestExternalPosts?: ExternalPost[];
   composer?: React.ReactNode;
   initialGuestPosts?: PostData[];
-  userData: UserData | null;
 }
 
 type FeedTab = HomeTab;

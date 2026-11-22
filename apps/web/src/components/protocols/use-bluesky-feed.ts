@@ -12,7 +12,7 @@ import type {
 } from "@asm/protocols/discovery";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
 import { useFeedEvents } from "@/hooks/feed/use-feed-events";
@@ -43,7 +43,8 @@ export function useBlueskyFeed(
   viewer = "guest",
   content: DiscoveryContent = "all",
   following = false,
-  surface: "home" | "explore" = "home"
+  surface: "home" | "explore" = "home",
+  mixed = false
 ) {
   const queryClient = useQueryClient();
   const excluded = useExternalExclusions(viewer);
@@ -67,13 +68,23 @@ export function useBlueskyFeed(
     content,
     "progressive-v9",
     surface,
+    ...(mixed ? ["mixed"] : []),
   ];
+  const recoveryScope = JSON.stringify(queryKey);
+  const [recovery, setRecovery] = useState<{
+    pageStatus?: DiscoveryPage["sourceStatus"];
+    scope: string;
+    retryAt: number;
+  }>();
   const query = useInfiniteQuery({
     ...FEED_QUERY_BEHAVIOR,
     enabled: enabled && ready && network.ready,
     getNextPageParam: (
       lastPage: DiscoveryPage & Partial<ProgressiveDiscoveryPage>
     ) => {
+      if (lastPage.sourceStatus) {
+        return;
+      }
       if (progressive) {
         return lastPage.nextPosition ?? undefined;
       }
@@ -91,6 +102,7 @@ export function useBlueskyFeed(
         cursor: pageParam.cursor,
         following,
         locale,
+        mixed,
         mode,
         profile,
         signal,
@@ -160,6 +172,11 @@ export function useBlueskyFeed(
         : query.refetch());
     }
   });
+  const failedPage = query.data?.pages.at(-1)?.sourceStatus;
+  const retryAt =
+    recovery?.scope === recoveryScope && recovery.pageStatus === failedPage
+      ? recovery.retryAt
+      : failedPage?.retryAt;
   const probe = useNewContentProbe({
     enabled:
       enabled &&
@@ -169,17 +186,42 @@ export function useBlueskyFeed(
     eventMode: following ? undefined : mode,
     eventSource: following ? "bluesky-following" : "bluesky",
     fetchHead: async (signal) => {
+      if (mixed && retryAt && retryAt > Date.now()) {
+        return [];
+      }
       const head = await readDiscoveryPage({
         content,
         cursor: null,
         following,
         locale,
+        mixed,
         mode: !following && mode === "personalized" ? "latest" : mode,
         profile,
         refresh: true,
         signal: AbortSignal.any([signal, AbortSignal.timeout(18_000)]),
         surface,
       });
+      if (mixed) {
+        setRecovery({
+          pageStatus: failedPage,
+          retryAt: head.sourceStatus?.retryAt ?? 0,
+          scope: recoveryScope,
+        });
+        if (!head.sourceStatus) {
+          queryClient.setQueryData<
+            InfiniteData<DiscoveryPage, DiscoveryPosition>
+          >(queryKey, (current) =>
+            current &&
+            current.pages.length > 1 &&
+            current.pages.at(-1)?.sourceStatus
+              ? {
+                  pageParams: current.pageParams.slice(0, -1),
+                  pages: current.pages.slice(0, -1),
+                }
+              : current
+          );
+        }
+      }
       return head.items;
     },
     filter: (post) =>
@@ -205,6 +247,26 @@ export function useBlueskyFeed(
     resetKey: `${following}:${mode}:${viewer}:${locale}:${network.scope}:${content}:${surface}`,
     visible: query.data?.pages.flatMap((page) => page.items) ?? [],
   });
+  const { refetch } = query;
+  const { probeNow } = probe;
+  const initialPage = (query.data?.pages.length ?? 0) <= 1;
+  useEffect(() => {
+    if (!enabled || !retryAt || !mixed) {
+      return;
+    }
+    const timer = setTimeout(
+      () => {
+        if (initialPage) {
+          setRecovery(undefined);
+          void refetch();
+        } else {
+          void probeNow();
+        }
+      },
+      Math.max(1000, retryAt - Date.now())
+    );
+    return () => clearTimeout(timer);
+  }, [enabled, initialPage, mixed, probeNow, refetch, retryAt]);
   const showNewItems = () => {
     queryClient.setQueryData<InfiniteData<DiscoveryPage, string | null>>(
       queryKey,
@@ -259,5 +321,6 @@ export function useBlueskyFeed(
     newItems: probe.newItems,
     probeNow: probe.probeNow,
     showNewItems,
+    sourceDeferred: Boolean(mixed && retryAt),
   };
 }

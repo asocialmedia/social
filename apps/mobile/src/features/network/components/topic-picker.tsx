@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { ZephLoader } from "@/components/feedback/zeph-loader";
+import { Spinner3D } from "@/components/feedback/spinner-3d";
 import { Gradient3D } from "@/components/surface/gradient-3d";
 import {
   ORANGE_GRADIENT,
@@ -301,7 +301,7 @@ export function TopicPicker({
       </View>
       {loading ? (
         <View accessibilityLiveRegion="polite" style={styles.finding}>
-          <ZephLoader color={text.muted} size="small" variant="general" />
+          <Spinner3D color={text.muted} size={24} />
           <Text style={[styles.note, { color: text.muted }]}>
             Finding topics…
           </Text>

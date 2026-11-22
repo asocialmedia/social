@@ -1,13 +1,13 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
+import { Skeleton } from "@asm/ui/shadui/skeleton";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Flame, Hash, RefreshCw, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import type React from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
@@ -24,10 +24,7 @@ import type {
   TrendingFeed,
   TrendingItem,
 } from "./trending-actions";
-import {
-  filterTrendingForInterests,
-  mergeTrendingFeed,
-} from "./trending-utils";
+import { mergeTrendingFeed } from "./trending-utils";
 
 // The sidebar rail is fixed-width, and a valid username can be 50 characters, so
 // the handle is clipped to a length that keeps the aura figure beside it on one
@@ -209,17 +206,7 @@ const TrendingTopics: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
     ...CARD_QUERY_POLICY,
   });
 
-  const selected = network.settings.preferences.profiles.find(
-    (profile) => profile.id === network.settings.preferences.activeProfileId
-  );
-  const items = filterTrendingForInterests(
-    data?.items ?? [],
-    selected?.interests.length
-      ? selected.interests
-      : network.settings.persona.learnedInterests,
-    network.settings.preferences.avoidedTopics,
-    network.settings.topicScope
-  );
+  const items = data?.items ?? [];
   const topAura = data?.topAura ?? [];
 
   const refresh = useMutation({
@@ -231,7 +218,10 @@ const TrendingTopics: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
       ),
   });
   const refreshing = isFetching || refresh.isPending;
-  const failedToLoad = !data && isError;
+  const degraded = Boolean(
+    isError || refresh.isError || data?.unavailable.length
+  );
+  const failedToLoad = !items.length && degraded;
   const handleRefresh = () =>
     refresh.mutate({ key: queryKey, profile: profileId });
 
@@ -254,7 +244,7 @@ const TrendingTopics: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
             variant="ghost"
           >
             {refreshing ? (
-              <ZephLoader variant="general" className="size-3.5" />
+              <Skeleton className="size-3.5" />
             ) : (
               <RefreshCw className="size-3.5" />
             )}
@@ -273,7 +263,7 @@ const TrendingTopics: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
             variant="ghost"
           >
             {refreshing ? (
-              <ZephLoader variant="general" className="size-3.5" />
+              <Skeleton className="size-3.5" />
             ) : (
               <RefreshCw className="size-3.5" />
             )}
@@ -281,9 +271,9 @@ const TrendingTopics: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
           </Button>
         </div>
       ) : null}
-      {data && (isError || refresh.isError || data.unavailable.length > 0) ? (
+      {data && items.length > 0 && degraded ? (
         <output className="text-muted-foreground block px-2.5 py-2 text-xs">
-          Some sources couldn&apos;t refresh. Keeping their last loaded results.
+          Some trending sources are temporarily unavailable.
         </output>
       ) : null}
       {!failedToLoad && items.length > 0 ? (
@@ -295,9 +285,7 @@ const TrendingTopics: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
       ) : null}
       {!failedToLoad && items.length === 0 ? (
         <p className="text-muted-foreground px-2.5 py-2 text-sm">
-          {data?.items.length
-            ? "No trending topics match your current interests yet."
-            : "No trending topics are available right now."}
+          No trending topics are available right now.
         </p>
       ) : null}
       {!failedToLoad && topAura.length > 0 ? (

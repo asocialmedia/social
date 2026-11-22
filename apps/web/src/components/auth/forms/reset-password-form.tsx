@@ -206,6 +206,7 @@ export default function ResetPasswordForm() {
                             render={IdentifierFieldRenderer}
                           />
                           <LoadingButton
+                            indicator="spinner"
                             className="w-full"
                             loading={isPending}
                             type="submit"

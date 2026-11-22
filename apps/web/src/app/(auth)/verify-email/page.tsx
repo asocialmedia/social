@@ -13,7 +13,7 @@ import {
   useState,
 } from "react";
 
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 
 const ERROR_MESSAGES = {
   "invalid-token": "The verification link is invalid.",
@@ -348,11 +348,7 @@ function VerifyEmailContent() {
                   Your email has been successfully verified. Redirecting you
                   now...
                 </p>
-                <ZephLoader
-                  label="Verifying your email"
-                  size={32}
-                  variant="security"
-                />
+                <Spinner3D label="Verifying your email" className="size-8" />
               </motion.div>
             )}
 

@@ -128,6 +128,17 @@ test("Redis failures preserve text and never approve unchecked images or quoted 
   expect(jobs).toHaveLength(0);
 });
 
+test("cache-only safety admits text and verified media without adding work", async () => {
+  const safe = post("cleared");
+  const pending = post("pending");
+  const text = post("text-only", false);
+  values.set(externalMediaSafetyInput(safe).key, "safe");
+  expect(
+    await filterExternalMediaSafety([safe, pending, text], { enqueue: false })
+  ).toEqual([safe, text]);
+  expect(jobs).toHaveLength(0);
+});
+
 test("changed image references cannot reuse an earlier safe verdict", async () => {
   const image = post("first");
   values.set(externalMediaSafetyInput(image).key, "safe");

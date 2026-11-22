@@ -22,7 +22,7 @@ import type { ControllerRenderProps } from "react-hook-form";
 import { z } from "zod";
 
 import { resetPassword } from "@/app/(auth)/reset-password/server-actions";
-import { CenteredLogoLoader } from "@/components/layouts/loaders/centered-logo-loader";
+import Spinner3D from "@/components/layouts/feedback/spinner-3d";
 import { useToast } from "@/lib/gooey-toast";
 
 import { LoadingButton } from "../fields/loading-button";
@@ -187,7 +187,7 @@ export default function ConfirmResetForm() {
   if (isValidating) {
     return (
       <div className="container flex min-h-dvh items-center justify-center">
-        <CenteredLogoLoader variant="security" size={72} />
+        <Spinner3D label="Loading page" className="size-[72px]" />
       </div>
     );
   }
@@ -307,6 +307,7 @@ export default function ConfirmResetForm() {
                     />
 
                     <LoadingButton
+                      indicator="spinner"
                       className="w-full bg-linear-to-b from-blue-500 to-blue-700 text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.4),0_3px_6px_rgba(30,64,175,0.3)] hover:from-blue-400 hover:to-blue-600"
                       loading={isPending}
                       type="submit"

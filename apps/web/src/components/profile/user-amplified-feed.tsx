@@ -3,13 +3,13 @@
 import type { PostsPage } from "@asm/db";
 import { Separator } from "@asm/ui/shadui/separator";
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
 import React, { useMemo } from "react";
 
 import { FeedErrorState } from "@/components/feeds/feed-error-state";
 import GustRowCard from "@/components/gusts/gust-row-card";
 import PostCard from "@/components/home/feedview/post-card";
 import InfiniteScrollContainer from "@/components/layouts/feed/infinite-scroll-container";
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton";
 import kyInstance from "@/lib/ky";
 import { FEED_CACHE_RETENTION_MS } from "@/lib/posts/feed-cache";
@@ -193,7 +193,7 @@ const UserAmplifiedFeed: React.FC<UserAmplifiedFeedProps> = ({ userId }) => {
           aria-label="Loading more amplified posts"
           className="flex justify-center py-4"
         >
-          <ZephLoader variant="general" className="text-primary" />
+          <Loader2 className="text-primary animate-spin" />
         </div>
       ) : null}
       {status !== "error" &&

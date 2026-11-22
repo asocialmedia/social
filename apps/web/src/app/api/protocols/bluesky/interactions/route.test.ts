@@ -5,6 +5,7 @@ const writes: unknown[] = [];
 let reads = 0;
 let available = true;
 let offline = false;
+let postLookupOffline = false;
 let threadReplies: unknown[] = [];
 let cachedThreadPost = false;
 let retained = false;
@@ -38,7 +39,7 @@ mock.module("@/lib/protocols/service", () => ({
     requireComplete = false
   ) => {
     reads += 1;
-    if (offline) {
+    if (offline || postLookupOffline) {
       return Promise.reject(new Error("Source unavailable"));
     }
     if (requireComplete) {
@@ -117,6 +118,7 @@ beforeEach(() => {
   reads = 0;
   available = true;
   offline = false;
+  postLookupOffline = false;
   threadReplies = [];
   cachedThreadPost = false;
   retained = false;
@@ -124,6 +126,18 @@ beforeEach(() => {
   withheld.clear();
   refreshes.length = 0;
   presenceReads.length = 0;
+});
+test("a source-post preview can use the verified thread root when post lookup fails", async () => {
+  postLookupOffline = true;
+  retained = true;
+  const response = await GET(
+    new Request(
+      `http://localhost/api/protocols/bluesky/interactions?${new URLSearchParams({ kind: "post", uri })}`
+    )
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ post });
+  expect(refreshes).toEqual([]);
 });
 test("guests may read discussions but cannot create durable data", async () => {
   session = null;

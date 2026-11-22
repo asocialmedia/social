@@ -7,20 +7,23 @@ let items: ExternalPost[] = [];
 let unavailable = false;
 let pending = false;
 const unsafeMedia = new Set<string>();
-const read = mock((): Promise<DiscoveryPage> => {
+const read = mock((): Promise<{ page: DiscoveryPage } | null> => {
   if (unavailable) {
     throw new Error("Upstream unavailable");
   }
   return pending
-    ? Promise.withResolvers<DiscoveryPage>().promise
-    : Promise.resolve({ cursor: null, items });
+    ? Promise.withResolvers<{ page: DiscoveryPage }>().promise
+    : Promise.resolve({ page: { cursor: null, items } });
 });
 const safety = mock((posts: ExternalPost[]) =>
   Promise.resolve(posts.filter((post) => !unsafeMedia.has(post.id)))
 );
 mock.module("server-only", () => ({}));
 mock.module("@asm/db", () => ({ filterExternalMediaSafety: safety }));
-mock.module("@/lib/protocols/service", () => ({ readBlueskyDiscovery: read }));
+mock.module("@/lib/protocols/discovery-cache", () => ({
+  cachedDiscoveryHead: read,
+  discoveryCacheKey: (_mode: string, locale: string) => locale,
+}));
 const { getGuestBlueskyFeed, guestDiscoveryLocale } =
   await import("./guest-bluesky-feed");
 const post: ExternalPost = {
@@ -43,7 +46,7 @@ const post: ExternalPost = {
   segments: [{ text: "Public conversation" }],
   source: "bluesky",
   text: "Public conversation",
-  upstreamCounts: {},
+  upstreamCounts: { likes: 15 },
   url: "https://bsky.app/profile/did:plc:public/post/123",
 };
 beforeEach(() => {
@@ -88,16 +91,7 @@ test("public initial HTML cannot serialize viewer state or observation tokens", 
   expect(result[0]?.quote?.asm).toBeUndefined();
   expect(result[0]?.quote?.networkRecommendationToken).toBeUndefined();
   expect(items[0]?.asm?.bookmarked).toBe(true);
-  expect(read).toHaveBeenCalledWith(
-    "latest",
-    undefined,
-    expect.any(AbortSignal),
-    undefined,
-    "en-IN",
-    [],
-    false,
-    "all"
-  );
+  expect(read).toHaveBeenCalledWith("en-IN");
 });
 
 test("guest HTML applies label, quoted-author and media restrictions", async () => {

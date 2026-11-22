@@ -61,6 +61,9 @@ export async function readProgressiveDiscovery(
       },
       known
     );
+    if (page.sourceStatus) {
+      return { ...page, nextPosition: null };
+    }
     if (page.partial && !page.items.length && !page.cursor) {
       throw new Error(
         "Recommendations are temporarily unavailable. Please retry."

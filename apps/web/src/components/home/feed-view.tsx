@@ -2,8 +2,12 @@
 
 import type { PostData } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
-import { mixFeedItems, isExternalTrendingPost } from "@asm/protocols/discovery";
-import type { FeedSource } from "@asm/protocols/discovery";
+import {
+  mixFeedItems,
+  isExternalTrendingPost,
+  sendFeedMixReport,
+} from "@asm/protocols/discovery";
+import type { DiscoveryMode, FeedSource } from "@asm/protocols/discovery";
 import { Separator } from "@asm/ui/shadui/separator";
 import { hashKey, useQueryClient } from "@tanstack/react-query";
 import type { QueryKey } from "@tanstack/react-query";
@@ -38,6 +42,9 @@ const EMPTY_EXTERNAL_POSTS: ExternalPost[] = [];
 const DEFAULT_FEED_CACHE_KEY: QueryKey = ["post-feed", "for-you"];
 
 interface FeedViewProps {
+  deliveryMode?: DiscoveryMode;
+  deliveryReady?: boolean;
+  readDeliveryStart?: () => number | null;
   trending?: boolean;
   showEmpty?: boolean;
   respectInterests?: boolean;
@@ -65,6 +72,9 @@ interface FeedViewProps {
 export const FeedView: React.FC<FeedViewProps> = ({
   posts: initialPosts,
   externalPosts = EMPTY_EXTERNAL_POSTS,
+  deliveryMode,
+  deliveryReady = false,
+  readDeliveryStart,
   source = "all",
   sourcesPending: pendingSources = false,
   sourceWaitMs = 600,
@@ -409,10 +419,17 @@ export const FeedView: React.FC<FeedViewProps> = ({
         : stagedGroups;
     visibleGroups =
       orderedFeed.sortBy === sortBy && orderedFeed.source === source
-        ? reconcileFeedOrder(orderedFeed.items, incoming, [
-            threadGroups.map((group) => `asm:${group.id}`),
-            externalPosts.map((post) => `bluesky:${post.id}`),
-          ])
+        ? reconcileFeedOrder(
+            orderedFeed.items,
+            incoming,
+            [
+              threadGroups.map((group) => `asm:${group.id}`),
+              externalPosts.map((post) => `bluesky:${post.id}`),
+            ],
+            sortBy === "server" && source === "all"
+              ? (item) => item.kind
+              : undefined
+          )
         : incoming;
     setOrderedFeed({
       input: stagedGroups,
@@ -421,6 +438,39 @@ export const FeedView: React.FC<FeedViewProps> = ({
       source,
     });
   }
+  const delivery = useRef({ firstAt: 0, reported: false });
+  useEffect(() => {
+    if (
+      !deliveryMode ||
+      !readDeliveryStart ||
+      !user ||
+      source !== "all" ||
+      !visibleGroups.length
+    ) {
+      return;
+    }
+    const state = delivery.current;
+    if (!state.firstAt) {
+      state.firstAt = Date.now();
+    }
+    if (deliveryReady && !state.reported) {
+      state.reported = true;
+      const startedAt = readDeliveryStart() ?? state.firstAt;
+      void sendFeedMixReport({
+        client: "web",
+        durationMs: Math.min(60_000, Math.max(0, state.firstAt - startedAt)),
+        mode: deliveryMode,
+        sources: visibleGroups.slice(0, 20).map((item) => item.kind),
+      });
+    }
+  }, [
+    deliveryMode,
+    deliveryReady,
+    readDeliveryStart,
+    source,
+    user,
+    visibleGroups,
+  ]);
   return (
     <div className="flex flex-col">
       {visibleGroups.map((entry) => {

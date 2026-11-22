@@ -5,13 +5,12 @@ import type { IncognitoSession } from "@asm/messages";
 import { Button } from "@asm/ui/shadui/button";
 import errorArtwork from "@assets/general/error.png";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
+import { Shield, RefreshCw } from "lucide-react";
 import Image from "next/image";
 import { useMemo, Fragment, useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
-import { ZephLoader } from "@/components/layouts/feedback/zeph-loader";
 import { useMessagesIdentity } from "@/components/messages/message-identity-provider";
 import {
   fetchChatLifecycle,
@@ -385,15 +384,7 @@ export function ChatLifecycleBoundary({
                     width={96}
                   />
                 ) : (
-                  <ZephLoader
-                    label={
-                      pendingClear
-                        ? "Clearing saved history"
-                        : "Opening conversation"
-                    }
-                    size={96}
-                    variant="messages"
-                  />
+                  <Shield className="text-muted-foreground size-7" />
                 )}
                 <p>
                   {lifecycleError ??
