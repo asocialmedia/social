@@ -1,5 +1,5 @@
 name: Setup quality checks
-description: Restore exact dependencies, generate the Prisma contract, and optionally install media test tools.
+description: Restore exact dependencies, generate the Prisma contract, and optionally provision FFmpeg.
 inputs:
   ffmpeg:
     description: Install ffmpeg for media tests.
@@ -63,7 +63,27 @@ runs:
     - name: Generate Prisma contract
       shell: bash
       run: bun run db:gen
-    - name: Install ffmpeg
+    - name: Provision pinned FFmpeg and ffprobe for media tests
       if: inputs.ffmpeg == 'true'
       shell: bash
-      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      env:
+        FFMPEG_RELEASE: b6.1.1
+        FFMPEG_SHA256: bfe8a8fc511530457b528c48d77b5737527b504a3797a9bc4866aeca69c2dffa
+        FFPROBE_SHA256: 25d9b6ccb05e3d9de9e04e31e2506d8dd7f9f0418981965ac6df12e8d3afd067
+      run: |
+        work="$(mktemp -d "$RUNNER_TEMP/asm-ffmpeg.XXXXXX")"
+        trap 'rm -f "$work/ffmpeg.gz" "$work/ffprobe.gz"' EXIT
+        download_tool() {
+          local tool="$1" checksum="$2"
+          curl --fail --show-error --silent --location --retry 2 \
+            --connect-timeout 10 --max-time 90 --retry-max-time 120 \
+            --output "$work/$tool.gz" \
+            "https://github.com/eugeneware/ffmpeg-static/releases/download/$FFMPEG_RELEASE/$tool-linux-x64.gz"
+          printf '%s  %s\n' "$checksum" "$work/$tool.gz" | sha256sum --check
+          gzip -dc "$work/$tool.gz" > "$work/$tool"
+          chmod +x "$work/$tool"
+          "$work/$tool" -version
+        }
+        download_tool ffmpeg "$FFMPEG_SHA256"
+        download_tool ffprobe "$FFPROBE_SHA256"
+        echo "$work" >> "$GITHUB_PATH"

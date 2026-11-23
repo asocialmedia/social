@@ -119,10 +119,6 @@ jobs:
       REDIS_URL: redis://127.0.0.1:6379/0
       PROTOCOLS_TEST_REDIS_URL: redis://127.0.0.1:6379/0
       TZ: UTC
-      PGHOST: localhost
-      PGPORT: "5433"
-      PGUSER: postgres
-      PGPASSWORD: postgres
     services:
       postgres:
         image: postgres:18.3
@@ -144,10 +140,12 @@ jobs:
       - uses: ./.github/actions/setup-quality
         with:
           ffmpeg: "true"
-      - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
       - name: Initialize test database extensions
-        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f .github/sql/test-database.sql
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: |
+          docker exec -i "$POSTGRES_CONTAINER_ID" psql -U postgres -d asocialmedia \
+            -v ON_ERROR_STOP=1 < .github/sql/test-database.sql
       - name: Apply database migrations
         run: bun run --cwd packages/db prisma db migrate --db "$DATABASE_URL"
       - name: Run integration tests serially with file isolation
