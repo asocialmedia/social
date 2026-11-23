@@ -7,6 +7,7 @@ import {
   discoveryLocaleSchema,
   hasRestrictedDiscoveryLabels,
   isExternalTrendingPost,
+  isFreshDiscoveryTimestamp,
 } from "@asm/protocols/discovery";
 
 import {
@@ -28,8 +29,12 @@ export function guestDiscoveryLocale(
     : locale;
 }
 
-function isPublicPost(post: ExternalPost) {
-  if (!isExternalTrendingPost(post) || blueskyMediaIsExplicit(post)) {
+function isPublicPost(post: ExternalPost, now: number) {
+  if (
+    !isFreshDiscoveryTimestamp(post.createdAt, "latest", now) ||
+    !isExternalTrendingPost(post) ||
+    blueskyMediaIsExplicit(post)
+  ) {
     return false;
   }
   let current: ExternalPost | undefined = post;
@@ -65,8 +70,11 @@ export async function getGuestBlueskyFeed(
     if (!cached) {
       return [];
     }
+    const now = Date.now();
     const posts = await abortable(
-      filterExternalMediaSafety(cached.page.items.filter(isPublicPost)),
+      filterExternalMediaSafety(
+        cached.page.items.filter((post) => isPublicPost(post, now))
+      ),
       signal
     );
     return posts.map(publicSnapshot);

@@ -16,6 +16,7 @@ import {
 import type { PostData } from "@asm/db";
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { abortable, externalPostSchema } from "@asm/protocols/discovery";
+import { after } from "next/server";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 import { networkPostAllowed } from "@/lib/posts/network-content-policy";
@@ -35,15 +36,14 @@ export async function GET() {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   const userId = session.user.id;
-  const { preferences } = await readNetworkPreferences(userId);
   const redisKey = `user:post-visits:${userId}`;
-
-  let rawMembers: string[] = [];
-  try {
-    rawMembers = await redis.zrevrange(redisKey, 0, 49);
-  } catch (error) {
-    console.error("Error reading post visits from Redis:", error);
-  }
+  const [{ preferences }, savedMembers] = await Promise.all([
+    readNetworkPreferences(userId),
+    abortable(redis.zrevrange(redisKey, 0, 49), AbortSignal.timeout(250)).catch(
+      () => []
+    ),
+  ]);
+  let rawMembers = savedMembers;
 
   // Fallback to PostgreSQL tables if Redis has no records for this user (e.g. after restart/flush)
   if (rawMembers.length === 0) {
@@ -112,15 +112,17 @@ export async function GET() {
 
     // Backfill Redis so subsequent calls are fast and unified
     if (typeof redis.pipeline === "function") {
-      try {
-        const pipeline = redis.pipeline();
-        for (const item of combined.slice(0, 50)) {
-          pipeline.zadd(redisKey, item.time, item.member);
+      after(async () => {
+        try {
+          const pipeline = redis.pipeline();
+          for (const item of combined.slice(0, 50)) {
+            pipeline.zadd(redisKey, "NX", item.time, item.member);
+          }
+          await pipeline.exec();
+        } catch (error) {
+          console.error("Error backfilling Redis post visits:", error);
         }
-        await pipeline.exec();
-      } catch (error) {
-        console.error("Error backfilling Redis post visits:", error);
-      }
+      });
     }
   }
 
@@ -238,26 +240,32 @@ export async function GET() {
       }
 
       if (deletedUris.length > 0) {
-        await Promise.allSettled(
-          deletedUris.map(async (uri) => {
-            await refreshExternalPost(uri, null);
-            await redis.zrem(redisKey, `bsky:${uri}`, uri);
-          })
-        );
+        after(async () => {
+          await Promise.allSettled(
+            deletedUris.map(async (uri) => {
+              await refreshExternalPost(uri, null);
+              await redis.zrem(redisKey, `bsky:${uri}`, uri);
+            })
+          );
+        });
       }
 
       if (validUris.length > 0) {
         const states = await externalPostStates(validUris, userId);
-        const snapshotPromises: Promise<unknown>[] = [];
+        const snapshots: ExternalPost[] = [];
         for (const uri of validUris) {
           const post = liveMap.get(uri);
           if (post) {
             post.asm = states.get(uri);
-            snapshotPromises.push(upsertExternalPostSnapshot(post));
+            snapshots.push(post);
             bskyPostMap.set(uri, externalPostView(post));
           }
         }
-        await Promise.allSettled(snapshotPromises);
+        after(async () => {
+          await Promise.allSettled(
+            snapshots.map((post) => upsertExternalPostSnapshot(post))
+          );
+        });
       }
     }
   }
@@ -292,11 +300,9 @@ export async function GET() {
   }
 
   if (staleAsmMembers.length > 0) {
-    try {
-      await redis.zrem(redisKey, ...staleAsmMembers);
-    } catch {
-      // Best-effort redis prune
-    }
+    after(async () => {
+      await redis.zrem(redisKey, ...staleAsmMembers).catch(() => 0);
+    });
   }
 
   const hydrated = await hydrateViewCounts(

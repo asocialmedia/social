@@ -31,7 +31,8 @@ function isPublicLatestPool(watch: Watch) {
   );
 }
 
-const watchRetentionMs = 24 * 60 * 60_000;
+const watchRetentionMs = 7 * 24 * 60 * 60_000;
+const activeWatchMs = 5 * 60_000;
 const registryKey = "live:watch-registry:v2";
 const savedWatchSchema = z
   .array(
@@ -56,10 +57,16 @@ export function createDiscoveryLive(options: {
   let stopped = false;
   let restored = false;
   let nextRegistrySave = 0;
+  const hasRecentViewer = (expires: number) =>
+    expires > now() + watchRetentionMs - activeWatchMs;
   return {
     invalidate: () => {
       for (const entry of watches.values()) {
-        if (!entry.failures && !isPublicLatestPool(entry.watch)) {
+        if (
+          !entry.failures &&
+          !isPublicLatestPool(entry.watch) &&
+          hasRecentViewer(entry.expires)
+        ) {
           entry.due = Math.min(entry.due, now() + 2000);
         }
       }
@@ -108,7 +115,7 @@ export function createDiscoveryLive(options: {
                 .filter((entry) => entry.expires > now())
                 .map(({ watch, expires }) => ({ expires, watch }))
             ),
-            900_000
+            watchRetentionMs
           );
         }
         // Limit upstream concurrency; a second tick continues the remaining pools.
@@ -119,7 +126,8 @@ export function createDiscoveryLive(options: {
         await Promise.all(
           due.map(async ([id, entry]) => {
             const shared = isPublicLatestPool(entry.watch);
-            const interval = shared ? 60_000 : 20_000;
+            const interval =
+              shared || !hasRecentViewer(entry.expires) ? 60_000 : 20_000;
             entry.due = now() + interval;
             const key = `live:v1:${id}`;
             const owner = crypto.randomUUID();

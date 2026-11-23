@@ -216,7 +216,7 @@ export function rankExternalForViewer(
           Math.max(-1, Math.min(1, value * 0.05))
       : Math.min(1, fit) * 4 +
           Math.max(0, Math.min(3, fit) - 1) * 0.5 +
-          2 / (1 + hours / 24) +
+          2 / (1 + hours / 2) +
           value;
   };
   const candidates = uniqueFeedContent(

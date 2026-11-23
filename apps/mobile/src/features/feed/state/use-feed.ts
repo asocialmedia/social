@@ -1,4 +1,5 @@
 import {
+  feedHeadFreshMs,
   networkPostAllowed,
   networkPostRecommended,
 } from "@asm/protocols/discovery";
@@ -27,7 +28,10 @@ import {
   fetchFeedPage,
   isRankedFeed,
 } from "../lib/feed-api";
-import { subscribeFeedReads } from "../lib/feed-events";
+import {
+  subscribeFeedForeground,
+  subscribeFeedReads,
+} from "../lib/feed-events";
 import type { FeedPost } from "../lib/feed-types";
 import {
   filterFeedPosts,
@@ -345,7 +349,7 @@ export function useFeedTab({
     }
     activeKeyRef.current = active ? cacheKey : null;
     let cancelled = false;
-    void (async () => {
+    const loadOnActivation = async () => {
       // Disk hydration owns the first cache fill. Starting the network first
       // meant it set loading and prevented the saved rows from ever restoring.
       await hydrateFeedCache();
@@ -353,13 +357,27 @@ export function useFeedTab({
         return;
       }
       const current = feedCache.get(cacheKey);
-      if (current.status === "idle" || current.stale) {
+      if (
+        active &&
+        variant !== "following" &&
+        current.fetchedAt > 0 &&
+        Date.now() - current.fetchedAt >= feedHeadFreshMs
+      ) {
+        void runFetch("replace", null, true);
+      } else if (current.status === "idle" || current.stale) {
         void runFetch("replace", null);
       } else if (active && current.pages.length > 0) {
         startProbe(cacheKey);
       }
-    })();
+    };
+    void loadOnActivation();
+    const unsubscribe = active
+      ? subscribeFeedForeground(() => {
+          void loadOnActivation();
+        })
+      : undefined;
     return () => {
+      unsubscribe?.();
       cancelled = true;
       if (activeKeyRef.current === cacheKey) {
         activeKeyRef.current = null;
@@ -368,7 +386,7 @@ export function useFeedTab({
     };
     // Runs on mount/tab-switch/enable; runFetch is stable per cacheKey.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- intentional mount-fill keyed by cacheKey via runFetch identity
-  }, [active, cacheKey, enabled, runFetch, stopProbe, startProbe]);
+  }, [active, cacheKey, enabled, runFetch, stopProbe, startProbe, variant]);
 
   const fetchNext = useCallback(() => {
     const current = feedCache.get(cacheKey);

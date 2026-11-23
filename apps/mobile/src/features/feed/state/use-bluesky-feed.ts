@@ -12,7 +12,10 @@ import { withAuthHeaders } from "@/lib/network/auth-headers";
 
 import type { BlueskyReadContext } from "../lib/bluesky-feed";
 import { createBlueskyFeed } from "../lib/bluesky-feed";
-import { subscribeFeedReads } from "../lib/feed-events";
+import {
+  subscribeFeedForeground,
+  subscribeFeedReads,
+} from "../lib/feed-events";
 import { useExternalFollowRevision } from "./use-external-follow";
 
 export function useBlueskyFeed(
@@ -75,10 +78,15 @@ export function useBlueskyFeed(
     store.snapshot
   );
   useEffect(() => {
-    if (active) {
-      store.activate();
+    if (!active) {
+      return;
     }
-    return store.pause;
+    store.activate();
+    const unsubscribe = subscribeFeedForeground(store.activate);
+    return () => {
+      unsubscribe();
+      store.pause();
+    };
   }, [active, store]);
   useEffect(() => {
     if (!active) {

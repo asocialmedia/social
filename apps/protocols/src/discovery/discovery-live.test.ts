@@ -69,9 +69,9 @@ test("safe and opt-in viewers refresh separate pools and renew only their own po
   live.watch({ ...watch, explicit: true });
   await live.tick();
   expect(policies).toEqual([false, true]);
-  now += 23 * 60 * 60_000;
+  now += 6 * 24 * 60 * 60_000;
   live.watch({ explicit: true, locale: "en", renew: true, topics: [] });
-  now += 2 * 60 * 60_000;
+  now += 2 * 24 * 60 * 60_000;
   await live.tick();
   expect(policies).toEqual([false, true, true]);
   live.stop();
@@ -135,7 +135,7 @@ test("viewers share reconciliation and unchanged heads do not emit events", asyn
   await live.tick();
   expect(reads).toBe(2);
   expect(events).toHaveLength(1);
-  now += 24 * 60 * 60_000 + 1;
+  now += 7 * 24 * 60 * 60_000 + 1;
   await live.tick();
   expect(reads).toBe(2);
   live.stop();
@@ -177,7 +177,7 @@ test("Jetstream wakes active pools and replica leases prevent duplicate concurre
   second.stop();
 });
 
-test("returning after twelve hours stays warm and a replacement worker restores anonymous scopes", async () => {
+test("shared interest cohorts stay warm without viewers and survive a coordinator restart", async () => {
   let now = 1_000_000;
   const store = new MemoryDiscoveryStore();
   let reads = 0;
@@ -191,9 +191,9 @@ test("returning after twelve hours stays warm and a replacement worker restores 
     store,
   };
   const first = createDiscoveryLive(options);
-  first.watch(watch);
+  first.watch({ ...watch, mode: "personalized", topics: ["software"] });
   await first.tick();
-  now += 12 * 60 * 60_000;
+  now += 6 * 24 * 60 * 60_000;
   await first.tick();
   expect(reads).toBe(2);
   first.stop();

@@ -29,7 +29,11 @@ export function WhoToFollowSuggestions({
   const enabled = useMediaQuery(mediaQuery || "all", !mediaQuery);
   const { user } = useSession();
   const client = useQueryClient();
-  const suggestions = useDiscoverySuggestions(enabled && Boolean(user));
+  const suggestions = useDiscoverySuggestions(
+    enabled && Boolean(user),
+    undefined,
+    true
+  );
   const [dismissals, setDismissals] = useState<{
     profileId: string;
     ids: Set<string>;

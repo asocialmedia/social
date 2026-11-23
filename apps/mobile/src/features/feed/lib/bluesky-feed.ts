@@ -2,6 +2,7 @@ import type { ExternalPost } from "@asm/protocols/contracts";
 import {
   abortable,
   canRetryRead,
+  feedHeadFreshMs,
   FeedReadError,
   readDiscoveryPage,
   readDiscoveryWindow,
@@ -39,7 +40,8 @@ export function createBlueskyFeed(
   following = false,
   context: BlueskyReadContext = {}
 ) {
-  const { timeoutMs = 30_000, ...readContext } = context;
+  const { timeoutMs = context.mixed ? 10_000 : 30_000, ...readContext } =
+    context;
   let state: DiscoveryState = {
     error: null,
     loadingMore: false,
@@ -53,6 +55,7 @@ export function createBlueskyFeed(
   let generation = 0;
   let retryable = false;
   let retryAt = 0;
+  let headLoadedAt = 0;
   let failedRead: { cursor: string | null; replace: boolean } | null = null;
   const listeners = new Set<() => void>();
   const update = (patch: Partial<DiscoveryState>) => {
@@ -132,6 +135,9 @@ export function createBlueskyFeed(
       if (!replace && page.sourceStatus) {
         update({ sourceStatus: page.sourceStatus });
         return;
+      }
+      if (replace && !page.sourceStatus) {
+        headLoadedAt = Date.now();
       }
       update({
         newItems: replace ? [] : state.newItems,
@@ -234,9 +240,13 @@ export function createBlueskyFeed(
       }
     },
     activate: () => {
+      if (controller || (state.sourceStatus?.retryAt ?? 0) > Date.now()) {
+        return;
+      }
       if (
         state.pages.length === 0 ||
-        (failedRead && retryable && Date.now() >= retryAt)
+        (failedRead && retryable && Date.now() >= retryAt) ||
+        (headLoadedAt > 0 && Date.now() - headLoadedAt >= feedHeadFreshMs)
       ) {
         void load(null, true);
       }
@@ -261,10 +271,7 @@ export function createBlueskyFeed(
       }
       return Promise.resolve();
     },
-    // Backgrounding a tab only cancels in-flight reads. Loaded pages stay
-    // cached (like the native feedCache) so returning paints instantly and
-    // never refetches: the background wipe used to drop scrolled pages and
-    // reshuffle the mixed rows on return.
+    // Keep loaded pages during short detours. Activation refreshes an expired head.
     pause: () => {
       cancel();
       update({ loadingMore: false, refreshing: false });

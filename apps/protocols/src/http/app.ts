@@ -66,7 +66,8 @@ export interface ProtocolsAppOptions {
     cursor?: string,
     locale?: string,
     topics?: string[],
-    content?: "all" | "video"
+    content?: "all" | "video",
+    inventoryOnly?: boolean
   ) => Promise<unknown>;
 }
 
@@ -358,6 +359,7 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                 t.Union([t.Literal("all"), t.Literal("video")])
               ),
               cursor: t.Optional(t.String({ format: "uuid" })),
+              inventory: t.Optional(t.Literal("1")),
               locale: t.Optional(
                 t.String({
                   maxLength: 8,
@@ -400,7 +402,8 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
                   query.cursor,
                   query.locale,
                   query.topic,
-                  query.content
+                  query.content,
+                  ...(query.inventory === "1" ? ([true] as const) : [])
                 );
               }
             )

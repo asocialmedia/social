@@ -16,6 +16,15 @@ const connections = new Map<
   { listeners: Set<(change: FeedChange) => void>; close: () => void }
 >();
 
+export function subscribeFeedForeground(onForeground: () => void) {
+  const subscription = AppState.addEventListener("change", (appState) => {
+    if (appState === "active") {
+      onForeground();
+    }
+  });
+  return () => subscription.remove();
+}
+
 export function subscribeFeedEvents(
   viewer: string | undefined,
   listener: (change: FeedChange) => void

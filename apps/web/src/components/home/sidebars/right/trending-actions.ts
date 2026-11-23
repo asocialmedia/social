@@ -75,7 +75,10 @@ export async function fetchBlueskyTrendingTopics(
 ): Promise<TrendingBlueskyTopic[]> {
   let snapshot: { at: number; topics: TrendingBlueskyTopic[] } | undefined;
   try {
-    const cached = await redis.get(BLUESKY_TRENDING_KEY);
+    const cached = await abortable(
+      redis.get(BLUESKY_TRENDING_KEY),
+      AbortSignal.timeout(150)
+    );
     if (cached) {
       snapshot = JSON.parse(cached) as typeof snapshot;
       if (
@@ -89,15 +92,28 @@ export async function fetchBlueskyTrendingTopics(
   } catch {
     // Public trends can still be read while Redis recovers.
   }
-  const read = pendingBlueskyTrending ?? refreshBlueskyTrending();
-  pendingBlueskyTrending = read;
+  pendingBlueskyTrending ??= refreshBlueskyTrending();
+  const read = pendingBlueskyTrending;
+  if (snapshot && !bypassCache) {
+    // oxlint-disable-next-line promise/prefer-await-to-then -- The refresh runs after the cached response can return.
+    void settleBlueskyTrending(read).catch(() => {
+      /* empty */
+    });
+    return snapshot.topics;
+  }
   try {
-    return await read;
+    return await settleBlueskyTrending(read);
   } catch (error) {
     if (snapshot) {
       return snapshot.topics;
     }
     throw error;
+  }
+}
+
+async function settleBlueskyTrending(read: Promise<TrendingBlueskyTopic[]>) {
+  try {
+    return await read;
   } finally {
     if (pendingBlueskyTrending === read) {
       pendingBlueskyTrending = undefined;
@@ -147,11 +163,14 @@ async function refreshBlueskyTrending(): Promise<TrendingBlueskyTopic[]> {
       }));
 
     try {
-      await redis.set(
-        BLUESKY_TRENDING_KEY,
-        JSON.stringify({ at: Date.now(), topics }),
-        "EX",
-        BLUESKY_TRENDING_RETENTION_SECONDS
+      await abortable(
+        redis.set(
+          BLUESKY_TRENDING_KEY,
+          JSON.stringify({ at: Date.now(), topics }),
+          "EX",
+          BLUESKY_TRENDING_RETENTION_SECONDS
+        ),
+        AbortSignal.timeout(150)
       );
     } catch (error) {
       console.error("Error caching Bluesky trending topics in Redis:", error);

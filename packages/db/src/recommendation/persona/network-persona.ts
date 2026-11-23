@@ -453,22 +453,22 @@ export async function getNetworkPersona(
       ])
     )
     .digest("hex")}}`;
-  const snapshot = await personaCache.read(key, () =>
-    buildNetworkPersona(
-      userId,
-      selected,
-      options,
-      settings.preferences.profiles.length === 1
-    )
-  );
+  const [snapshot, topicScope] = await Promise.all([
+    personaCache.read(key, () =>
+      buildNetworkPersona(
+        userId,
+        selected,
+        options,
+        settings.preferences.profiles.length === 1
+      )
+    ),
+    networkTopicScope(selected.interests, settings.preferences.avoidedTopics),
+  ]);
   return {
     ...settings,
     ...snapshot,
     selected,
-    topicScope: await networkTopicScope(
-      selected.interests,
-      settings.preferences.avoidedTopics
-    ),
+    topicScope,
   };
 }
 
@@ -730,14 +730,21 @@ async function buildNetworkPersona(
 }
 
 export async function getNetworkSettings(
-  userId: string
+  userId: string,
+  refreshTopicScope = true
 ): Promise<NetworkSettings> {
-  const { preferences, revision, persona, selected } =
-    await getNetworkPersona(userId);
-  const [catalog, topicScope] = await Promise.all([
+  const [context, catalog] = await Promise.all([
+    getNetworkPersona(userId),
     networkTopicCatalog().catch(() => []),
-    networkTopicScope(selected.interests, preferences.avoidedTopics, true),
   ]);
+  const { preferences, revision, persona, selected } = context;
+  const topicScope = refreshTopicScope
+    ? await networkTopicScope(
+        selected.interests,
+        preferences.avoidedTopics,
+        true
+      )
+    : context.topicScope;
   return {
     catalog: [
       ...new Set(

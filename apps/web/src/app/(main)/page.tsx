@@ -1,3 +1,4 @@
+import { discoveryMaxAgeMs } from "@asm/protocols/discovery";
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
@@ -86,7 +87,9 @@ async function HomeContent() {
     requestHeaders.get("cf-ipcountry")
   );
   const [recentPosts, guestExternalPosts] = await Promise.all([
-    getRecentPostDataForCrawl(12),
+    getRecentPostDataForCrawl(12, {
+      maxAgeMs: discoveryMaxAgeMs("latest"),
+    }),
     getGuestBlueskyFeed(locale),
   ]);
 

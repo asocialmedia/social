@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { redis } from "@asm/db";
-import { discoveryPageSchema } from "@asm/protocols/discovery";
+import { abortable, discoveryPageSchema } from "@asm/protocols/discovery";
 import type { DiscoveryContent, DiscoveryMode } from "@asm/protocols/discovery";
 
 const RETENTION_SECONDS = 120;
@@ -20,7 +20,7 @@ export function discoveryCacheKey(
 
 export async function cachedDiscoveryHead(key: string) {
   try {
-    const saved = await redis.get(key);
+    const saved = await abortable(redis.get(key), AbortSignal.timeout(150));
     if (!saved) {
       return null;
     }

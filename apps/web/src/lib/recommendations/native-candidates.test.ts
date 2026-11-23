@@ -23,6 +23,7 @@ test("concurrent viewers share candidate retrieval but policy, format, modes and
     explicit: false,
     gust: false,
     mode: "personalized" as const,
+    notBefore: "2026-11-16T00:00:00.000Z",
     offset: 0,
     seeds: ["software"],
     signal: AbortSignal.timeout(3000),

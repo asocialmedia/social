@@ -28,6 +28,7 @@ import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton"
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
+import { useExpiredFeedHead } from "@/hooks/feed/use-expired-feed-head";
 import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
 import { useFeedRecovery } from "@/hooks/feed/use-feed-recovery";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
@@ -293,6 +294,7 @@ export default function HomeFeed({
       return readFeedPage<PostsPage>(
         (cursor) =>
           kyInstance.get(endpoint, {
+            retry: 0,
             searchParams: { ...networkParams, ...(cursor ? { cursor } : {}) },
             signal,
             throwHttpErrors: false,
@@ -306,6 +308,14 @@ export default function HomeFeed({
     queryKey,
     ...HOME_FEED_QUERY_BEHAVIOR,
   });
+  useExpiredFeedHead(
+    queryKey,
+    globalEnabled &&
+      source !== "bluesky" &&
+      network.ready &&
+      !communitySlug &&
+      !excludePostId
+  );
 
   useFeedRecovery({
     enabled:
@@ -534,11 +544,16 @@ export default function HomeFeed({
     (source !== "bluesky" && (communityFailed || globalStatus === "error")) ||
     (allowExternal && includeBluesky && external.isError);
 
+  const waitingForBluesky =
+    allowExternal && includeBluesky && !hasAnyPosts && external.sourceDeferred;
   const availability = feedAvailability({
     count: hasAnyPosts ? 1 : 0,
     externalEnabled: allowExternal && includeBluesky,
     externalError: external.isError,
-    externalLoading: external.isPending,
+    externalLoading:
+      external.isPending ||
+      waitingForBluesky ||
+      (external.isFetching && !external.isFetchingNextPage),
     nativeEnabled: source !== "bluesky",
     nativeError: communityFailed || globalStatus === "error",
     nativeLoading: communityPending || globalStatus === "pending",
@@ -627,6 +642,18 @@ export default function HomeFeed({
     return (
       <div ref={feedRootRef}>
         <FeedViewSkeleton source={source} />
+        {waitingForBluesky && !external.isFetching ? (
+          <div className="flex justify-center p-4">
+            <Button
+              onClick={() => {
+                void external.refetch();
+              }}
+              variant="premium"
+            >
+              Retry feed
+            </Button>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -796,7 +823,10 @@ export default function HomeFeed({
             onRetry={retryFailedSources}
           />
         ) : null}
-        {external.sourceDeferred && !sourceFailed ? (
+        {external.sourceDeferred &&
+        hasAnyPosts &&
+        !sourceFailed &&
+        !sourceFetching ? (
           <output className="text-muted-foreground block px-4 py-3 text-sm">
             Bluesky is temporarily unavailable. ASM posts are still available.
           </output>

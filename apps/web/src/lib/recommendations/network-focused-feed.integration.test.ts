@@ -8,11 +8,13 @@ import {
   recordNetworkSignal,
   redis,
   saveNetworkPreferences,
+  toPrismaDateTime,
 } from "@asm/db";
 import type { PostsPage } from "@asm/db";
 import { defaultNetworkPreferences } from "@asm/protocols/discovery";
 
 import { networkPostRecommended } from "@/lib/posts/network-content-policy";
+import { getRecentPostDataForCrawl } from "@/lib/posts/server-feed";
 
 import { networkNativeFeed } from "./network-native-feed";
 
@@ -67,6 +69,67 @@ async function read(
   }
   return { page, status: response.status };
 }
+
+test("the home timeline and guest bootstrap stop serving expired ASM posts while the profile archive retains them", async () => {
+  const now = Date.now();
+  const fresh = await prisma.orm.public.Posts.create({
+    aura: 31,
+    content: "Software and TypeScript freshness fixture",
+    createdAt: toPrismaDateTime(new Date(now - 60_000)),
+    semanticTags: ["software"],
+    trendingScore: 100,
+    userId: authorId,
+  });
+  const old = await prisma.orm.public.Posts.create({
+    aura: 1000,
+    content: "Old TypeScript software training fixture",
+    createdAt: toPrismaDateTime(new Date(now - 26 * 86_400_000)),
+    semanticTags: ["software"],
+    trendingScore: 1_000_000,
+    userId: authorId,
+  });
+  const recent = await prisma.orm.public.Posts.create({
+    aura: 24,
+    content: "Three-day-old software release fixture",
+    createdAt: toPrismaDateTime(new Date(now - 3 * 86_400_000)),
+    semanticTags: ["software"],
+    trendingScore: 500,
+    userId: authorId,
+  });
+  await prisma.orm.public.Votes.createAll(
+    [fresh.id, old.id, recent.id].map((postId) => ({
+      postId,
+      userId,
+      value: 1,
+    }))
+  );
+  try {
+    await choose(["software"]);
+    const modes = ["latest", "personalized", "trending"] as const;
+    const [feeds, home, profile] = await Promise.all([
+      Promise.all(modes.map((mode) => read(mode, "post"))),
+      getRecentPostDataForCrawl(100, {
+        maxAgeMs: 7 * 86_400_000,
+        userId: authorId,
+      }),
+      getRecentPostDataForCrawl(100, { userId: authorId }),
+    ]);
+    for (const [index, { page, status }] of feeds.entries()) {
+      expect(status).toBe(200);
+      const ids = page.posts.map((post) => post.id);
+      expect(ids).toContain(fresh.id);
+      expect(ids).not.toContain(old.id);
+      expect(ids.includes(recent.id)).toBe(modes[index] !== "trending");
+    }
+    expect(home.map((post) => post.id)).toContain(fresh.id);
+    expect(home.map((post) => post.id)).not.toContain(old.id);
+    expect(profile.map((post) => post.id)).toContain(old.id);
+  } finally {
+    await prisma.orm.public.Posts.where((post) =>
+      post.id.in([fresh.id, old.id, recent.id])
+    ).deleteAndCount();
+  }
+});
 
 beforeAll(async () => {
   await prisma.orm.public.Users.createAll([

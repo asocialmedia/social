@@ -141,6 +141,55 @@ export async function buildDiscoverySuggestions(
     ) *
       2;
   const social = await networkSocialCandidates(viewerId);
+  const requestId = crypto.randomUUID();
+  const remoteSignal = AbortSignal.any([signal, AbortSignal.timeout(1800)]);
+  const remoteReads = Promise.allSettled([
+    terms.length
+      ? Promise.allSettled(
+          terms
+            .slice(0, 3)
+            .map((term) =>
+              readSuggestionPublicSearch(
+                term,
+                policy.showExplicitContent,
+                remoteSignal,
+                requestId
+              )
+            )
+        )
+      : readBlueskyDiscovery(
+          "personalized",
+          undefined,
+          remoteSignal,
+          requestId,
+          undefined,
+          [],
+          policy.showExplicitContent
+        ),
+    social.external.length
+      ? readBlueskyPosts(
+          social.external.slice(0, 12).map((entry) => entry.id),
+          remoteSignal,
+          requestId,
+          true
+        )
+      : Promise.resolve([]),
+  ]);
+  const connectionReads = Promise.allSettled(
+    social.externalConnections.slice(0, 6).map(async (connection) => {
+      const author = await readBlueskyProfileResource(
+        "profile",
+        new URLSearchParams({ actor: connection.id }),
+        remoteSignal,
+        requestId,
+        policy.showExplicitContent
+      );
+      if ("id" in author) {
+        return { author, connection };
+      }
+      return null;
+    })
+  );
   const follows = social.followedIds.slice(0, 100);
   const [
     blockedRows,
@@ -401,59 +450,16 @@ export async function buildDiscoverySuggestions(
     });
   }
   let partial = false;
-  const requestId = crypto.randomUUID();
-  const [remote, socialRemote] = await Promise.allSettled([
-    terms.length
-      ? Promise.allSettled(
-          terms
-            .slice(0, 3)
-            .map((term) =>
-              readSuggestionPublicSearch(
-                term,
-                policy.showExplicitContent,
-                signal,
-                requestId
-              )
-            )
-        )
-      : readBlueskyDiscovery(
-          "personalized",
-          undefined,
-          signal,
-          requestId,
-          undefined,
-          [],
-          policy.showExplicitContent
-        ),
-    social.external.length
-      ? readBlueskyPosts(
-          social.external.slice(0, 12).map((entry) => entry.id),
-          signal,
-          requestId,
-          true
-        )
-      : Promise.resolve([]),
+  const [[remote, socialRemote], connections] = await Promise.all([
+    remoteReads,
+    connectionReads,
   ]);
   const profiles: ExternalAuthor[] = [];
-  const connections = await Promise.allSettled(
-    social.externalConnections.slice(0, 6).map(async (connection) => {
-      const author = await readBlueskyProfileResource(
-        "profile",
-        new URLSearchParams({ actor: connection.id }),
-        signal,
-        requestId,
-        policy.showExplicitContent
-      );
-      if ("id" in author) {
-        externalMutual.set(connection.id, new Set(connection.via));
-        return author;
-      }
-      return null;
-    })
-  );
   for (const result of connections) {
     if (result.status === "fulfilled" && result.value) {
-      profiles.push(result.value);
+      const { author, connection } = result.value;
+      externalMutual.set(connection.id, new Set(connection.via));
+      profiles.push(author);
     }
   }
   const externalPosts =

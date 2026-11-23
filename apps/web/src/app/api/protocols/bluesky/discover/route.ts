@@ -19,6 +19,7 @@ import {
   DISCOVERY_WATCH_CHANNEL,
   isDiscoveryColdStart,
   isExternalTrendingPost,
+  isFreshDiscoveryTimestamp,
 } from "@asm/protocols/discovery";
 import type { FeedSourceStatus } from "@asm/protocols/discovery";
 import { after } from "next/server";
@@ -204,27 +205,17 @@ export function GET(request: Request) {
     const mixed = query.get("mixed") === "1";
     const authority = await readFeedAuthority();
     let sourceStatus = mixed ? authority.bluesky : undefined;
-    const cached =
-      cursor || (query.get("refresh") === "1" && !sourceStatus)
-        ? null
-        : await timing.measure("cache", () => cachedDiscoveryHead(cacheKey));
+    const refresh = query.get("refresh") === "1";
+    const cached = cursor
+      ? null
+      : await timing.measure("cache", () => cachedDiscoveryHead(cacheKey));
     const deferredPage = () => ({
       cursor: null,
       items: [],
       partial: false,
       sourceStatus,
     });
-    if (sourceStatus && !cached) {
-      reportFeedServing({
-        items: 0,
-        mode: mode.data,
-        newestAt: 0,
-        reason: sourceStatus.reason,
-        source: "bluesky",
-      });
-      return Response.json(deferredPage());
-    }
-    const read = async (signal: AbortSignal) => {
+    const read = async (signal: AbortSignal, inventoryOnly = false) => {
       const page = await timing.measure("retrieval", () =>
         readBlueskyDiscovery(
           mode.data,
@@ -234,11 +225,15 @@ export function GET(request: Request) {
           locale.data,
           topics,
           includeExplicit,
-          content.data
+          content.data,
+          ...(inventoryOnly ? ([true] as const) : [])
         )
       );
       if (!cursor) {
-        await saveDiscoveryHead(cacheKey, page).catch(() => {
+        await abortable(
+          saveDiscoveryHead(cacheKey, page),
+          AbortSignal.timeout(150)
+        ).catch(() => {
           // A failed shared cache write does not discard a successful live read.
         });
       }
@@ -267,11 +262,22 @@ export function GET(request: Request) {
     };
     const readForViewer = async () => {
       if (sourceStatus) {
+        const signal = AbortSignal.any([
+          request.signal,
+          AbortSignal.timeout(650),
+        ]);
+        const inventory = await abortable(read(signal, true), signal).catch(
+          () => null
+        );
+        if (inventory?.items.length) {
+          sourceStatus = undefined;
+          return inventory;
+        }
         return cached
           ? { ...cached.page, cursor: null, sourceStatus }
           : deferredPage();
       }
-      if (cached) {
+      if (cached && !refresh && Date.now() - cached.at < 20_000) {
         return cached.page;
       }
       const deadline = mixed ? AbortSignal.timeout(2500) : undefined;
@@ -301,18 +307,17 @@ export function GET(request: Request) {
           retryAt:
             Date.now() +
             Math.max(
-              15,
+              deadline?.aborted && !cursor ? 3 : 15,
               error instanceof ProtocolGatewayError ? error.retryAfter : 0
             ) *
               1000,
         };
         sourceStatus = status;
-        return deferredPage();
+        return cached
+          ? { ...cached.page, cursor: null, sourceStatus }
+          : deferredPage();
       }
     };
-    if (cached && !sourceStatus && Date.now() - cached.at > 20_000) {
-      warmHead();
-    }
     const includeSocialCandidates =
       mode.data === "personalized" && !cursor && !exploring && !sourceStatus;
     const graphSignal = AbortSignal.any([
@@ -322,7 +327,7 @@ export function GET(request: Request) {
     const viewer = session?.user.id;
     const [page, excluded, social, followed] = await Promise.all([
       readForViewer(),
-      viewer && (!sourceStatus || cached)
+      viewer
         ? readExternalFeedback(viewer)
         : Promise.resolve(new Set<string>()),
       viewer && !sourceStatus
@@ -376,6 +381,7 @@ export function GET(request: Request) {
     );
     stopFeatures();
     const stopFiltering = timing.start("filtering");
+    const now = Date.now();
     const eligibleCandidates = filterExternalRecommendations(
       candidates,
       excluded
@@ -408,7 +414,9 @@ export function GET(request: Request) {
           post.languages,
           network.preferences.contentLanguages ?? [network.preferences.language]
         ) &&
-        Date.parse(post.createdAt) <= Date.now() + 60_000
+        (exploring
+          ? Date.parse(post.createdAt) <= now + 60_000
+          : isFreshDiscoveryTimestamp(post.createdAt, mode.data, now))
     );
     stopFiltering();
     const filtered = includeExplicit

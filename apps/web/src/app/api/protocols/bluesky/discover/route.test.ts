@@ -43,7 +43,7 @@ const persona = mock((_userId: string, requestedProfileId?: string) => {
     },
   });
 });
-const read = mock(() => Promise.resolve(upstream));
+const read = mock((..._args: unknown[]) => Promise.resolve(upstream));
 const safety = mock((posts: ExternalPost[], _options?: { enqueue?: boolean }) =>
   Promise.resolve(posts)
 );
@@ -167,7 +167,7 @@ beforeEach(() => {
   read.mockClear();
 });
 
-test("a mixed head degrades immediately while explicit Bluesky reads keep their selected source", async () => {
+test("mixed heads still serve relevant inventory while upstream requests are rate limited", async () => {
   sourceStatus = { reason: "rate_limited", retryAt: Date.now() + 20_000 };
   read.mockClear();
   const mixed = await GET(
@@ -175,12 +175,10 @@ test("a mixed head degrades immediately while explicit Bluesky reads keep their 
       "http://localhost/api/protocols/bluesky/discover?mode=personalized&mixed=1"
     )
   );
-  expect(await mixed.json()).toMatchObject({
-    cursor: null,
-    items: [],
-    sourceStatus,
-  });
-  expect(read).not.toHaveBeenCalled();
+  const mixedHead = await mixed.json();
+  expect(mixedHead.items.length).toBeGreaterThan(0);
+  expect(mixedHead.sourceStatus).toBeUndefined();
+  expect(read.mock.calls[0]?.at(-1)).toBe(true);
   const explicit = await GET(
     new Request(
       "http://localhost/api/protocols/bluesky/discover?mode=personalized"
@@ -189,11 +187,13 @@ test("a mixed head degrades immediately while explicit Bluesky reads keep their 
   const head = await explicit.json();
   expect(head.items.length).toBeGreaterThan(0);
   expect(head.sourceStatus).toBeUndefined();
-  expect(read).toHaveBeenCalledTimes(1);
+  expect(read).toHaveBeenCalledTimes(2);
 });
 
 test("a throttled mixed refresh reuses matching cached candidates and reads safety verdicts without queueing", async () => {
   cached = upstream;
+  const expected = upstream.items;
+  upstream = { cursor: null, items: [], partial: true };
   sourceStatus = { reason: "rate_limited", retryAt: Date.now() + 20_000 };
   enqueueSafety = false;
   read.mockClear();
@@ -204,14 +204,14 @@ test("a throttled mixed refresh reuses matching cached candidates and reads safe
   );
   const head = await result.json();
   expect(head.items.map((item: ExternalPost) => item.id)).toContain(
-    upstream.items[1]?.id
+    expected[1]?.id
   );
   expect(head.items.map((item: ExternalPost) => item.id)).not.toContain(
-    upstream.items[0]?.id
+    expected[0]?.id
   );
   expect(head.cursor).toBeNull();
   expect(head.sourceStatus).toEqual(sourceStatus);
-  expect(read).not.toHaveBeenCalled();
+  expect(read.mock.calls[0]?.at(-1)).toBe(true);
   expect(safety).toHaveBeenCalledWith(expect.any(Array), { enqueue: false });
 });
 

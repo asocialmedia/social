@@ -68,7 +68,8 @@ export class DiscoveryInventory {
     cursor: string | undefined,
     locale: string,
     topics: string[],
-    content: DiscoveryContent
+    content: DiscoveryContent,
+    replenish = true
   ): Promise<DiscoveryPage | null> {
     const scope = createHash("sha256")
       .update(
@@ -272,6 +273,7 @@ export class DiscoveryInventory {
     };
     // Replenish while at least a page remains, before the reader consumes the inventory.
     if (
+      replenish &&
       candidates.length > 0 &&
       candidates.length <= 40 &&
       this.readSource &&
@@ -285,6 +287,7 @@ export class DiscoveryInventory {
     }
     // A sparse local page must not hide deeper source pages from the reader.
     if (
+      replenish &&
       cursor &&
       candidates.length === 0 &&
       this.readSource &&

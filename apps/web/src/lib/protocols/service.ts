@@ -167,7 +167,8 @@ export async function readBlueskyDiscovery(
   locale?: string,
   topics: string[] = [],
   includeExplicit = false,
-  content: DiscoveryContent = "all"
+  content: DiscoveryContent = "all",
+  inventoryOnly = false
 ) {
   const service = process.env.PROTOCOLS_SERVICE_URL;
   const token = process.env.PROTOCOLS_INTERNAL_TOKEN;
@@ -184,6 +185,9 @@ export async function readBlueskyDiscovery(
   }
   url.searchParams.set("mode", mode);
   url.searchParams.set("content", content);
+  if (inventoryOnly) {
+    url.searchParams.set("inventory", "1");
+  }
   if (includeExplicit) {
     url.searchParams.set("explicit", "1");
   }

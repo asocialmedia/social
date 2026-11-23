@@ -40,7 +40,7 @@ async function readSettings({
   const response = await fetch("/api/network/preferences", {
     cache: "no-store",
     credentials: "include",
-    signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+    signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]),
   });
   if (!response.ok) {
     throw new Error("Couldn't load network preferences");
@@ -57,6 +57,8 @@ export function useNetworkSettings(options: { optimistic?: boolean } = {}) {
     enabled: Boolean(user),
     queryFn: readSettings,
     queryKey,
+    retry: 1,
+    retryDelay: 500,
     ...CARD_QUERY_POLICY,
   });
   const confirmed = user ? (query.data ?? GUEST) : GUEST;
@@ -122,6 +124,14 @@ export function useNetworkSettings(options: { optimistic?: boolean } = {}) {
         });
       }
       client.setQueryData(queryKey, value);
+      void Promise.all([
+        client.resetQueries({
+          queryKey: ["trending-feed", "v6", user?.id ?? "guest"],
+        }),
+        client.resetQueries({
+          queryKey: ["discovery-suggestions", user?.id ?? "guest", "active"],
+        }),
+      ]);
       setDraft((current) =>
         current?.sequence === variables.sequence ? null : current
       );

@@ -31,6 +31,7 @@ WHERE p."isGust" = $4::boolean AND p."moderated" = false
   )))
   AND ($2::boolean OR p."explicitContent" = false)
   AND p."createdAt" <= $6::timestamptz
+  AND ($8::timestamptz IS NULL OR p."createdAt" >= $8::timestamptz)
   AND (cardinality($1::text[]) = 0 OR EXISTS (
     SELECT 1 FROM unnest($1::text[]) topic
     WHERE to_tsvector('english', p.content) @@ plainto_tsquery('english', topic)

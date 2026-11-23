@@ -494,6 +494,11 @@ test("the internal discovery boundary preserves repeated interest terms and reje
   expect(seen).toEqual([
     ["personalized", undefined, "en", ["astronomy", "art"]],
   ]);
+  const inventoryResponse = await request(
+    "/v1/bluesky/discover?mode=personalized&inventory=1"
+  );
+  expect(inventoryResponse.status).toBe(200);
+  expect((seen.at(-1) as unknown[]).at(-1)).toBe(true);
   const invalid = await request(
     `/v1/bluesky/discover?${new URLSearchParams(
       Array.from({ length: 6 }, (_, i) => ["topic", `topic${i}`])

@@ -25,6 +25,7 @@ mock.module("@/features/auth/lib/auth-client", () => ({
   authClient: { getCookie: () => Promise.resolve() },
 }));
 mock.module("@/features/feed/lib/feed-events", () => ({
+  subscribeFeedForeground: () => () => {},
   subscribeFeedReads: () => () => {},
 }));
 mock.module("@/lib/network/api-env", () => ({

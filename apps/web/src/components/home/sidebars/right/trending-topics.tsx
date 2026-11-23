@@ -11,7 +11,6 @@ import { useSession } from "@/app/(main)/session-provider";
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import UserBadge from "@/components/layouts/user/user-badge";
 import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
-import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { CARD_QUERY_POLICY } from "@/lib/cards/query-policy";
@@ -32,16 +31,16 @@ import { mergeTrendingFeed } from "./trending-utils";
 const TOP_AURA_USERNAME_MAX_LENGTH = 18;
 
 async function readTrending(
-  profile: string,
-  refresh = false
+  refresh = false,
+  signal?: AbortSignal
 ): Promise<TrendingFeed> {
-  const query = new URLSearchParams({ profile });
-  if (refresh) {
-    query.set("refresh", "1");
-  }
-  const response = await fetch(`/api/recommendations/trending?${query}`, {
-    signal: AbortSignal.timeout(8000),
-  });
+  const timeout = AbortSignal.timeout(8000);
+  const response = await fetch(
+    `/api/recommendations/trending${refresh ? "?refresh=1" : ""}`,
+    {
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    }
+  );
   if (!response.ok) {
     throw new Error("Couldn't load trending topics");
   }
@@ -191,18 +190,27 @@ const TrendingTopics: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
   const enabled = useMediaQuery(mediaQuery || "all", !mediaQuery);
   const queryClient = useQueryClient();
   const { user } = useSession();
-  const network = useNetworkSettings();
   const isLoggedIn = Boolean(user);
-  const profileId = network.settings.preferences.activeProfileId;
-  const queryKey = ["trending-feed", "v5", user?.id ?? "guest", network.scope];
-  const { data, isError, isFetching, isLoading } = useQuery<TrendingFeed>({
-    enabled: enabled && network.ready,
-    queryFn: async () =>
-      mergeTrendingFeed(
+  const queryKey = ["trending-feed", "v6", user?.id ?? "guest"];
+  const { data, isError, isFetching, isPending } = useQuery<TrendingFeed>({
+    enabled,
+    queryFn: async ({ signal }) => {
+      const fresh = mergeTrendingFeed(
         queryClient.getQueryData<TrendingFeed>(queryKey),
-        await readTrending(profileId)
-      ),
+        await readTrending(false, signal)
+      );
+      if (
+        !fresh.items.length &&
+        !fresh.topAura.length &&
+        fresh.unavailable.length
+      ) {
+        throw new Error("Couldn't load trending topics");
+      }
+      return fresh;
+    },
     queryKey,
+    retry: 1,
+    retryDelay: 1000,
     ...CARD_QUERY_POLICY,
   });
 
@@ -210,8 +218,7 @@ const TrendingTopics: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
   const topAura = data?.topAura ?? [];
 
   const refresh = useMutation({
-    mutationFn: (variables: { profile: string; key: string[] }) =>
-      readTrending(variables.profile, true),
+    mutationFn: (_variables: { key: string[] }) => readTrending(true),
     onSuccess: (fresh, variables) =>
       queryClient.setQueryData<TrendingFeed>(variables.key, (previous) =>
         mergeTrendingFeed(previous, fresh)
@@ -222,10 +229,9 @@ const TrendingTopics: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
     isError || refresh.isError || data?.unavailable.length
   );
   const failedToLoad = !items.length && degraded;
-  const handleRefresh = () =>
-    refresh.mutate({ key: queryKey, profile: profileId });
+  const handleRefresh = () => refresh.mutate({ key: queryKey });
 
-  if (!enabled || isLoading || !network.ready) {
+  if (!enabled || (isPending && !data)) {
     return <TrendingTopicsSkeleton />;
   }
 
@@ -288,7 +294,7 @@ const TrendingTopics: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
           No trending topics are available right now.
         </p>
       ) : null}
-      {!failedToLoad && topAura.length > 0 ? (
+      {topAura.length > 0 ? (
         <>
           <div className="border-border/60 mt-2 flex items-center gap-2 border-t px-2 pt-2 pb-1">
             <Flame className="h-4 w-4 shrink-0 fill-red-500 text-red-500" />

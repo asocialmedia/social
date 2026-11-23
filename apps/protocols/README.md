@@ -239,7 +239,11 @@ The coordinator publishes a feed-health snapshot every ten seconds to the existi
 
 Media Processing publishes safety and enrichment queue age and polls the configured classifier's authenticated `/v1/model` endpoint for queue capacity. High safety pressure suspends new assessments requested by the feed. Text and media with existing safe verdicts remain eligible. Optional enrichment never gates an otherwise eligible feed.
 
-Web and mobile request independent source pages using the same policy. Mixed reads can use a matching cached Bluesky head during a sustained upstream outage and can proceed with ASM if the head has no usable posts. Explicit Bluesky reads keep their selected source. Missing or expired health data restores independent reads. Ranked feeds use a bounded rolling source mix across new rows and preserve visible row positions. Latest keeps chronological ordering.
+Web and mobile request independent source pages using the same policy. When upstream Bluesky reads are restricted, mixed reads use matching local inventory and cached candidates before falling back to ASM. Explicit Bluesky reads keep their selected source. Missing or expired health data restores independent reads. Ranked feeds use a bounded rolling source mix across new rows and preserve visible row positions. Latest keeps chronological ordering.
+
+Jetstream fills the shared public inventory even without viewers. The coordinator keeps up to 64 shared discovery watches for seven days after their last renewal. Watches are scoped by locale, content policy, mode, and topics. Recently active watches reconcile about every 20 seconds and inactive watches about every minute, subject to provider backoff. Healthy inventory serves these reconciliations locally. Sparse or older pools can use provider reads within the existing concurrency limits. Returning clients refresh feed heads older than five minutes.
+
+Home includes posts from the past seven days in Latest and For You, and from the past two days in Trending. These windows apply to ASM and Bluesky. Older ASM posts remain readable through their links and author profiles.
 
 The coordinator checks configured worker readiness over authenticated HTTPS. Keep worker origins and individual bearer tokens in the coordinator's Dokploy `PROTOCOLS_READ_WORKERS` secret. Keep each worker's own token in its Dokploy `PROTOCOLS_WORKER_TOKEN` secret.
 

@@ -6,6 +6,7 @@ import {
   hydrateViewCounts,
   mapPostData,
   prisma,
+  toPrismaDateTime,
 } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 
@@ -255,7 +256,7 @@ export async function getUserPostsForCrawl(
 // to seed the feed's initial HTML.
 export async function getRecentPostDataForCrawl(
   limit = 20,
-  filter: { userId?: string; tag?: string } = {}
+  filter: { userId?: string; tag?: string; maxAgeMs?: number } = {}
 ) {
   let query = getPostDataQuery(prisma.orm, "").where((post) =>
     and(
@@ -269,6 +270,12 @@ export async function getRecentPostDataForCrawl(
   );
   if (filter.userId) {
     query = query.where({ userId: filter.userId });
+  }
+  if (filter.maxAgeMs !== undefined) {
+    const createdSince = toPrismaDateTime(
+      new Date(Date.now() - filter.maxAgeMs)
+    );
+    query = query.where((post) => post.createdAt.gte(createdSince));
   }
   if (filter.tag) {
     const { tag } = filter;

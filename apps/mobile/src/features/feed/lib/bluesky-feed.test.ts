@@ -1,11 +1,44 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 
 import type { ExternalPost } from "@asm/protocols/contracts";
-import { readDiscoveryPage } from "@asm/protocols/discovery";
+import { feedHeadFreshMs, readDiscoveryPage } from "@asm/protocols/discovery";
 
 import { createBlueskyFeed } from "./bluesky-feed";
 
 const page = { cursor: "next", items: [external("baseline")], partial: false };
+
+test("foreground activation refreshes an expired Bluesky head once", async () => {
+  const start = Date.now();
+  const now = spyOn(Date, "now").mockReturnValue(start);
+  const fresh = external("fresh-on-return");
+  let calls = 0;
+  const store = createBlueskyFeed("https://asm.test", "personalized", () => {
+    calls += 1;
+    return Promise.resolve(
+      Response.json(calls === 1 ? page : { ...page, items: [fresh] })
+    );
+  });
+  try {
+    await store.refresh();
+    store.activate();
+    expect(calls).toBe(1);
+    now.mockReturnValue(start + feedHeadFreshMs);
+    const arrival = Promise.withResolvers<boolean>();
+    const unsubscribe = store.subscribe(() => {
+      if (store.snapshot().pages[0]?.items[0]?.id === fresh.id) {
+        arrival.resolve(true);
+      }
+    });
+    store.activate();
+    store.activate();
+    await arrival.promise;
+    unsubscribe();
+    expect(calls).toBe(2);
+  } finally {
+    now.mockRestore();
+    store.dispose();
+  }
+});
 
 test("repeated Bluesky cursors stop the skeleton and retain posts until manual retry", async () => {
   let calls = 0;

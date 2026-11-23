@@ -82,7 +82,9 @@ export async function GET() {
   if (!session?.user.id) {
     return Response.json({ error: "Unauthorized" }, { headers, status: 401 });
   }
-  return Response.json(await getNetworkSettings(session.user.id), { headers });
+  return Response.json(await getNetworkSettings(session.user.id, false), {
+    headers,
+  });
 }
 
 export async function PUT(request: Request) {

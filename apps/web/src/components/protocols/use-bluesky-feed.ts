@@ -15,6 +15,7 @@ import type { InfiniteData } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
+import { useExpiredFeedHead } from "@/hooks/feed/use-expired-feed-head";
 import { useFeedEvents } from "@/hooks/feed/use-feed-events";
 import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
 import { useFeedRecovery } from "@/hooks/feed/use-feed-recovery";
@@ -59,17 +60,20 @@ export function useBlueskyFeed(
   }
   const exposures = useFeedExposures(viewer, exposureSurface, mode);
   const oppositeSeen = mode === "latest" ? EMPTY_EXPOSURES : exposures;
-  const queryKey = [
-    following ? "bluesky-following" : "bluesky-discovery",
-    mode,
-    viewer,
-    locale,
-    network.scope,
-    content,
-    "progressive-v9",
-    surface,
-    ...(mixed ? ["mixed"] : []),
-  ];
+  const queryKey = useMemo(
+    () => [
+      following ? "bluesky-following" : "bluesky-discovery",
+      mode,
+      viewer,
+      locale,
+      network.scope,
+      content,
+      "progressive-v9",
+      surface,
+      ...(mixed ? ["mixed"] : []),
+    ],
+    [following, mode, viewer, locale, network.scope, content, surface, mixed]
+  );
   const recoveryScope = JSON.stringify(queryKey);
   const [recovery, setRecovery] = useState<{
     pageStatus?: DiscoveryPage["sourceStatus"];
@@ -105,7 +109,9 @@ export function useBlueskyFeed(
         mixed,
         mode,
         profile,
-        signal,
+        signal: mixed
+          ? AbortSignal.any([signal, AbortSignal.timeout(10_000)])
+          : signal,
         surface,
       };
       if (
@@ -156,6 +162,10 @@ export function useBlueskyFeed(
     retry: false,
     staleTime: Infinity,
   });
+  useExpiredFeedHead(
+    queryKey,
+    enabled && ready && surface === "home" && !following
+  );
   useFeedRecovery({
     enabled:
       enabled && ready && Boolean(query.data) && Boolean(query.hasNextPage),
