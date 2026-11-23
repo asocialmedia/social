@@ -771,6 +771,7 @@ export default function HomeFeed({
           <FeedView
             key={hashKey(communityQueryKey)}
             cacheKey={communityQueryKey}
+            observeCache={false}
             excludePostId={excludePostId}
             posts={leadPosts}
             showCommunity={false}
@@ -797,6 +798,7 @@ export default function HomeFeed({
             readDeliveryStart={readDeliveryStart}
             source={source}
             cacheKey={queryKey}
+            observeCache={false}
             excludeIds={communityIds}
             excludePostId={excludePostId}
             posts={visibleGlobalPosts}

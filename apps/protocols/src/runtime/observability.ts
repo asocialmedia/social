@@ -26,12 +26,27 @@ const requestDuration = meter.createHistogram(
   { unit: "ms" }
 );
 
+const deferredWarmups = meter.createCounter(
+  "asm.protocols.discovery.warmup.deferred"
+);
+
 export function createDiscoveryWarmupFailureReporter(
   logger: ProtocolLogger,
   now = Date.now
 ) {
   let lastWarningAt: number | undefined;
   return (error?: unknown) => {
+    if (
+      error instanceof ProtocolError &&
+      (error.code === "capacity" || error.code === "rate_limited")
+    ) {
+      deferredWarmups.add(1, { code: error.code });
+      logger.debug(
+        { code: error.code, event: "discovery.inventory.warmup_deferred" },
+        "Discovery inventory warmup deferred by backoff"
+      );
+      return;
+    }
     const at = now();
     if (lastWarningAt !== undefined && at - lastWarningAt < 30_000) {
       return;

@@ -33,6 +33,17 @@ test("detached warmup failures emit sanitized warnings with a cooldown", async (
   ]);
 });
 
+test("background backpressure records a deferral without suppressing subsequent storage errors", () => {
+  const logger = { debug: mock(), error: mock(), info: mock(), warn: mock() };
+  const report = createDiscoveryWarmupFailureReporter(logger);
+  report(new ProtocolError("capacity", "Busy"));
+  report(new ProtocolError("rate_limited", "Cooling down", 30));
+  expect(logger.debug).toHaveBeenCalledTimes(2);
+  expect(logger.warn).not.toHaveBeenCalled();
+  report(new ProtocolError("unavailable", "Storage unavailable"));
+  expect(logger.warn).toHaveBeenCalledTimes(1);
+});
+
 test("normal discovery expiry is debug telemetry while malformed requests still warn", async () => {
   const logger = { debug: mock(), error: mock(), info: mock(), warn: mock() };
   const request = new Request("http://protocols/v1/bluesky/discover");

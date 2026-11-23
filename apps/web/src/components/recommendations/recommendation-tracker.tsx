@@ -10,7 +10,10 @@ import {
   canonicalExposureFeed,
   rememberFeedExposure,
 } from "@/lib/posts/feed-exposure";
-import { isRecommendationVisible } from "@/lib/posts/recommendation-visibility";
+import {
+  FEED_POST_VISIBLE_EVENT,
+  isRecommendationVisible,
+} from "@/lib/posts/recommendation-visibility";
 import { recordFeedRenderTiming } from "@/lib/recommendations/feed-render-timing";
 
 type RecommendationEventType =
@@ -252,6 +255,12 @@ export function RecommendationTracker({
     const visibilityChanged = () => {
       stop(false);
       if (visible && document.visibilityState === "visible") {
+        element.dispatchEvent(
+          new CustomEvent(FEED_POST_VISIBLE_EVENT, {
+            bubbles: true,
+            detail: postId,
+          })
+        );
         sample();
         timer = setInterval(sample, 250);
       }

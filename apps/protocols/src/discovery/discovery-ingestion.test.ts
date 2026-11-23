@@ -175,7 +175,7 @@ test("outage-aged retries are re-fenced with a current timestamp instead of drop
 });
 
 test.each(["capacity", "unavailable", "rate_limited"] as const)(
-  "permission read %s fails the job before inventory writes and permits a complete retry",
+  "permission read %s retains verified posts and retries unresolved authors",
   async (code) => {
     const posts = [inventoryPost(0), inventoryPost(1), inventoryPost(2)];
     const error = new ProtocolError(code, "Temporary permission failure");
@@ -208,13 +208,13 @@ test.each(["capacity", "unavailable", "rate_limited"] as const)(
     await expect(runHydrationJob(batch, hydrate, () => 10_000)).rejects.toBe(
       error
     );
-    expect(put).not.toHaveBeenCalled();
-    expect(publish).not.toHaveBeenCalled();
+    expect(put).toHaveBeenCalledWith([posts[0]], batch.startedAt);
+    expect(publish).toHaveBeenCalledTimes(1);
     fail = false;
     expect(await runHydrationJob(batch, hydrate, () => 10_000)).toBe(2);
-    expect(put).toHaveBeenCalledTimes(1);
+    expect(put).toHaveBeenCalledTimes(2);
     expect(put).toHaveBeenCalledWith([posts[0], posts[2]], batch.startedAt);
-    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledTimes(2);
   }
 );
 
@@ -246,7 +246,7 @@ test("overlapping hydration jobs retry capacity failures instead of completing w
     maxRetries: 0,
   });
   const posts = Array.from({ length: 12 }, (_, index) => inventoryPost(index));
-  const saved: ExternalPost[] = [];
+  const saved = new Map<string, ExternalPost>();
   const hydrate = (ids: string[], startedAt: number) =>
     hydrateDiscoveryBatch(
       {
@@ -259,10 +259,12 @@ test("overlapping hydration jobs retry capacity failures instead of completing w
         store: {
           invalidate: () => Promise.resolve(),
           put: (permitted) => {
-            saved.push(...permitted);
+            for (const post of permitted) {
+              saved.set(post.id, post);
+            }
             return Promise.resolve();
           },
-          read: () => Promise.resolve(saved),
+          read: () => Promise.resolve([...saved.values()]),
         },
       },
       ids,
@@ -284,9 +286,9 @@ test("overlapping hydration jobs retry capacity failures instead of completing w
       reason: { code: "capacity" },
       status: "rejected",
     });
-    expect(saved.map((post) => post.id)).toEqual(batches[0]?.ids ?? []);
+    expect([...saved.keys()]).toEqual(posts.slice(0, 8).map((post) => post.id));
     expect(await runHydrationJob(batches[1], hydrate, () => 10_000)).toBe(6);
-    expect(saved.map((post) => post.id)).toEqual(posts.map((post) => post.id));
+    expect([...saved.keys()]).toEqual(posts.map((post) => post.id));
   } finally {
     release.resolve();
     client.close();

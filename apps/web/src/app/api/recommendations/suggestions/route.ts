@@ -46,7 +46,7 @@ export async function GET(request: Request) {
     reportRecommendationHealth("suggestions", true);
     return Response.json(result, { headers });
   } catch (error) {
-    reportRecommendationHealth("suggestions", false, error);
+    reportRecommendationHealth("suggestions", false, error, request.signal);
     return Response.json(
       { error: "Suggestions are temporarily busy" },
       { headers: { ...headers, "retry-after": "5" }, status: 503 }

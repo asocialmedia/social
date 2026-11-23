@@ -7,8 +7,12 @@ const status = new Map<string, { failed: boolean; loggedAt: number }>();
 export function reportRecommendationHealth(
   source: "native-feed" | "suggestions" | "bluesky-suggestions",
   healthy: boolean,
-  error?: unknown
+  error?: unknown,
+  signal?: AbortSignal
 ) {
+  if (signal?.aborted) {
+    return;
+  }
   const previous = status.get(source);
   const now = Date.now();
   if (healthy) {

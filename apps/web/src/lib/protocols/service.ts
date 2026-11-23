@@ -291,7 +291,10 @@ export async function readBlueskyPosts(
   );
   if (!response.ok) {
     await response.body?.cancel();
-    throw new ProtocolGatewayError(503, "upstream_unavailable");
+    const retryAfter = Math.ceil(
+      (retryAfterMs(response.headers.get("retry-after")) ?? 2000) / 1000
+    );
+    throw new ProtocolGatewayError(503, "upstream_unavailable", retryAfter);
   }
   const posts = z
     .array(externalPostSchema)

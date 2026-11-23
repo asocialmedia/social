@@ -17,6 +17,7 @@ mock.module("next/navigation", () => ({
 }));
 mock.module("@/lib/protocols/service", () => ({ readBlueskyPosts: read }));
 const { getPublicBlueskyPost } = await import("./public-bluesky-post");
+const { ProtocolGatewayError } = await import("@/lib/protocols/gateway");
 const originalWarn = console.warn;
 const warn = mock(() => {
   expect(io).toHaveBeenCalledTimes(1);
@@ -54,6 +55,18 @@ test("framework interruptions propagate without logging or replacing the route t
   expect(io).not.toHaveBeenCalled();
   expect(warn).not.toHaveBeenCalled();
 });
+test("a public preview retains the provider's retry delay during throttling", async () => {
+  read.mockRejectedValue(
+    new ProtocolGatewayError(503, "upstream_unavailable", 30)
+  );
+  expect(await getPublicBlueskyPost(uri)).toBeNull();
+  expect(cacheLife).toHaveBeenCalledWith({
+    expire: 31,
+    revalidate: 30,
+    stale: 0,
+  });
+});
+
 test("invalid addresses never request a source preview", async () => {
   expect(await getPublicBlueskyPost("https://invalid.test")).toBeNull();
   expect(read).not.toHaveBeenCalled();

@@ -7,13 +7,36 @@ import type { RefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
+import { FEED_POST_VISIBLE_EVENT } from "@/lib/posts/recommendation-visibility";
+
+const HEAD_THRESHOLD = 16;
+const EMPTY_PENDING_ITEMS: readonly never[] = [];
+
+function visibleScrollAnchor(root: HTMLElement, edge: number) {
+  const bounds = root.getBoundingClientRect();
+  const x = Math.min(window.innerWidth - 1, bounds.left + bounds.width / 2);
+  for (const distance of [1, 32, 96]) {
+    const y = Math.max(0, edge) + distance;
+    if (y >= window.innerHeight) {
+      break;
+    }
+    for (const element of document.elementsFromPoint?.(x, y) ?? []) {
+      const card = element.closest<HTMLElement>("[data-post-id]");
+      if (card && root.contains(card)) {
+        return card;
+      }
+    }
+  }
+  return null;
+}
+
 export function useSeamlessFeedHead<T extends { id: string }>({
   root,
   enabled,
   count,
   merge,
   probe,
-  pendingItems = [],
+  pendingItems = EMPTY_PENDING_ITEMS,
   scope = "",
   refreshing = false,
   paging = false,
@@ -28,13 +51,20 @@ export function useSeamlessFeedHead<T extends { id: string }>({
   refreshing?: boolean;
   paging?: boolean;
 }) {
-  const [notice, setNotice] = useState<{ scope: string; items: T[] }>({
+  const tracksUnread = pendingItems !== EMPTY_PENDING_ITEMS;
+  const [notice, setNotice] = useState<{
+    scope: string;
+    items: T[];
+    seenPending: ReadonlySet<string>;
+  }>({
     items: [],
     scope,
+    seenPending: new Set(),
   });
   const latest = useRef({
     count,
     merge,
+    noticeItems: notice.items,
     paging,
     pendingItems,
     probe,
@@ -47,21 +77,21 @@ export function useSeamlessFeedHead<T extends { id: string }>({
   const refreshBusy = useRef(false);
   const admitRef = useRef<(() => void) | null>(null);
   const frame = useRef<number | null>(null);
-  const acknowledge = useCallback(
-    () => setNotice({ items: [], scope }),
-    [scope]
-  );
+  const acknowledge = useCallback(() => {
+    setNotice({ items: [], scope, seenPending: new Set() });
+  }, [scope]);
   useEffect(() => {
     latest.current = {
       count,
       merge,
+      noticeItems: notice.scope === scope ? notice.items : [],
       paging,
       pendingItems,
       probe,
       refreshing,
       scope,
     };
-  }, [count, merge, probe, pendingItems, refreshing, paging, scope]);
+  }, [count, merge, probe, pendingItems, refreshing, paging, scope, notice]);
 
   useEffect(() => {
     if (!enabled || !root.current || latest.current.scope !== scope) {
@@ -80,6 +110,35 @@ export function useSeamlessFeedHead<T extends { id: string }>({
     const scrollContainer = container;
     let lastProbe = 0;
     let disposed = false;
+    let scrolled = false;
+    let noticeVisibilityChanged = false;
+    const seenCards = new Set<string>();
+    const onPostVisible = (event: Event) => {
+      const { detail: id, target } = event as CustomEvent<string>;
+      if (
+        !id ||
+        !(target instanceof HTMLElement) ||
+        !root.current?.contains(target)
+      ) {
+        return;
+      }
+      seenCards.delete(id);
+      seenCards.add(id);
+      if (seenCards.size > 600) {
+        const oldest = seenCards.values().next().value;
+        if (oldest !== undefined) {
+          seenCards.delete(oldest);
+        }
+      }
+      const { current } = latest;
+      if (
+        current.pendingItems.some((item) => item.id === id) ||
+        current.noticeItems.some((item) => item.id === id)
+      ) {
+        noticeVisibilityChanged = true;
+        schedule();
+      }
+    };
 
     let touch: {
       x: number;
@@ -149,7 +208,11 @@ export function useSeamlessFeedHead<T extends { id: string }>({
             return;
           }
           flushSync(() => {
-            setNotice({ items: [], scope: refreshScope });
+            setNotice({
+              items: [],
+              scope: refreshScope,
+              seenPending: new Set(),
+            });
             latest.current.merge();
           });
           scrollContainer.scrollTop = feedOffset();
@@ -180,44 +243,94 @@ export function useSeamlessFeedHead<T extends { id: string }>({
               scrollContainer.scrollTop
           )
         : 0;
-    const admit = () => {
+    const probeAtHead = async () => {
+      try {
+        await latest.current.probe();
+      } catch {
+        // The next probe can retry without clearing the current timeline.
+      }
+    };
+    const updateHead = () => {
       const { current } = latest;
-      if (
-        !root.current?.checkVisibility() ||
-        !feedRenderPolicy({
-          active: enabled,
-          initialLoading: false,
-          offset: Math.max(0, scrollContainer.scrollTop - feedOffset()),
-          paging: current.paging,
-          pendingHeadCount: current.count,
-          refreshing: current.refreshing || refreshBusy.current,
-        }).admitHead
-      ) {
+      const feed = root.current;
+      if (!feed?.checkVisibility()) {
         return;
       }
-      // Capture a real visible card. Browser anchoring may already compensate;
-      // the measured delta adds only the remaining adjustment after commit.
-      const cards = [
-        ...root.current.querySelectorAll<HTMLElement>("[data-post-id]"),
-      ];
-      const edge = scrollContainer.getBoundingClientRect().top;
-      const anchor = cards.find(
-        (card) => card.getBoundingClientRect().bottom > edge
-      );
-      const before = anchor?.getBoundingClientRect().top;
-      flushSync(() => {
-        setNotice((previous) => ({
-          items: mergeUnreadFeedHead(
-            previous.scope === current.scope ? previous.items : [],
-            current.pendingItems
-          ),
-          scope: current.scope,
-        }));
-        current.merge();
+      const offset = Math.max(0, scrollContainer.scrollTop - feedOffset());
+      const atHead = offset < HEAD_THRESHOLD;
+      const { admitHead } = feedRenderPolicy({
+        active: enabled,
+        admitAtHead: tracksUnread,
+        initialLoading: false,
+        offset,
+        paging: current.paging,
+        pendingHeadCount: current.count,
+        refreshing: current.refreshing || refreshBusy.current,
       });
-      if (anchor?.isConnected && before !== undefined) {
-        scrollContainer.scrollTop +=
-          anchor.getBoundingClientRect().top - before;
+      const updateNotice = () => {
+        setNotice((previous) => {
+          const previousItems =
+            previous.scope === current.scope ? previous.items : [];
+          let items = atHead ? [] : previousItems;
+          if (admitHead && !atHead) {
+            items = mergeUnreadFeedHead(items, current.pendingItems);
+          }
+          if (seenCards.size) {
+            items = items.filter((item) => !seenCards.has(item.id));
+          }
+          const seenPending = new Set(
+            current.pendingItems
+              .filter((item) => seenCards.has(item.id))
+              .map((item) => item.id)
+          );
+          if (
+            previous.scope === current.scope &&
+            items.length === previousItems.length &&
+            items.every((item, index) => item === previousItems[index]) &&
+            seenPending.size === previous.seenPending.size &&
+            [...seenPending].every((id) => previous.seenPending.has(id))
+          ) {
+            return previous;
+          }
+          return { items, scope: current.scope, seenPending };
+        });
+      };
+      if (admitHead && atHead) {
+        updateNotice();
+        current.merge();
+      } else if (admitHead) {
+        // Hit-test the viewport instead of forcing each offscreen card to lay out.
+        const edge = scrollContainer.getBoundingClientRect().top;
+        const anchor = visibleScrollAnchor(feed, edge);
+        const before = anchor?.getBoundingClientRect().top;
+        flushSync(() => {
+          if (tracksUnread) {
+            updateNotice();
+          }
+          current.merge();
+        });
+        if (anchor?.isConnected && before !== undefined) {
+          const delta = anchor.getBoundingClientRect().top - before;
+          if (delta) {
+            scrollContainer.scrollTop += delta;
+          }
+        }
+      } else if (
+        tracksUnread &&
+        (noticeVisibilityChanged || (atHead && current.noticeItems.length > 0))
+      ) {
+        updateNotice();
+      }
+      if (
+        scrolled &&
+        offset <= 48 &&
+        Date.now() - lastProbe >= 10_000 &&
+        !current.refreshing &&
+        !refreshBusy.current &&
+        !current.paging
+      ) {
+        lastProbe = Date.now();
+        void probeAtHead();
       }
     };
     const schedule = () => {
@@ -226,28 +339,28 @@ export function useSeamlessFeedHead<T extends { id: string }>({
       }
       frame.current = window.requestAnimationFrame(() => {
         frame.current = null;
-        admit();
+        updateHead();
+        scrolled = false;
+        noticeVisibilityChanged = false;
       });
     };
     admitRef.current = schedule;
-    const onScroll = async () => {
-      schedule();
+    const onScroll = () => {
+      const { current } = latest;
       if (
-        scrollContainer.scrollTop <= feedOffset() + 48 &&
-        Date.now() - lastProbe >= 10_000 &&
-        !latest.current.refreshing &&
-        !refreshBusy.current &&
-        !latest.current.paging
+        !current.count &&
+        !current.noticeItems.length &&
+        Date.now() - lastProbe < 10_000
       ) {
-        lastProbe = Date.now();
-        try {
-          await latest.current.probe();
-        } catch {
-          // Background reads retain the current feed and retry on the next probe.
-        }
+        return;
       }
+      scrolled = true;
+      schedule();
     };
     scrollContainer.addEventListener("scroll", onScroll, { passive: true });
+    if (tracksUnread) {
+      scrollContainer.addEventListener(FEED_POST_VISIBLE_EVENT, onPostVisible);
+    }
     scrollContainer.addEventListener("touchstart", onTouchStart, {
       passive: true,
     });
@@ -269,8 +382,12 @@ export function useSeamlessFeedHead<T extends { id: string }>({
         frame.current = null;
       }
       scrollContainer.removeEventListener("scroll", onScroll);
+      scrollContainer.removeEventListener(
+        FEED_POST_VISIBLE_EVENT,
+        onPostVisible
+      );
     };
-  }, [enabled, root, scope]);
+  }, [enabled, root, scope, tracksUnread]);
 
   useEffect(() => {
     if (enabled && count > 0 && !refreshing && !paging) {
@@ -280,9 +397,12 @@ export function useSeamlessFeedHead<T extends { id: string }>({
   return {
     acknowledge,
     pullState,
-    unreadItems: mergeUnreadFeedHead(
-      notice.scope === scope ? notice.items : [],
-      pendingItems
-    ),
+    unreadItems:
+      notice.scope === scope
+        ? mergeUnreadFeedHead(
+            notice.items,
+            pendingItems.filter((item) => !notice.seenPending.has(item.id))
+          )
+        : pendingItems,
   };
 }

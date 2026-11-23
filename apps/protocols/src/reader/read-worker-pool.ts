@@ -10,6 +10,7 @@ import { context, metrics, propagation } from "@opentelemetry/api";
 import type { ProtocolLogger } from "../runtime/observability";
 import type { ReadWorkerNode } from "./read-worker-config";
 import {
+  createGeneratorBackoff,
   publicReadHeaders,
   publicReadRateLimitScope,
   publicReadTarget,
@@ -17,12 +18,13 @@ import {
 
 type PublicFetch = (url: string, init: RequestInit) => Promise<Response>;
 
-const createNode = (node: ReadWorkerNode) => ({
+const createNode = (node: ReadWorkerNode, now: () => number) => ({
   ...node,
   active: 0,
   blocked: new Map<string, number>(),
   blockedSearches: new Map<string, number>(),
   deniedSearches: new Map<string, { resources: Set<string>; at: number }>(),
+  generatorBackoff: createGeneratorBackoff(now),
   operationFailures: new Map<string, { count: number; at: number }>(),
   recovering: new Set<string>(),
   transportFailures: 0,
@@ -39,8 +41,8 @@ export function createReadWorkerPool(options: {
 }) {
   const fetcher = options.fetch ?? globalThis.fetch;
   const now = options.now ?? Date.now;
-  const local = createNode({ id: "local", token: "", url: "" });
-  let nodes = [local, ...options.nodes.map(createNode)];
+  const local = createNode({ id: "local", token: "", url: "" }, now);
+  let nodes = [local, ...options.nodes.map((node) => createNode(node, now))];
   const meter = metrics.getMeter("asm-protocols");
   const requests = meter.createCounter("asm.protocols.worker.requests");
   const duration = meter.createHistogram("asm.protocols.worker.duration", {
@@ -98,6 +100,7 @@ export function createReadWorkerPool(options: {
     const available = (candidate: (typeof readNodes)[number]) =>
       !attempted.has(candidate.id) &&
       candidate.active < (candidate.url ? (candidate.capacity ?? 8) : 256) &&
+      candidate.generatorBackoff.remaining(target) === 0 &&
       (candidate.blocked.get(target.origin) ?? 0) <= now() &&
       (candidate.blocked.get(operationKey) ?? 0) <= now() &&
       ((search ? candidate.blockedSearches : candidate.blocked).get(resource) ??
@@ -216,6 +219,11 @@ export function createReadWorkerPool(options: {
           let cooldownKey = resource;
           if (upstreamStatus === 429) {
             cooldownKey = publicReadRateLimitScope(target);
+            node.generatorBackoff.record(target, pauseMs);
+            pauseMs = Math.max(
+              pauseMs,
+              node.generatorBackoff.remaining(target)
+            );
           } else if (workerAuthFailure) {
             cooldownKey = target.origin;
           } else if (upstreamStatus === 403 && !search) {
@@ -358,13 +366,14 @@ export function createReadWorkerPool(options: {
       return lastFailure;
     }
     const remaining = readNodes
-      .map(
-        (node) =>
-          Math.max(
-            node.blocked.get(target.origin) ?? 0,
-            node.blocked.get(operationKey) ?? 0,
-            (search ? node.blockedSearches : node.blocked).get(resource) ?? 0
-          ) - now()
+      .map((node) =>
+        Math.max(
+          node.generatorBackoff.remaining(target),
+          (node.blocked.get(target.origin) ?? 0) - now(),
+          (node.blocked.get(operationKey) ?? 0) - now(),
+          ((search ? node.blockedSearches : node.blocked).get(resource) ?? 0) -
+            now()
+        )
       )
       .filter((value) => value > 0);
     if (remaining.length) {
@@ -376,7 +385,11 @@ export function createReadWorkerPool(options: {
         headers: {
           "retry-after": String(Math.max(1, Math.ceil(pauseMs / 1000))),
         },
-        status: lastStatus === 429 ? 429 : 503,
+        status:
+          lastStatus === 429 ||
+          readNodes.every((node) => node.generatorBackoff.remaining(target) > 0)
+            ? 429
+            : 503,
       }
     );
   };
@@ -398,7 +411,7 @@ export function createReadWorkerPool(options: {
                 current.id === node.id &&
                 current.url === node.url &&
                 current.token === node.token
-            ) ?? createNode(node);
+            ) ?? createNode(node, now);
           state.capacity = node.capacity;
           return state;
         }),

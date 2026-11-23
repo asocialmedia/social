@@ -134,7 +134,7 @@ export async function networkNativeFeed(
       return await readNetworkNativeFeed(request, viewerId, mode, contentKind);
     });
   } catch (error) {
-    reportRecommendationHealth("native-feed", false, error);
+    reportRecommendationHealth("native-feed", false, error, request.signal);
     return feedTiming(request).finish(
       Response.json(
         { error: "Feed is busy. Try again shortly." },
@@ -278,7 +278,7 @@ async function readNetworkNativeFeed(
         "native"
       );
     }
-    reportRecommendationHealth("native-feed", false, error);
+    reportRecommendationHealth("native-feed", false, error, request.signal);
     return timing.finish(
       Response.json(
         { error: "Feed is temporarily unavailable" },

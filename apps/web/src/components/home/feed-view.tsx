@@ -54,6 +54,7 @@ interface FeedViewProps {
   // A null timeout delegates the deadline to the parent and its loading UI.
   sourceWaitMs?: number | null;
   cacheKey?: QueryKey;
+  observeCache?: boolean;
   // Extra ids to drop from the rendered feed, applied to both the server list
   // and every cache-synced update. Used when a leading segment already shows a
   // post that the trailing feed's own cache would reintroduce.
@@ -79,6 +80,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
   sourcesPending: pendingSources = false,
   sourceWaitMs = 600,
   cacheKey = DEFAULT_FEED_CACHE_KEY,
+  observeCache = true,
   excludeIds,
   excludePostId,
   showCommunity = true,
@@ -136,6 +138,9 @@ export const FeedView: React.FC<FeedViewProps> = ({
   }, [queryClient, router]);
 
   useEffect(() => {
+    if (!observeCache) {
+      return;
+    }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const queryHash = hashKey(cacheKey);
     const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
@@ -171,7 +176,14 @@ export const FeedView: React.FC<FeedViewProps> = ({
       unsubscribe();
       clearTimeout(timer);
     };
-  }, [cacheKey, dismissedIds, excludeIds, excludePostId, queryClient]);
+  }, [
+    cacheKey,
+    dismissedIds,
+    excludeIds,
+    excludePostId,
+    observeCache,
+    queryClient,
+  ]);
 
   useEffect(() => {
     const handleNotInterested = (event: Event) => {
@@ -411,12 +423,11 @@ export const FeedView: React.FC<FeedViewProps> = ({
     orderedFeed.sortBy !== sortBy ||
     orderedFeed.source !== source
   ) {
-    const incoming =
-      sourcesPending && orderedFeed.items.length
-        ? mixedGroups.filter((item) =>
-            orderedFeed.items.some((previous) => previous.id === item.id)
-          )
-        : stagedGroups;
+    let incoming = stagedGroups;
+    if (sourcesPending && orderedFeed.items.length) {
+      const previousIds = new Set(orderedFeed.items.map((item) => item.id));
+      incoming = mixedGroups.filter((item) => previousIds.has(item.id));
+    }
     visibleGroups =
       orderedFeed.sortBy === sortBy && orderedFeed.source === source
         ? reconcileFeedOrder(
