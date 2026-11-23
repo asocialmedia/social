@@ -13,9 +13,44 @@ function extractPrNumber(commitMessage) {
   return null;
 }
 
-module.exports = async function detectPrMerge({ github, context, core }) {
+module.exports = async function detectPrMerge({
+  github,
+  context,
+  core,
+  replayPr,
+}) {
   const { owner, repo } = context.repo;
   const commitSha = context.sha;
+  if (replayPr) {
+    const prNumber = Number(replayPr);
+    if (!/^[1-9]\d*$/u.test(replayPr) || !Number.isSafeInteger(prNumber)) {
+      throw new Error("Replay requires a positive pull request number.");
+    }
+    const { data: pr } = await github.rest.pulls.get({
+      owner,
+      pull_number: prNumber,
+      repo,
+    });
+    if (!pr.merged_at || pr.base.ref !== "main" || !pr.merge_commit_sha) {
+      throw new Error(`PR #${prNumber} was not merged into main.`);
+    }
+    const { data: comparison } =
+      await github.rest.repos.compareCommitsWithBasehead({
+        basehead: `${pr.merge_commit_sha}...${commitSha}`,
+        owner,
+        repo,
+      });
+    if (comparison.status !== "ahead" && comparison.status !== "identical") {
+      throw new Error(`PR #${prNumber} is not in the current main history.`);
+    }
+    core.setOutput("should-build", "true");
+    core.setOutput("pr-number", String(prNumber));
+    core.setOutput("quality-already-passed", "false");
+    core.info(
+      `Rebuilding services changed in merged PR #${prNumber} from main at ${commitSha}.`
+    );
+    return;
+  }
   let mergedPr = null;
 
   // 1. Prefer the PR number embedded in the merge commit message.

@@ -9,6 +9,11 @@ on:
       - main
       - dev
   workflow_dispatch:
+    inputs:
+      replay_pr:
+        description: Rebuild and deploy the services affected by this merged PR from current main
+        type: string
+        default: ""
 
 env:
   REGISTRY: ghcr.io
@@ -186,7 +191,7 @@ jobs:
 
   detect-pr-merge:
     name: Detect merged PR push
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.replay_pr != ''))
     runs-on: blacksmith-2vcpu-ubuntu-2404
     outputs:
       should-build: ${{ steps.pr-check.outputs.should-build }}
@@ -204,12 +209,12 @@ jobs:
         with:
           script: |
             const detectPrMerge = require('./.github/scripts/detect-pr-merge.cjs')
-            await detectPrMerge({ github, context, core })
+            await detectPrMerge({ github, context, core, replayPr: context.payload.inputs?.replay_pr })
 
   determine-build-matrix:
     name: Determine changed app images
     needs: detect-pr-merge
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-pr-merge.outputs.should-build == 'true'
+    if: github.ref == 'refs/heads/main' && needs.detect-pr-merge.outputs.should-build == 'true'
     runs-on: blacksmith-2vcpu-ubuntu-2404
     outputs:
       matrix: ${{ steps.changed-apps.outputs.matrix }}
@@ -242,7 +247,7 @@ jobs:
       - detect-pr-merge
       - determine-build-matrix
       - prisma-sync
-    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-app-changes == 'true' && (needs.prisma-sync.result == 'success' || needs.prisma-sync.result == 'skipped') }}
+    if: ${{ always() && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-app-changes == 'true' && (needs.prisma-sync.result == 'success' || needs.prisma-sync.result == 'skipped') }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -406,7 +411,7 @@ jobs:
 
   dokploy-preflight:
     name: Check Dokploy credentials (read only)
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.replay_pr == ''
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Checkout repository
@@ -425,7 +430,7 @@ jobs:
       - quality
       - detect-pr-merge
       - determine-build-matrix
-    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' }}
+    if: ${{ always() && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' }}
     runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       contents: read
