@@ -1,6 +1,7 @@
 import { afterEach, expect, mock, test } from "bun:test";
 
 let dbOffline = false;
+let blueskySnapshot: string | null = null;
 const originalFetch = globalThis.fetch;
 const read = () =>
   dbOffline
@@ -23,13 +24,18 @@ mock.module("@asm/db", () => ({
       },
     },
   },
-  redis: { get: () => Promise.resolve(null), set: () => Promise.resolve("OK") },
+  redis: {
+    get: () => Promise.resolve(blueskySnapshot),
+    set: () => Promise.resolve("OK"),
+  },
 }));
 mock.module("./topic-actions", () => ({ getTrendingTopics: read }));
-const { getTrendingFeed } = await import("./trending-actions");
+const { fetchBlueskyTrendingTopics, getTrendingFeed } =
+  await import("./trending-actions");
 afterEach(() => {
   globalThis.fetch = originalFetch;
   dbOffline = false;
+  blueskySnapshot = null;
 });
 
 test("an expired Bluesky cache and upstream failure are reported separately from a valid empty feed", async () => {
@@ -56,4 +62,27 @@ test("a successful empty refresh has no unavailable sources", async () => {
     topAura: [],
     unavailable: [],
   });
+});
+
+test("opening the sidebar serves retained trends while their refresh is still pending", async () => {
+  const topic = {
+    displayName: "Software",
+    source: "bluesky",
+    topic: "software",
+    type: "bluesky_topic",
+  };
+  blueskySnapshot = JSON.stringify({
+    at: Date.now() - 6 * 60_000,
+    topics: [topic],
+  });
+  const upstream = Promise.withResolvers<Response>();
+  const fetcher = mock(() => upstream.promise);
+  globalThis.fetch = Object.assign(fetcher, {
+    preconnect: originalFetch.preconnect,
+  });
+  expect(await fetchBlueskyTrendingTopics()).toEqual([topic]);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  upstream.resolve(Response.json({ topics: [] }));
+  expect(await fetchBlueskyTrendingTopics(true)).toEqual([]);
+  expect(fetcher).toHaveBeenCalledTimes(1);
 });

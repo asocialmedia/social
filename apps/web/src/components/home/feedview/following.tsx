@@ -326,6 +326,7 @@ export default function FollowingFeed() {
       >
         <FeedView
           cacheKey={queryKey}
+          observeCache={false}
           posts={posts}
           externalPosts={externalPosts}
           source={source}

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { DiscoveryMode } from "./discovery";
+
 export const feedAuthorityVersion = 1;
 export const feedAuthorityKeys = {
   media: "asm:{feed-authority}:media:v1",
@@ -8,6 +10,20 @@ export const feedAuthorityKeys = {
   workers: "asm:{feed-authority}:worker-ids:v2",
 };
 export const feedAuthorityExpirySeconds = 45;
+export const feedHeadFreshMs = 5 * 60_000;
+
+export function discoveryMaxAgeMs(mode: DiscoveryMode): number {
+  return (mode === "trending" ? 2 : 7) * 86_400_000;
+}
+
+export function isFreshDiscoveryTimestamp(
+  createdAt: string,
+  mode: DiscoveryMode,
+  now = Date.now()
+): boolean {
+  const age = now - Date.parse(createdAt);
+  return age >= -60_000 && age <= discoveryMaxAgeMs(mode);
+}
 
 const timestamp = z.number().int().nonnegative();
 const count = z.number().int().nonnegative();

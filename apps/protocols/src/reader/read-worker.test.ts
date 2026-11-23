@@ -410,6 +410,43 @@ test("one rate-limited generator leaves other AppView reads available in the wor
   expect((await pool.fetch(profile, {})).status).toBe(200);
 });
 
+test.each(["coordinator", "worker"] as const)(
+  "%s pauses the generator endpoint when several distinct generators throttle",
+  async (kind) => {
+    let now = 0;
+    let throttling = true;
+    const fetcher = mock(async (url: string) =>
+      Response.json(
+        {},
+        {
+          headers: { "retry-after": "1" },
+          status:
+            throttling && url.includes("app.bsky.feed.getFeed") ? 429 : 200,
+        }
+      )
+    );
+    const options = { fetch: fetcher, now: () => now };
+    const reader =
+      kind === "coordinator"
+        ? createReadWorkerPool({ ...options, logger: logger(), nodes: [] })
+        : createWorkerReader(options);
+    const generator = (id: number) => `${throttledFeed}-${id}`;
+    const burst = await Promise.all(
+      [1, 2, 3].map((id) => reader.fetch(generator(id), {}))
+    );
+    expect(burst.map((result) => result.status)).toEqual([429, 429, 429]);
+    const blocked = await reader.fetch(generator(4), {});
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("retry-after")).toBe("30");
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect((await reader.fetch(profile, {})).status).toBe(200);
+    now = 30_000;
+    throttling = false;
+    expect((await reader.fetch(generator(4), {})).status).toBe(200);
+    expect(fetcher).toHaveBeenCalledTimes(5);
+  }
+);
+
 test("negotiated worker capacity errors preserve their retry delay through edge proxies", async () => {
   const worker = createReadWorkerApp({ id: node.id, logger: logger(), token });
   worker.drain();

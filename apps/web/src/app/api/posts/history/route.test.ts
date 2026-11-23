@@ -169,6 +169,11 @@ mock.module("@asm/db", () => ({
 mock.module("@/lib/auth/session", () => ({
   getSessionFromApi: mockGetSession,
 }));
+const afterTasks: (() => Promise<unknown>)[] = [];
+mock.module("next/server", () => ({
+  // oxlint-disable-next-line promise/prefer-await-to-callbacks -- Next schedules deferred work through a callback.
+  after: (callback: () => Promise<unknown>) => afterTasks.push(callback),
+}));
 const { GET } = await import("./route");
 
 describe("GET /api/posts/history", () => {
@@ -176,6 +181,7 @@ describe("GET /api/posts/history", () => {
     mockGetSession.mockClear();
     mockHydrate.mockClear();
     mockGetPosts.mockClear();
+    afterTasks.length = 0;
     visitRows = [...visits];
     mockRedisMembers = [];
     redisZremCalls = [];
@@ -278,6 +284,8 @@ describe("GET /api/posts/history", () => {
     expect(body.posts[1].id).toBe("post1");
 
     // Deleted post was pruned
+    expect(refreshedPosts).toEqual([]);
+    await Promise.all(afterTasks.map((run) => run()));
     expect(refreshedPosts).toEqual([[bskyDeletedUri, null]]);
     expect(
       redisZremCalls.some((call) =>

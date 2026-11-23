@@ -129,6 +129,40 @@ test("deletion/author opt-out fences stale hydration and cached continuation pag
   expect(await store.read([authorPost.id])).toEqual([]);
 });
 
+test("inventory-only reads serve sparse relevant rows without starting an upstream refill", async () => {
+  const post = inventoryPost(995, "origami");
+  await store.put([post], Date.now());
+  let providerCalls = 0;
+  const inventory = new DiscoveryInventory(
+    store,
+    new MemoryDiscoveryStore(),
+    () => {
+      providerCalls += 1;
+      return Promise.resolve({ cursor: null, items: [], partial: false });
+    }
+  );
+  const head = await inventory.read(
+    "personalized",
+    undefined,
+    "en",
+    ["origami"],
+    "all",
+    false
+  );
+  expect(head?.items.map((item) => item.id)).toEqual([post.id]);
+  expect(head?.cursor).toBeString();
+  const continuation = await inventory.read(
+    "personalized",
+    head?.cursor ?? undefined,
+    "en",
+    ["origami"],
+    "all",
+    false
+  );
+  expect(continuation?.items).toEqual([]);
+  expect(providerCalls).toBe(0);
+});
+
 test("a sparse inventory continues through source pages without replaying local posts or crossing persona scopes", async () => {
   const first = inventoryPost(600, "sparse-continuation");
   const second = inventoryPost(601, "sparse-continuation");

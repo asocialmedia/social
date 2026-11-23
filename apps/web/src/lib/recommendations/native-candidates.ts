@@ -32,6 +32,7 @@ export async function nativeCandidateIds(options: {
   gust: boolean;
   offset: number;
   anchor: string;
+  notBefore: string | null;
   continuation: boolean;
   // Recently served ids for this viewer. When present the read is per-viewer, so
   // it must not reuse the shared cache: the cached window is viewer-independent.
@@ -50,6 +51,7 @@ export async function nativeCandidateIds(options: {
         options.offset,
         options.anchor,
         served,
+        options.notBefore,
       ],
       { id: "pg/text@1" }
     );
@@ -58,13 +60,14 @@ export async function nativeCandidateIds(options: {
   if (options.continuation || served.length > 0) {
     return { rows: await read() };
   }
-  const key = `rec:native-candidates:v1:{${createHash("sha256")
+  const key = `rec:native-candidates:v2:{${createHash("sha256")
     .update(
       JSON.stringify([
         [...options.seeds].toSorted(),
         options.explicit,
         options.mode,
         options.gust,
+        options.notBefore ? options.notBefore.slice(0, 16) : null,
       ])
     )
     .digest("hex")}}`;

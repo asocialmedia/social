@@ -1,8 +1,10 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 
 import { Window } from "happy-dom";
 import { act, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+
+import { FEED_POST_VISIBLE_EVENT } from "@/lib/posts/recommendation-visibility";
 
 import { useSeamlessFeedHead } from "./use-seamless-feed-head";
 
@@ -51,12 +53,14 @@ test("automatic head admission preserves the unread pill and waits for paginatio
     refreshing?: boolean;
   }) {
     const ref = useRef<HTMLDivElement>(null);
-    const [pending, setPending] = useState([{ id: "new" }]);
+    const [pending, setPending] = useState([{ id: "new" }, { id: "another" }]);
+    const [inserted, setInserted] = useState<typeof pending>([]);
     const notice = useSeamlessFeedHead({
       count: pending.length,
       enabled: true,
       merge: () => {
         merges += 1;
+        setInserted(pending);
         setPending([]);
       },
       paging,
@@ -85,6 +89,11 @@ test("automatic head admission preserves the unread pill and waits for paginatio
         }}
       >
         <output>{notice.unreadItems.length}</output>
+        {inserted.map(({ id }) => (
+          <article data-post-id={id} key={id}>
+            {id}
+          </article>
+        ))}
       </div>
     );
   }
@@ -109,10 +118,101 @@ test("automatic head admission preserves the unread pill and waits for paginatio
       await Bun.sleep(40);
     });
     expect(merges).toBe(1);
-    expect(host.querySelector("output")?.textContent).toBe("1");
+    expect(host.querySelector("output")?.textContent).toBe("2");
     expect(host.scrollTop).toBe(500);
+    await act(async () => {
+      host.querySelector('[data-post-id="new"]')?.dispatchEvent(
+        new dom.CustomEvent(FEED_POST_VISIBLE_EVENT, {
+          bubbles: true,
+          detail: "new",
+        })
+      );
+      await Bun.sleep(40);
+    });
+    expect(host.querySelector("output")?.textContent).toBe("1");
+    await act(async () => {
+      host.scrollTop = 0;
+      host.dispatchEvent(new dom.Event("scroll"));
+      await Bun.sleep(40);
+    });
+    expect(host.querySelector("output")?.textContent).toBe("0");
+    expect(merges).toBe(1);
   } finally {
     await act(() => root.unmount());
+    host.remove();
+  }
+});
+
+function FeedAtHead({ scope = "all" }: { scope?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pending, setPending] = useState([{ id: "live" }]);
+  const notice = useSeamlessFeedHead({
+    count: pending.length,
+    enabled: true,
+    merge: () => setPending([]),
+    pendingItems: pending,
+    probe: async () => {},
+    root: ref,
+    scope,
+  });
+  return (
+    <div ref={ref}>
+      <output>{notice.unreadItems.length}</output>
+      {pending.length === 0 ? <article data-post-id="live" /> : null}
+    </div>
+  );
+}
+
+test("a batch that arrives at the latest post is inserted without a lasting pill", async () => {
+  const host = dom.document.createElement("div");
+  host.style.overflowY = "auto";
+  dom.document.body.append(host);
+  const root = createRoot(host as unknown as HTMLElement);
+  try {
+    await act(() => root.render(<FeedAtHead />));
+    await act(async () => {
+      await Bun.sleep(40);
+    });
+    expect(host.querySelector('[data-post-id="live"]')).toBeTruthy();
+    expect(host.querySelector("output")?.textContent).toBe("0");
+    expect(host.scrollTop).toBe(0);
+  } finally {
+    await act(() => root.unmount());
+    host.remove();
+  }
+});
+
+test("changing sources reschedules a queued merge even when the unread count is unchanged", async () => {
+  const host = dom.document.createElement("div");
+  host.style.overflowY = "auto";
+  dom.document.body.append(host);
+  const root = createRoot(host as unknown as HTMLElement);
+  let frameId = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  const schedule = spyOn(dom, "requestAnimationFrame").mockImplementation(
+    (runFrame) => {
+      frameId += 1;
+      frames.set(frameId, runFrame);
+      return frameId;
+    }
+  );
+  const cancel = spyOn(dom, "cancelAnimationFrame").mockImplementation((id) => {
+    frames.delete(id);
+  });
+  try {
+    await act(() => root.render(<FeedAtHead />));
+    const [original] = frames.keys();
+    expect(original).toBeDefined();
+    await act(() => root.render(<FeedAtHead scope="bluesky" />));
+    expect([...frames.keys()]).toEqual([2]);
+    await act(() => {
+      frames.get(2)?.(Date.now());
+    });
+    expect(host.querySelector('[data-post-id="live"]')).toBeTruthy();
+  } finally {
+    await act(() => root.unmount());
+    cancel.mockRestore();
+    schedule.mockRestore();
     host.remove();
   }
 });

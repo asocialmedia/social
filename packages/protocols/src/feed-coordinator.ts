@@ -6,6 +6,7 @@ import type { FeedNetwork } from "./feed-authority";
 // independently, but admission waits for the active tail to keep anchors stable.
 export interface FeedRenderState {
   active: boolean;
+  admitAtHead?: boolean;
   initialLoading: boolean;
   refreshing: boolean;
   paging: boolean;
@@ -19,7 +20,7 @@ export function feedRenderPolicy(state: FeedRenderState) {
     admitHead:
       ready &&
       !state.paging &&
-      state.offset >= 16 &&
+      (state.admitAtHead || state.offset >= 16) &&
       state.pendingHeadCount > 0,
     loadTail: ready && !state.paging,
     showInitialSkeleton: state.initialLoading,

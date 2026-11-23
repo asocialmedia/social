@@ -1,5 +1,6 @@
-import { afterAll, afterEach, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, expect, mock, spyOn, test } from "bun:test";
 
+import { feedHeadFreshMs } from "@asm/protocols/discovery";
 import type { FeedChange } from "@asm/protocols/discovery";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window } from "happy-dom";
@@ -154,6 +155,35 @@ test("returning to a cached feed still probes for unseen posts", async () => {
   await probe.render({ fetchHead, visible: [{ id: "cached" }] });
   expect(fetchHead).toHaveBeenCalledTimes(1);
   expect(probe.items()).toBe("new");
+});
+
+test("returning after the head expires reads once and queues arrivals above the retained pages", async () => {
+  const probe = createProbe();
+  const updatedAt = Date.now();
+  const clock = spyOn(Date, "now").mockReturnValue(updatedAt);
+  const fetchHead = mock((_signal: AbortSignal, _expired: boolean) =>
+    Promise.resolve([{ id: "cached" }, { id: "new" }, { id: "deep" }])
+  );
+  try {
+    await probe.render({
+      fetchHead,
+      intervalMs: feedHeadFreshMs,
+      order: "ranked",
+      probeOnMount: false,
+      readHeadUpdatedAt: () => updatedAt,
+      visible: [{ id: "cached" }, { id: "deep" }],
+    });
+    clock.mockReturnValue(updatedAt + feedHeadFreshMs);
+    await act(() => {
+      dom.document.dispatchEvent(new dom.Event("visibilitychange"));
+      dom.document.dispatchEvent(new dom.Event("visibilitychange"));
+    });
+    expect(fetchHead).toHaveBeenCalledTimes(1);
+    expect(fetchHead.mock.calls[0]?.[1]).toBe(true);
+    expect(probe.items()).toBe("new");
+  } finally {
+    clock.mockRestore();
+  }
 });
 
 test("returning to a retained Activity tab probes again without replacing cached posts", async () => {

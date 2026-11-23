@@ -26,6 +26,25 @@ export const FEED_QUERY_BEHAVIOR = {
   staleTime: Number.POSITIVE_INFINITY,
 } as const;
 
+// Tie freshness to the cache entry so pagination and local row edits never advance it.
+const feedHeadReads = new WeakMap<object, number>();
+
+export function markFeedHeadRead(client: QueryClient, queryKey: QueryKey) {
+  const query = client.getQueryCache().find({ exact: true, queryKey });
+  if (query) {
+    feedHeadReads.set(query, Date.now());
+  }
+}
+
+export function readFeedHeadUpdatedAt(client: QueryClient, queryKey: QueryKey) {
+  const query = client.getQueryCache().find({ exact: true, queryKey });
+  if (!query || query.state.data === undefined) {
+    return;
+  }
+  // A restored cache has no verified head read in this session.
+  return feedHeadReads.get(query) ?? 0;
+}
+
 // A single post is dropped from a rendered feed for one of three reasons:
 // it is the detail post this feed is nested under (`excludePostId`), it is
 // already shown by a leading segment (`excludeIds`, e.g. a community lead), or

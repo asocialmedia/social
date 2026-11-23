@@ -8,13 +8,18 @@ import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { CARD_QUERY_POLICY } from "@/lib/cards/query-policy";
 import { discoverySuggestionsSchema } from "@/lib/recommendations/suggestion-types";
 
-export function useDiscoverySuggestions(enabled = true, profileId?: string) {
+export function useDiscoverySuggestions(
+  enabled = true,
+  profileId?: string,
+  useActiveProfileOnServer = false
+) {
   const { user } = useSession();
   const network = useNetworkSettings();
-  const activeProfile =
-    profileId ?? network.settings.preferences.activeProfileId;
+  const activeProfile = useActiveProfileOnServer
+    ? undefined
+    : (profileId ?? network.settings.preferences.activeProfileId);
   return useQuery({
-    enabled: enabled && network.ready,
+    enabled: enabled && (useActiveProfileOnServer || network.ready),
     queryFn: async ({ signal }) => {
       const url = new URL(
         "/api/recommendations/suggestions",
@@ -37,7 +42,7 @@ export function useDiscoverySuggestions(enabled = true, profileId?: string) {
     queryKey: [
       "discovery-suggestions",
       user?.id ?? "guest",
-      network.scope,
+      useActiveProfileOnServer ? "active" : network.scope,
       activeProfile,
     ],
     refetchOnWindowFocus: false,

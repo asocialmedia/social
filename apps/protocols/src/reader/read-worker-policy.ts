@@ -10,12 +10,48 @@ const publicOperations = new Set([
   "com.atproto.repo.getRecord",
 ]);
 
+function generatorFeed(target: URL) {
+  return target.pathname === "/xrpc/app.bsky.feed.getFeed"
+    ? target.searchParams.get("feed")
+    : null;
+}
+
 export function publicReadRateLimitScope(target: URL): string {
-  const feed =
-    target.pathname === "/xrpc/app.bsky.feed.getFeed"
-      ? target.searchParams.get("feed")
-      : null;
+  const feed = generatorFeed(target);
   return feed ? `${target.origin}${target.pathname}:${feed}` : target.origin;
+}
+
+// Several distinct throttled generators warrant pausing their endpoint while post and profile reads continue.
+export function createGeneratorBackoff(now: () => number) {
+  const limited = new Map<string, number>();
+  let blockedUntil = 0;
+  return {
+    record(target: URL, delay: number) {
+      const feed = generatorFeed(target);
+      if (!feed) {
+        return;
+      }
+      const at = now();
+      const until = at + Math.max(30_000, delay);
+      if (blockedUntil > at) {
+        blockedUntil = Math.max(blockedUntil, until);
+        return;
+      }
+      for (const [id, expires] of limited) {
+        if (expires <= at) {
+          limited.delete(id);
+        }
+      }
+      limited.set(feed, Math.max(until, limited.get(feed) ?? 0));
+      if (limited.size >= 3) {
+        blockedUntil = Math.max(...limited.values());
+        limited.clear();
+      }
+    },
+    remaining(target: URL) {
+      return generatorFeed(target) ? Math.max(0, blockedUntil - now()) : 0;
+    },
+  };
 }
 
 export function publicReadHeaders(input?: HeadersInit): Headers {

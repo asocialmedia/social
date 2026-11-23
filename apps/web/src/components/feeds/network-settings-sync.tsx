@@ -5,6 +5,7 @@ import { useEffect } from "react";
 
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useSession } from "@/lib/auth/session-context";
+import { trendingFeedQueryKey } from "@/lib/recommendations/trending-query";
 
 export function NetworkSettingsSync() {
   const { user } = useSession();
@@ -16,22 +17,25 @@ export function NetworkSettingsSync() {
       return;
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const refresh = () => {
+    const trendingKey = trendingFeedQueryKey(userId);
+    const refresh = (learned: boolean) => {
       clearTimeout(timer);
       timer = setTimeout(() => {
         void client.invalidateQueries({
           queryKey: ["discovery-suggestions", userId],
         });
-        void client.invalidateQueries({
-          queryKey: ["trending-feed", "v5", userId],
-        });
+        if (learned) {
+          void client.invalidateQueries({ queryKey: trendingKey });
+        }
       }, 800);
       void client.invalidateQueries({
         queryKey: ["network-settings", userId],
       });
     };
+    const interestsLearned = () => refresh(true);
     const settingsChanged = () => {
-      refresh();
+      refresh(false);
+      void client.resetQueries({ queryKey: trendingKey });
       for (const key of [
         "explore-feed",
         "explore-top-gusts",
@@ -48,12 +52,12 @@ export function NetworkSettingsSync() {
         : new BroadcastChannel("asm-network-settings");
     channel?.addEventListener("message", settingsChanged);
     window.addEventListener("network:settings-changed", settingsChanged);
-    window.addEventListener("network:learned", refresh);
+    window.addEventListener("network:learned", interestsLearned);
     return () => {
       clearTimeout(timer);
       channel?.close();
       window.removeEventListener("network:settings-changed", settingsChanged);
-      window.removeEventListener("network:learned", refresh);
+      window.removeEventListener("network:learned", interestsLearned);
     };
   }, [client, userId]);
   return null;

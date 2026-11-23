@@ -94,6 +94,51 @@ test("ready asocialmedia posts render while Bluesky is still loading", () => {
   client.clear();
 });
 
+test("an empty mixed feed shows skeletons while a deferred source recovers", () => {
+  const client = new QueryClient();
+  client.setQueryData(
+    ["post-feed", "latest", "guest", networkScope, "en", "focused"],
+    {
+      pageParams: [null],
+      pages: [{ nextCursor: null, posts: [] }],
+    }
+  );
+  client.setQueryData(
+    [
+      "bluesky-discovery",
+      "latest",
+      "guest",
+      "en",
+      networkScope,
+      "all",
+      "progressive-v9",
+      "home",
+      "mixed",
+    ],
+    {
+      pageParams: [{ cursor: null, level: 0, pages: 0, topicPage: 0 }],
+      pages: [
+        {
+          cursor: null,
+          items: [],
+          sourceStatus: {
+            reason: "upstream_unavailable",
+            retryAt: Date.now() + 3000,
+          },
+        },
+      ],
+    }
+  );
+  const html = renderToStaticMarkup(
+    <QueryClientProvider client={client}>
+      <HomeFeed variant="latest" />
+    </QueryClientProvider>
+  );
+  expect(html).toContain('aria-label="Loading feed"');
+  expect(html).not.toContain("Bluesky is temporarily unavailable");
+  client.clear();
+});
+
 test("completion appears only after both mixed-feed sources finish", () => {
   const client = new QueryClient();
   client.setQueryData(

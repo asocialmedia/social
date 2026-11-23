@@ -290,10 +290,17 @@ export async function startProtocols() {
   };
   const discover: NonNullable<
     Parameters<typeof createProtocolsApp>[0]["discover"]
-  > = async (mode, cursor, locale = "", topics = [], content = "all") => {
+  > = async (
+    mode,
+    cursor,
+    locale = "",
+    topics = [],
+    content = "all",
+    inventoryOnly = false
+  ) => {
     ingestion?.watch(topics);
     const local = await inventory
-      ?.read(mode, cursor, locale, topics, content)
+      ?.read(mode, cursor, locale, topics, content, !inventoryOnly)
       .catch((error: unknown) => {
         if (cursor) {
           throw error;
@@ -302,6 +309,9 @@ export async function startProtocols() {
       });
     if (local) {
       return local;
+    }
+    if (inventoryOnly) {
+      return { cursor: null, items: [], partial: true };
     }
     const startedAt = Date.now();
     return remember(
@@ -373,23 +383,34 @@ export async function startProtocols() {
       : undefined;
   const explicitDiscover: NonNullable<
     Parameters<typeof createProtocolsApp>[0]["discover"]
-  > = async (mode, cursor, locale = "", topics = [], content = "all") => {
+  > = async (
+    mode,
+    cursor,
+    locale = "",
+    topics = [],
+    content = "all",
+    inventoryOnly = false
+  ) => {
     ingestion?.watch(topics);
     const local = await explicitInventory?.read(
       mode,
       cursor,
       locale,
       topics,
-      content
+      content,
+      !inventoryOnly
     );
     if (local) {
       // Safe cached candidates can render immediately while the opt-in pool replenishes separately.
-      if (!cursor) {
+      if (!cursor && !inventoryOnly) {
         void readExplicitSource(mode, undefined, locale, topics, content).catch(
           () => null
         );
       }
       return local;
+    }
+    if (inventoryOnly) {
+      return { cursor: null, items: [], partial: true };
     }
     return readExplicitSource(mode, cursor, locale, topics, content);
   };
@@ -412,6 +433,20 @@ export async function startProtocols() {
       publish: (channel, message) => publisher.publish(channel, message),
       read: async ({ mode, locale, topics, content, explicit }, refresh) => {
         ingestion?.watch(topics);
+        const liveInventory = explicit ? explicitInventory : inventory;
+        const local = await liveInventory
+          ?.read(mode, undefined, locale, topics, content, false)
+          .catch(() => null);
+        const recentSince = Date.now() - 30 * 60_000;
+        if (
+          local &&
+          local.items.length >= 20 &&
+          local.items.filter(
+            (post) => Date.parse(post.createdAt) >= recentSince
+          ).length >= 4
+        ) {
+          return local;
+        }
         const selectedDiscovery = explicit ? explicitDiscovery : discovery;
         const selectedInventory = explicit
           ? explicitInventoryStore

@@ -1,6 +1,9 @@
-import { afterAll, expect, mock, test } from "bun:test";
+import { afterAll, expect, mock, spyOn, test } from "bun:test";
 
-import { defaultNetworkPreferences } from "@asm/protocols/discovery";
+import {
+  defaultNetworkPreferences,
+  feedHeadFreshMs,
+} from "@asm/protocols/discovery";
 import { Window } from "happy-dom";
 import { act, useEffect } from "react";
 import { createRoot } from "react-dom/client";
@@ -24,7 +27,12 @@ mock.module("@/features/network/state/use-network-settings", () => ({
 mock.module("@/features/auth/lib/auth-client", () => ({
   authClient: { getCookie: () => Promise.resolve() },
 }));
+const foreground = new Set<() => void>();
 mock.module("@/features/feed/lib/feed-events", () => ({
+  subscribeFeedForeground: (listener: () => void) => {
+    foreground.add(listener);
+    return () => foreground.delete(listener);
+  },
   subscribeFeedReads: () => () => {},
 }));
 mock.module("@/lib/network/api-env", () => ({
@@ -51,6 +59,7 @@ mock.module("expo-file-system", () => ({
   Paths: { document: "memory" },
 }));
 const { useFeedTab } = await import("../../feed/state/use-feed");
+const { feedCache } = await import("../../feed/state/feed-store");
 const { useProtocolPages } = await import("./use-protocol-pages");
 const { useRecentNetworkSearches } =
   await import("../../search/state/use-recent-network-searches");
@@ -101,6 +110,104 @@ test("a failed preference prerequisite exposes an error and retries the preferen
     expect(retryPreferences).toHaveBeenCalledTimes(1);
   } finally {
     await act(() => root.unmount());
+  }
+});
+
+function post(id: string) {
+  return { createdAt: "2026-10-17T10:00:00.000Z", id, userId: "author" };
+}
+
+test("native feed foreground refresh retains deep rows and uses the previous tail", async () => {
+  const key = "personalized:foreground-viewer:test:en";
+  const requests: (string | null)[] = [];
+  let head = [post("buffered"), post("first")];
+  const fetchFeed = spyOn(globalThis, "fetch").mockImplementation(
+    Object.assign(
+      (url: Parameters<typeof fetch>[0]) => {
+        const cursor = new URL(String(url)).searchParams.get("cursor");
+        requests.push(cursor);
+        return Promise.resolve(
+          Response.json(
+            cursor
+              ? { nextCursor: null, posts: [post("older")] }
+              : { nextCursor: "new-head", posts: head }
+          )
+        );
+      },
+      { preconnect: fetch.preconnect }
+    )
+  );
+  feedCache.applyPage(key, [post("first")], "second", {}, false);
+  feedCache.applyPage(key, [post("deep")], "tail", {}, true);
+  network.ready = true;
+  let feed: ReturnType<typeof useFeedTab> | undefined;
+  function Probe() {
+    const value = useFeedTab({
+      enabled: true,
+      userId: "foreground-viewer",
+      variant: "personalized",
+    });
+    useEffect(() => {
+      feed = value;
+    }, [value]);
+    return null;
+  }
+  const root = createRoot(document.createElement("div"));
+  const waitForPost = (id: string) => {
+    const arrived = Promise.withResolvers<boolean>();
+    const unsubscribe = feedCache.subscribe(() => {
+      if (
+        feedCache
+          .get(key)
+          .pages.some((page) => page.some((item) => item.id === id))
+      ) {
+        unsubscribe();
+        arrived.resolve(true);
+      }
+    });
+    return arrived.promise;
+  };
+  try {
+    await act(() => root.render(<Probe />));
+    await act(async () => {
+      await Bun.sleep(15);
+    });
+    expect(feed?.newItems.map((item) => item.id)).toEqual(["buffered"]);
+    await act(async () => {
+      feedCache.patch(key, { fetchedAt: Date.now() - feedHeadFreshMs });
+      head = [post("arrival"), post("buffered"), post("deep")];
+      const arrived = waitForPost("arrival");
+      for (const listener of foreground) {
+        listener();
+      }
+      await arrived;
+    });
+    expect(feed?.posts.map((item) => item.id)).toEqual([
+      "arrival",
+      "buffered",
+      "first",
+      "deep",
+    ]);
+    expect(feedCache.get(key).pageCursors).toEqual(["second", "tail"]);
+    expect(feed?.newItems).toEqual([]);
+    await act(async () => {
+      const arrived = waitForPost("older");
+      feed?.fetchNext();
+      await arrived;
+    });
+    expect(requests.at(-1)).toBe("tail");
+    expect(feed?.posts.map((item) => item.id)).toEqual([
+      "arrival",
+      "buffered",
+      "first",
+      "deep",
+      "older",
+    ]);
+  } finally {
+    await act(() => root.unmount());
+    network.ready = false;
+    fetchFeed.mockRestore();
+    feedCache.clear();
   }
 });
 

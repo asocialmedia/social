@@ -1,5 +1,8 @@
 import type { ExternalPost } from "@asm/protocols/contracts";
-import { externalTopicMatch } from "@asm/protocols/discovery";
+import {
+  isFreshDiscoveryTimestamp,
+  externalTopicMatch,
+} from "@asm/protocols/discovery";
 import { francAll } from "franc-min";
 
 const languageCodes: Record<string, string> = {
@@ -35,12 +38,7 @@ export function isFreshDiscoveryPost(
   mode: "personalized" | "trending" | "latest",
   now = Date.now()
 ) {
-  const age = now - Date.parse(post.createdAt);
-  return (
-    Number.isFinite(age) &&
-    age >= -60_000 &&
-    age <= (mode === "trending" ? 2 : 7) * 86_400_000
-  );
+  return isFreshDiscoveryTimestamp(post.createdAt, mode, now);
 }
 
 export function matchesDiscoveryLanguage(post: ExternalPost, locale: string) {
@@ -112,6 +110,6 @@ export function discoveryRelevance(
   return (
     popularity +
     regionalRelevance(post, locale) * 2 +
-    (mode === "personalized" ? interest : 0)
+    (mode === "personalized" ? interest + 2 / (1 + hours) : 0)
   );
 }

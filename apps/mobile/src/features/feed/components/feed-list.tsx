@@ -190,11 +190,17 @@ const EMPTY_COPY: Record<FeedVariant, { description: string; title: string }> =
   };
 
 // Web's manual "Load more posts" premium button, offered after a source fails.
-function LoadMoreButton({ onPress }: { onPress: () => void }) {
+function LoadMoreButton({
+  label = "Load more posts",
+  onPress,
+}: {
+  label?: string;
+  onPress: () => void;
+}) {
   return (
     <View style={styles.loadMore}>
       <Pressable
-        accessibilityLabel="Load more posts"
+        accessibilityLabel={label}
         accessibilityRole="button"
         onPress={() => {
           haptic();
@@ -208,7 +214,7 @@ function LoadMoreButton({ onPress }: { onPress: () => void }) {
             shadows={ORANGE_BUTTON_SHADOWS}
             style={[styles.loadMorePill, pressed && styles.loadMorePressed]}
           >
-            <Text style={styles.loadMoreText}>Load more posts</Text>
+            <Text style={styles.loadMoreText}>{label}</Text>
           </Gradient3D>
         )}
       </Pressable>
@@ -961,7 +967,10 @@ export const FeedList = memo(
       setRowState({ rows: stabilizedRows, scope: rowScope });
     }
     const rows = stableRows;
-    const externalPending = includeBluesky && external.status === "loading";
+    const waitingForBluesky =
+      source === "all" && !rows.length && Boolean(external.sourceStatus);
+    const externalPending =
+      includeBluesky && (external.status === "loading" || waitingForBluesky);
     const nativePending =
       source !== "bluesky" &&
       (status === "loading" || (status === "idle" && enabled));
@@ -1045,7 +1054,7 @@ export const FeedList = memo(
     const sourceFetching =
       (source !== "bluesky" &&
         (status === "loading-more" || status === "refreshing")) ||
-      (source !== "asm" && external.loadingMore);
+      (source !== "asm" && (external.loadingMore || external.refreshing));
     // Stable callbacks, so the memoized header/footer below keep identity
     // across scroll renders. The Bluesky store methods are stable per store;
     // depending on the whole `external` object would recreate these every
@@ -1259,6 +1268,9 @@ export const FeedList = memo(
         <FeedState>
           {listHeader}
           <FeedSkeleton posts={posts} source={source} />
+          {waitingForBluesky && !external.refreshing ? (
+            <LoadMoreButton label="Retry feed" onPress={retryExternal} />
+          ) : null}
         </FeedState>
       );
     }

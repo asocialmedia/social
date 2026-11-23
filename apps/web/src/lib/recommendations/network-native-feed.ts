@@ -21,6 +21,7 @@ import {
   rankFeed,
   getNotInterestedPostIds,
   NetworkPreferenceConflictError,
+  toPrismaDateTime,
 } from "@asm/db";
 import type { PostData, UserProfile } from "@asm/db";
 import {
@@ -29,6 +30,7 @@ import {
   BoundedReadQueue,
   createRedisReadStore,
   isDiscoveryColdStart,
+  discoveryMaxAgeMs,
 } from "@asm/protocols/discovery";
 import { z } from "zod";
 
@@ -132,7 +134,7 @@ export async function networkNativeFeed(
       return await readNetworkNativeFeed(request, viewerId, mode, contentKind);
     });
   } catch (error) {
-    reportRecommendationHealth("native-feed", false, error);
+    reportRecommendationHealth("native-feed", false, error, request.signal);
     return feedTiming(request).finish(
       Response.json(
         { error: "Feed is busy. Try again shortly." },
@@ -217,7 +219,7 @@ async function readNetworkNativeFeed(
     const version = userId
       ? await redis.get(`rec:suggestions:version:${userId}`).catch(() => null)
       : "guest";
-    const key = `rec:native-head:v9:{${createHash("sha256")
+    const key = `rec:native-head:v10:{${createHash("sha256")
       .update(
         JSON.stringify([
           userId,
@@ -276,7 +278,7 @@ async function readNetworkNativeFeed(
         "native"
       );
     }
-    reportRecommendationHealth("native-feed", false, error);
+    reportRecommendationHealth("native-feed", false, error, request.signal);
     return timing.finish(
       Response.json(
         { error: "Feed is temporarily unavailable" },
@@ -300,6 +302,7 @@ async function buildNetworkNativeFeed(
 ) {
   const query = new URL(request.url).searchParams;
   const exploring = query.get("surface") === "explore";
+  const homePostFeed = !exploring && contentKind === "post";
   const neighboringTopics = exploreTopics(
     context.profile,
     context.selected.interests,
@@ -311,7 +314,7 @@ async function buildNetworkNativeFeed(
   if (focused) {
     maximumLevel = context.selected.interests.length ? 1 : 2;
   }
-  const scope = `v13:${focused ? "focused" : "native"}:${exploring ? "explore" : "home"}:${userId || "guest"}:${context.selected.id}:${context.revision}:${context.topicScope?.version ?? "exact"}:${mode}:${contentKind}`;
+  const scope = `v14:${focused ? "focused" : "native"}:${exploring ? "explore" : "home"}:${userId || "guest"}:${context.selected.id}:${context.revision}:${context.topicScope?.version ?? "exact"}:${mode}:${contentKind}`;
   const coldStart = isDiscoveryColdStart(
     context.selected.interests,
     context.profile,
@@ -373,6 +376,14 @@ async function buildNetworkNativeFeed(
       buildBatch = true;
     }
   }
+  const notBefore = homePostFeed
+    ? new Date(Date.parse(anchor) - discoveryMaxAgeMs(mode))
+    : null;
+  // Posts.createdAt stores UTC wall time without a timezone.
+  const candidateAnchor = toPrismaDateTime(new Date(anchor)).toString();
+  const candidateNotBefore = notBefore
+    ? toPrismaDateTime(notBefore).toString()
+    : null;
   const stopRetrieval = timing.start("retrieval");
   // Keep each surface's record and consider both when ranking a fresh head.
   const servedFeed = `${exploring ? "explore" : "home"}:${contentKind}:${mode}`;
@@ -432,7 +443,7 @@ async function buildNetworkNativeFeed(
       level === 1 && seeds.length === 0
         ? Promise.resolve({ rows: [] as { id: string }[] })
         : nativeCandidateIds({
-            anchor,
+            anchor: candidateAnchor,
             continuation:
               query.get("refresh") === "1" ||
               Boolean(cursor) ||
@@ -441,6 +452,7 @@ async function buildNetworkNativeFeed(
             explicit: context.preferences.showExplicitContent,
             gust: contentKind === "gust",
             mode,
+            notBefore: candidateNotBefore,
             offset: candidateOffset,
             seeds,
             served,
@@ -456,12 +468,17 @@ async function buildNetworkNativeFeed(
               mode,
               contentKind === "gust",
               candidateOffset,
-              anchor,
+              candidateAnchor,
               served,
+              candidateNotBefore,
             ],
             { id: "pg/text@1" }
           ),
-      !userId && mode !== "latest" && level === 0 && candidateOffset === 0
+      !homePostFeed &&
+      !userId &&
+      mode !== "latest" &&
+      level === 0 &&
+      candidateOffset === 0
         ? rawQuery<{ id: string }>(
             networkSql.candidates,
             [
@@ -517,6 +534,9 @@ async function buildNetworkNativeFeed(
                 ]
               : []),
             post.moderated.eq(false),
+            ...(notBefore
+              ? [post.createdAt.gte(toPrismaDateTime(notBefore))]
+              : []),
             // A banned author's content is removed everywhere else in the app;
             // a feed that still ranks it is a moderation hole, not a preference.
             post.user.some((author) => author.banned.eq(false)),

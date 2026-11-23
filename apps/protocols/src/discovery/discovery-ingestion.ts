@@ -52,20 +52,41 @@ export async function hydrateDiscoveryBatch(
   const posts = await options.client.getPosts(ids);
   const allowed = new Set<string>();
   const authors = [...new Set(posts.map((post) => post.author.id))];
+  let failure: PromiseRejectedResult | undefined;
   for (let offset = 0; offset < authors.length; offset += 6) {
-    await Promise.all(
-      authors.slice(offset, offset + 6).map(async (did) => {
-        // Lookup failures must fail the batch so queue retries cannot silently omit authors.
-        if (await options.client.allowsRecommendations(did)) {
-          allowed.add(did);
-        }
-      })
+    const checks = await Promise.allSettled(
+      authors
+        .slice(offset, offset + 6)
+        .map(async (did) =>
+          (await options.client.allowsRecommendations(did)) ? did : null
+        )
     );
+    for (const result of checks) {
+      if (result.status === "fulfilled" && result.value) {
+        allowed.add(result.value);
+      } else if (
+        result.status === "rejected" &&
+        (!failure ||
+          (hydrationRetryDelay(result.reason) ?? 0) >
+            (hydrationRetryDelay(failure.reason) ?? 0))
+      ) {
+        failure = result;
+      }
+    }
+    if (failure) {
+      break;
+    }
   }
   const permitted = posts.filter((post) => allowed.has(post.author.id));
-  await options.store.put(permitted, startedAt);
-  if (permitted.length) {
+  if (permitted.length || !failure) {
+    await options.store.put(permitted, startedAt);
+  }
+  if (permitted.length > 0) {
     await options.publish();
+  }
+  if (failure) {
+    // Keep verified arrivals and the original fence while the queue retries unresolved author checks.
+    throw failure.reason;
   }
   return permitted.length;
 }

@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 
 import type { PostsPage } from "@asm/db";
 import { QueryClient } from "@tanstack/react-query";
@@ -7,13 +7,42 @@ import { Window } from "happy-dom";
 
 import {
   filterFeedPosts,
+  markFeedHeadRead,
   prependPostsToFeedCache,
+  readFeedHeadUpdatedAt,
   scrollFeedToTop,
   showPublishedPostInFeedCache,
 } from "./feed-cache";
 
 type Post = PostsPage["posts"][number];
 type FeedData = InfiniteData<PostsPage, string | null>;
+
+test("pagination and local cache edits leave the last successful head read untouched", () => {
+  const client = new QueryClient();
+  const key = ["post-feed", "latest"];
+  const other = ["post-feed", "personalized"];
+  const headAt = Date.now();
+  const now = spyOn(Date, "now").mockReturnValue(headAt);
+  try {
+    const head = { nextCursor: "tail", posts: [] };
+    client.setQueryData<FeedData>(key, { pageParams: [null], pages: [head] });
+    markFeedHeadRead(client, key);
+    now.mockReturnValue(headAt + 600_000);
+    client.setQueryData<FeedData>(key, {
+      pageParams: [null, "tail"],
+      pages: [head, { nextCursor: null, posts: [] }],
+    });
+    client.setQueryData(other, "hydrated");
+    expect(client.getQueryState(key)?.dataUpdatedAt).toBe(headAt + 600_000);
+    expect(readFeedHeadUpdatedAt(client, key)).toBe(headAt);
+    expect(readFeedHeadUpdatedAt(client, other)).toBe(0);
+    markFeedHeadRead(client, key);
+    expect(readFeedHeadUpdatedAt(client, key)).toBe(headAt + 600_000);
+  } finally {
+    now.mockRestore();
+    client.clear();
+  }
+});
 
 test("the new-post pill scrolls the overflow container rather than a tall visible-overflow wrapper", async () => {
   const dom = new Window();

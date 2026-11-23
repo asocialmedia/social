@@ -22,3 +22,20 @@ test("outages do not flood logs under concurrent demand and a successful recover
   expect(warn).toHaveBeenCalledTimes(1);
   expect(info).toHaveBeenCalledTimes(1);
 });
+
+test("cancelled viewer reads do not mark a recommendation source unhealthy", () => {
+  warn.mockClear();
+  reportRecommendationHealth(
+    "suggestions",
+    false,
+    new DOMException("Cancelled", "AbortError"),
+    AbortSignal.abort()
+  );
+  expect(warn).not.toHaveBeenCalled();
+  reportRecommendationHealth(
+    "suggestions",
+    false,
+    new Error("Storage unavailable")
+  );
+  expect(warn).toHaveBeenCalledTimes(1);
+});

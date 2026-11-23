@@ -4,6 +4,7 @@ import { cacheLife, io } from "next/cache";
 import { unstable_rethrow } from "next/navigation";
 import { cache } from "react";
 
+import { ProtocolGatewayError } from "@/lib/protocols/gateway";
 import { readBlueskyPosts } from "@/lib/protocols/service";
 
 async function readPublicBlueskyPost(uri: string) {
@@ -22,8 +23,16 @@ async function readPublicBlueskyPost(uri: string) {
   } catch (error) {
     unstable_rethrow(error);
     // Expected outages must not cross the cache boundary as RSC render errors.
-    // Retry promptly instead of caching an unavailable preview as a missing post.
-    cacheLife({ expire: 2, revalidate: 0, stale: 0 });
+    // Respect bounded provider backoff before trying the public preview again.
+    const retryAfter =
+      error instanceof ProtocolGatewayError
+        ? Math.min(60, Math.max(0, error.retryAfter))
+        : 0;
+    cacheLife(
+      retryAfter > 2
+        ? { expire: retryAfter + 1, revalidate: retryAfter, stale: 0 }
+        : { expire: 2, revalidate: 0, stale: 0 }
+    );
     return {
       post: null,
       unavailable:

@@ -36,9 +36,9 @@ const post: ExternalPost = {
     upstreamCounts: {},
     url: "https://bsky.app/profile/did:plc:public",
   },
-  createdAt: "2026-11-07T10:00:00Z",
+  createdAt: new Date().toISOString(),
   id: "at://did:plc:public/app.bsky.feed.post/123",
-  indexedAt: "2026-11-07T10:00:00Z",
+  indexedAt: new Date().toISOString(),
   labels: [],
   languages: ["en"],
   media: [],
@@ -112,6 +112,19 @@ test("guest HTML applies label, quoted-author and media restrictions", async () 
 test("an upstream failure leaves the native feed available", async () => {
   unavailable = true;
   expect(await getGuestBlueskyFeed("en")).toEqual([]);
+});
+
+test("the guest preview excludes expired candidates from an otherwise valid cache", async () => {
+  items = [
+    post,
+    {
+      ...post,
+      createdAt: new Date(Date.now() - 8 * 86_400_000).toISOString(),
+      id: "at://did:plc:public/app.bsky.feed.post/expired",
+    },
+  ];
+  const result = await getGuestBlueskyFeed("en");
+  expect(result.map((item) => item.id)).toEqual([post.id]);
 });
 
 test("a stalled source cannot hold the initial page indefinitely", async () => {

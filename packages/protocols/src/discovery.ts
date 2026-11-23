@@ -27,6 +27,9 @@ export { isDiscoveryColdStart } from "./discovery-quality";
 export {
   decideFeedAuthority,
   feedAuthorityExpirySeconds,
+  feedHeadFreshMs,
+  discoveryMaxAgeMs,
+  isFreshDiscoveryTimestamp,
   feedAuthorityKeys,
   feedAuthorityVersion,
   feedMixReportSchema,

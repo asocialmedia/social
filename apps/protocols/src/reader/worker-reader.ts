@@ -6,6 +6,7 @@ import {
 } from "@asm/protocols/discovery";
 
 import {
+  createGeneratorBackoff,
   publicReadHeaders,
   publicReadRateLimitScope,
   publicReadTarget,
@@ -18,6 +19,7 @@ export function createWorkerReader(options: {
   observe?: ProtocolObserver;
 }) {
   const now = options.now ?? Date.now;
+  const generatorBackoff = createGeneratorBackoff(now);
   const blocked = new Map<string, number>();
   const abort = new AbortController();
   let active = 0;
@@ -48,9 +50,11 @@ export function createWorkerReader(options: {
         );
       }
       const scope = publicReadRateLimitScope(target);
-      const remaining =
-        Math.max(blocked.get(target.origin) ?? 0, blocked.get(scope) ?? 0) -
-        now();
+      const remaining = Math.max(
+        (blocked.get(target.origin) ?? 0) - now(),
+        (blocked.get(scope) ?? 0) - now(),
+        generatorBackoff.remaining(target)
+      );
       if (remaining > 0) {
         return Response.json(
           { error: "upstream_cooldown" },
@@ -85,6 +89,7 @@ export function createWorkerReader(options: {
         if (response.status === 429) {
           const delay =
             retryAfterMs(response.headers.get("retry-after"), now()) ?? 30_000;
+          generatorBackoff.record(target, delay);
           for (const [key, until] of blocked) {
             if (until <= now()) {
               blocked.delete(key);
@@ -94,7 +99,11 @@ export function createWorkerReader(options: {
             blocked.delete(blocked.keys().next().value ?? "");
           }
           blocked.set(scope, now() + delay);
-          retryAfter = String(Math.ceil(delay / 1000));
+          retryAfter = String(
+            Math.ceil(
+              Math.max(delay, generatorBackoff.remaining(target)) / 1000
+            )
+          );
         }
         let body: unknown;
         try {

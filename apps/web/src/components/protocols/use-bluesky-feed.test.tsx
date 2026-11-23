@@ -14,7 +14,10 @@ const headReads: {
   refresh?: boolean;
 }[] = [];
 let probe:
-  | { fetchHead: (signal: AbortSignal) => Promise<unknown>; intervalMs: number }
+  | {
+      fetchHead: (signal: AbortSignal, expired: boolean) => Promise<unknown>;
+      intervalMs: number;
+    }
   | undefined;
 const actual = await import("@asm/protocols/discovery");
 mock.module("@asm/protocols/discovery", () => ({
@@ -113,12 +116,15 @@ test.each([
       expect(probe.intervalMs).toBe(
         following || mode === "latest" ? 20_000 : 180_000
       );
-      await probe.fetchHead(new AbortController().signal);
+      const { signal } = new AbortController();
+      await probe.fetchHead(signal, false);
       expect(headReads.at(-1)).toMatchObject({
         mode: expected,
         profile: "default",
         refresh: true,
       });
+      await probe.fetchHead(signal, true);
+      expect(headReads.at(-1)).toMatchObject({ mode, refresh: true });
     } finally {
       await act(() => root.unmount());
       client.clear();

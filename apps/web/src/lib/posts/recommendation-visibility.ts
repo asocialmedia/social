@@ -21,3 +21,4 @@ export function isRecommendationVisible(
     entry.intersectionRect.height >= visibleHeight * 0.6
   );
 }
+export const FEED_POST_VISIBLE_EVENT = "asm:feed-post-visible";

@@ -41,6 +41,8 @@ import {
 import {
   FEED_QUERY_BEHAVIOR,
   prependPostsToFeedCache,
+  markFeedHeadRead,
+  readFeedHeadUpdatedAt,
   revealFeedHead,
 } from "@/lib/posts/feed-cache";
 import { feedContinuationDelay } from "@/lib/posts/feed-pagination";
@@ -286,27 +288,31 @@ export default function HomeFeed({
     enabled: globalEnabled && source !== "bluesky" && network.ready,
     getNextPageParam: (lastPage: PostsPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam, signal }) => {
+    queryFn: async ({ pageParam, signal }) => {
       const current = queryClient.getQueryData<{ pages: PostsPage[] }>(
         queryKey
       );
-      return readFeedPage<PostsPage>(
+      const page = await readFeedPage<PostsPage>(
         (cursor) =>
           kyInstance.get(endpoint, {
+            retry: 0,
             searchParams: { ...networkParams, ...(cursor ? { cursor } : {}) },
             signal,
             throwHttpErrors: false,
           }),
         pageParam,
         new Set(
-          current?.pages.flatMap((page) => page.posts.map((post) => post.id))
+          current?.pages.flatMap((entry) => entry.posts.map((post) => post.id))
         )
       );
+      if (!pageParam && !signal.aborted) {
+        markFeedHeadRead(queryClient, queryKey);
+      }
+      return page;
     },
     queryKey,
     ...HOME_FEED_QUERY_BEHAVIOR,
   });
-
   useFeedRecovery({
     enabled:
       source !== "bluesky" && Boolean(data) && Boolean(globalHasNextPage),
@@ -375,7 +381,7 @@ export default function HomeFeed({
       !communitySlug &&
       source !== "bluesky",
     eventSource: "asm",
-    fetchHead: async (signal) => {
+    fetchHead: async (signal, expired) => {
       // Cheap first, and only where it is sound: one row answers "did anything
       // arrive?" on a recency-ordered feed. The full head page - twenty
       // viewer-resolved posts, their vote and bookmark joins, and a view count
@@ -384,7 +390,7 @@ export default function HomeFeed({
       // same merge, a fraction of the work per poll. A ranked feed skips the
       // shortcut and pays for the page, because its new post is not obliged to
       // be sitting at the top.
-      if (probeSupportsSingleRow && globalPosts.length > 0) {
+      if (!expired && probeSupportsSingleRow && globalPosts.length > 0) {
         const head = await kyInstance
           .get(endpoint, {
             searchParams: { ...networkParams, refresh: "1", take: 1 },
@@ -396,7 +402,7 @@ export default function HomeFeed({
         }
       }
       let probeEndpoint = endpoint;
-      if (isRankedFeed && !isTrending) {
+      if (!expired && isRankedFeed && !isTrending) {
         probeEndpoint = "/api/posts/latest";
       }
       const fresh = await kyInstance
@@ -405,6 +411,9 @@ export default function HomeFeed({
           signal,
         })
         .json<PostsPage>();
+      if (probeEndpoint === endpoint && !signal.aborted) {
+        markFeedHeadRead(queryClient, queryKey);
+      }
       return isTrending ? fresh.posts.filter(isTrendingPost) : fresh.posts;
     },
     filter: (post) =>
@@ -418,6 +427,7 @@ export default function HomeFeed({
     intervalMs: isRankedFeed ? 180_000 : 20_000,
     order: isRankedFeed ? "ranked" : "newest-first",
     probeOnMount: true,
+    readHeadUpdatedAt: () => readFeedHeadUpdatedAt(queryClient, queryKey),
     resetKey: `${feedKey}:${user?.id ?? "guest"}:${network.scope}:${locale}`,
     visible: globalPosts,
   });
@@ -534,11 +544,16 @@ export default function HomeFeed({
     (source !== "bluesky" && (communityFailed || globalStatus === "error")) ||
     (allowExternal && includeBluesky && external.isError);
 
+  const waitingForBluesky =
+    allowExternal && includeBluesky && !hasAnyPosts && external.sourceDeferred;
   const availability = feedAvailability({
     count: hasAnyPosts ? 1 : 0,
     externalEnabled: allowExternal && includeBluesky,
     externalError: external.isError,
-    externalLoading: external.isPending,
+    externalLoading:
+      external.isPending ||
+      waitingForBluesky ||
+      (external.isFetching && !external.isFetchingNextPage),
     nativeEnabled: source !== "bluesky",
     nativeError: communityFailed || globalStatus === "error",
     nativeLoading: communityPending || globalStatus === "pending",
@@ -627,6 +642,18 @@ export default function HomeFeed({
     return (
       <div ref={feedRootRef}>
         <FeedViewSkeleton source={source} />
+        {waitingForBluesky && !external.isFetching ? (
+          <div className="flex justify-center p-4">
+            <Button
+              onClick={() => {
+                void external.refetch();
+              }}
+              variant="premium"
+            >
+              Retry feed
+            </Button>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -744,6 +771,7 @@ export default function HomeFeed({
           <FeedView
             key={hashKey(communityQueryKey)}
             cacheKey={communityQueryKey}
+            observeCache={false}
             excludePostId={excludePostId}
             posts={leadPosts}
             showCommunity={false}
@@ -770,6 +798,7 @@ export default function HomeFeed({
             readDeliveryStart={readDeliveryStart}
             source={source}
             cacheKey={queryKey}
+            observeCache={false}
             excludeIds={communityIds}
             excludePostId={excludePostId}
             posts={visibleGlobalPosts}
@@ -796,7 +825,10 @@ export default function HomeFeed({
             onRetry={retryFailedSources}
           />
         ) : null}
-        {external.sourceDeferred && !sourceFailed ? (
+        {external.sourceDeferred &&
+        hasAnyPosts &&
+        !sourceFailed &&
+        !sourceFetching ? (
           <output className="text-muted-foreground block px-4 py-3 text-sm">
             Bluesky is temporarily unavailable. ASM posts are still available.
           </output>
