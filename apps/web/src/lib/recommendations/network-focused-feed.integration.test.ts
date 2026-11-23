@@ -19,6 +19,7 @@ import { networkPostRecommended } from "@/lib/posts/network-content-policy";
 import { getRecentPostDataForCrawl } from "@/lib/posts/server-feed";
 
 import { networkNativeFeed } from "./network-native-feed";
+import setSessionTimezone from "./test-sql/set-session-timezone.sql" with { type: "text" };
 
 const userId = crypto.randomUUID();
 // For You excludes a reader's own posts (as every other feed surface does), so
@@ -93,7 +94,7 @@ test("candidate date bounds are inclusive and independent of the database sessio
   );
   const rows = await prisma.transaction(async (transaction) => {
     await rawQuery<{ zone: string }>(
-      "SELECT set_config('TimeZone', $1, true) AS zone",
+      setSessionTimezone,
       ["Pacific/Honolulu"],
       { zone: "pg/text@1" },
       transaction
