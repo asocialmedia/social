@@ -289,6 +289,7 @@ test.skipIf(!redisUrl)(
       return;
     }
     const redis = new Redis(redisUrl, { maxRetriesPerRequest: 1 });
+    await redis.ping();
     const scope = `protocol-hydration-recovery-${crypto.randomUUID()}`;
     const claimed = Promise.withResolvers<undefined>();
     const blocked = Promise.withResolvers<number>();
@@ -323,7 +324,8 @@ test.skipIf(!redisUrl)(
       await primary.refresh();
       await primary.worker.pause();
       await remote.refresh();
-      await primary.enqueue([id], Date.now());
+      expect(remote.status().permitted).toBe(true);
+      expect(await primary.enqueue([id], Date.now())).toBe(true);
       await Promise.race([
         claimed.promise,
         Bun.sleep(5000).then(() => {
