@@ -144,8 +144,7 @@ jobs:
       - uses: ./.github/actions/setup-quality
         with:
           ffmpeg: "true"
-      - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+          postgresql-client: "true"
       - name: Initialize test database extensions
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f .github/sql/test-database.sql
       - name: Apply database migrations

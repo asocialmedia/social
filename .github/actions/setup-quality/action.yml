@@ -1,8 +1,11 @@
 name: Setup quality checks
-description: Restore exact dependencies, generate the Prisma contract, and optionally install media test tools.
+description: Restore exact dependencies, generate the Prisma contract, and optionally install test tools.
 inputs:
   ffmpeg:
     description: Install ffmpeg for media tests.
+    default: "false"
+  postgresql-client:
+    description: Install psql for database setup.
     default: "false"
 runs:
   using: composite
@@ -63,7 +66,47 @@ runs:
     - name: Generate Prisma contract
       shell: bash
       run: bun run db:gen
-    - name: Install ffmpeg
-      if: inputs.ffmpeg == 'true'
+    - name: Install test tools from Ubuntu over HTTPS
+      if: inputs.ffmpeg == 'true' || inputs.postgresql-client == 'true'
       shell: bash
-      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      env:
+        INSTALL_FFMPEG: ${{ inputs.ffmpeg }}
+        INSTALL_POSTGRESQL_CLIENT: ${{ inputs.postgresql-client }}
+      run: |
+        packages=()
+        if [[ "$INSTALL_FFMPEG" == true ]] && ! (command -v ffmpeg && command -v ffprobe); then
+          packages+=(ffmpeg)
+        fi
+        if [[ "$INSTALL_POSTGRESQL_CLIENT" == true ]] && ! command -v psql; then
+          packages+=(postgresql-client)
+        fi
+        if (( ${#packages[@]} == 0 )); then
+          exit 0
+        fi
+
+        source /etc/os-release
+        sources="$(mktemp --suffix=.sources)"
+        trap 'rm -f "$sources"' EXIT
+        chmod 644 "$sources"
+        cat > "$sources" <<EOF
+        Types: deb
+        URIs: https://archive.ubuntu.com/ubuntu/
+        Suites: ${VERSION_CODENAME} ${VERSION_CODENAME}-updates
+        Components: main restricted universe multiverse
+        Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+        Types: deb
+        URIs: https://security.ubuntu.com/ubuntu/
+        Suites: ${VERSION_CODENAME}-security
+        Components: main restricted universe multiverse
+        Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+        EOF
+        apt_options=(
+          -o "Dir::Etc::sourcelist=$sources"
+          -o Dir::Etc::sourceparts=-
+          -o Acquire::Retries=2
+          -o Acquire::https::Timeout=15
+          -o Acquire::Languages=none
+        )
+        sudo timeout 120s apt-get "${apt_options[@]}" update --error-on=any
+        sudo timeout 180s apt-get "${apt_options[@]}" install -y --no-install-recommends "${packages[@]}"
