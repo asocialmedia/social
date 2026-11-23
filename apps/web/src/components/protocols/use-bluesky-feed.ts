@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  feedHeadFreshMs,
   readDiscoveryPage,
   readDiscoveryWindow,
   isExternalTrendingPost,
@@ -15,13 +16,16 @@ import type { InfiniteData } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
-import { useExpiredFeedHead } from "@/hooks/feed/use-expired-feed-head";
 import { useFeedEvents } from "@/hooks/feed/use-feed-events";
 import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
 import { useFeedRecovery } from "@/hooks/feed/use-feed-recovery";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
 import { useNewContentProbe } from "@/hooks/feed/use-new-content-probe";
-import { FEED_QUERY_BEHAVIOR } from "@/lib/posts/feed-cache";
+import {
+  FEED_QUERY_BEHAVIOR,
+  markFeedHeadRead,
+  readFeedHeadUpdatedAt,
+} from "@/lib/posts/feed-cache";
 import {
   externalNetworkPostAllowed,
   externalNetworkPostRecommended,
@@ -114,13 +118,26 @@ export function useBlueskyFeed(
           : signal,
         surface,
       };
+      const rememberHead = (
+        page: DiscoveryPage & Partial<ProgressiveDiscoveryPage>
+      ) => {
+        if (
+          pageParam.level === 0 &&
+          !pageParam.cursor &&
+          !page.sourceStatus &&
+          !signal.aborted
+        ) {
+          markFeedHeadRead(queryClient, queryKey);
+        }
+        return page;
+      };
       if (
         !progressive &&
         !pageParam.cursor &&
         content !== "video" &&
         !oppositeSeen.size
       ) {
-        return readDiscoveryPage(options);
+        return readDiscoveryPage(options).then(rememberHead);
       }
       const current =
         queryClient.getQueryData<
@@ -143,29 +160,27 @@ export function useBlueskyFeed(
           page.items.map((item) => item.id)
         ) ?? []),
       ]);
-      return progressive
-        ? readProgressiveDiscovery(
-            options,
-            pageParam,
-            known,
-            undefined,
-            network.settings.preferences.profiles.find(
-              (entry) => entry.id === profile
-            )?.interests.length
-              ? 1
-              : 2
-          )
-        : readDiscoveryWindow(options, known);
+      return (
+        progressive
+          ? readProgressiveDiscovery(
+              options,
+              pageParam,
+              known,
+              undefined,
+              network.settings.preferences.profiles.find(
+                (entry) => entry.id === profile
+              )?.interests.length
+                ? 1
+                : 2
+            )
+          : readDiscoveryWindow(options, known)
+      ).then(rememberHead);
     },
     queryKey,
     refetchOnWindowFocus: false,
     retry: false,
     staleTime: Infinity,
   });
-  useExpiredFeedHead(
-    queryKey,
-    enabled && ready && surface === "home" && !following
-  );
   useFeedRecovery({
     enabled:
       enabled && ready && Boolean(query.data) && Boolean(query.hasNextPage),
@@ -187,16 +202,18 @@ export function useBlueskyFeed(
     recovery?.scope === recoveryScope && recovery.pageStatus === failedPage
       ? recovery.retryAt
       : failedPage?.retryAt;
+  const homeVideo = !following && content === "video" && surface === "home";
+  const eventSource = following ? "bluesky-following" : "bluesky";
+  const intervalMs = mode === "latest" || following ? 20_000 : 180_000;
   const probe = useNewContentProbe({
-    enabled:
-      enabled &&
-      network.ready &&
-      Boolean(query.data) &&
-      (following || content !== "video" || surface === "explore"),
+    enabled: enabled && network.ready && Boolean(query.data),
     eventMode: following ? undefined : mode,
-    eventSource: following ? "bluesky-following" : "bluesky",
-    fetchHead: async (signal) => {
-      if (mixed && retryAt && retryAt > Date.now()) {
+    eventSource: homeVideo ? undefined : eventSource,
+    fetchHead: async (signal, expired) => {
+      if (
+        (homeVideo && !expired) ||
+        (mixed && retryAt && retryAt > Date.now())
+      ) {
         return [];
       }
       const head = await readDiscoveryPage({
@@ -205,12 +222,20 @@ export function useBlueskyFeed(
         following,
         locale,
         mixed,
-        mode: !following && mode === "personalized" ? "latest" : mode,
+        mode:
+          !expired && !following && mode === "personalized" ? "latest" : mode,
         profile,
         refresh: true,
         signal: AbortSignal.any([signal, AbortSignal.timeout(18_000)]),
         surface,
       });
+      if (
+        !head.sourceStatus &&
+        !signal.aborted &&
+        (expired || mode !== "personalized" || following)
+      ) {
+        markFeedHeadRead(queryClient, queryKey);
+      }
       if (mixed) {
         setRecovery({
           pageStatus: failedPage,
@@ -251,9 +276,13 @@ export function useBlueskyFeed(
             undefined,
             network.settings.topicScope
           )),
-    intervalMs: mode === "latest" || following ? 20_000 : 180_000,
+    intervalMs: homeVideo ? feedHeadFreshMs : intervalMs,
     order: mode === "latest" ? "newest-first" : "ranked",
     probeOnMount: true,
+    readHeadUpdatedAt:
+      !following && surface === "home"
+        ? () => readFeedHeadUpdatedAt(queryClient, queryKey)
+        : undefined,
     resetKey: `${following}:${mode}:${viewer}:${locale}:${network.scope}:${content}:${surface}`,
     visible: query.data?.pages.flatMap((page) => page.items) ?? [],
   });

@@ -453,12 +453,14 @@ test("next-day launch paints stale disk rows with their original age until refre
 test("silent startup revalidation updates counts and retains deep feed history", () => {
   const old = post("old");
   const updated = { ...old, _count: { ...old._count, vote: 9 } };
+  const deep = post("deep");
   const cache = new FeedCache();
   cache.applyPage("feed", [old], "older-page", {}, false);
-  cache.applyPage("feed", [post("deep")], "next-page", {}, true);
+  cache.applyPage("feed", [deep], "next-page", {}, true);
   cache.patch("feed", {
     pages: reconcileFeedHead(cache.get("feed").pages, [
       post("arrival"),
+      deep,
       updated,
     ]),
     status: "success",
@@ -468,6 +470,7 @@ test("silent startup revalidation updates counts and retains deep feed history",
   ).toEqual(["arrival", "old", "deep"]);
   expect(flattenUniquePosts(cache.get("feed").pages)[1]?._count?.vote).toBe(9);
   expect(cache.get("feed").cursor).toBe("next-page");
+  expect(cache.get("feed").pageCursors).toEqual(["older-page", "next-page"]);
   expect(cache.get("feed").status).toBe("success");
 });
 

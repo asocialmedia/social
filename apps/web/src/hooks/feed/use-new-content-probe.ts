@@ -3,6 +3,7 @@
 
 import {
   createFeedReadScheduler,
+  feedHeadFreshMs,
   waitForReadRetry,
 } from "@asm/protocols/discovery";
 import type { DiscoveryMode } from "@asm/protocols/discovery";
@@ -54,7 +55,8 @@ interface UseNewContentProbeOptions<T extends NewContentItem> {
   enabled?: boolean;
   // Fetches ONLY the first page. Keeping this separate from the feed's
   // useInfiniteQuery is what lets a cached list stay on screen untouched.
-  fetchHead: (signal: AbortSignal) => Promise<T[]>;
+  fetchHead: (signal: AbortSignal, expired: boolean) => Promise<T[]>;
+  readHeadUpdatedAt?: () => number | undefined;
   // Drops items that should never be surfaced as new (gusts only render video).
   filter?: (item: T) => boolean;
   intervalMs?: number;
@@ -87,6 +89,7 @@ export function useNewContentProbe<T extends NewContentItem>({
   eventSource,
   eventMode,
   fetchHead,
+  readHeadUpdatedAt,
   filter,
   intervalMs = 90_000,
   probeOnMount = true,
@@ -112,6 +115,7 @@ export function useNewContentProbe<T extends NewContentItem>({
   // identity and is not torn down/recreated on every render.
   const visibleRef = useRef(visible);
   const fetchHeadRef = useRef(fetchHead);
+  const readHeadUpdatedAtRef = useRef(readHeadUpdatedAt);
   const filterRef = useRef(filter);
   const probeRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const ranked = order === "ranked";
@@ -135,8 +139,9 @@ export function useNewContentProbe<T extends NewContentItem>({
 
   useEffect(() => {
     fetchHeadRef.current = fetchHead;
+    readHeadUpdatedAtRef.current = readHeadUpdatedAt;
     filterRef.current = filter;
-  }, [fetchHead, filter]);
+  }, [fetchHead, filter, readHeadUpdatedAt]);
 
   useEffect(() => {
     if (!enabled) {
@@ -147,6 +152,12 @@ export function useNewContentProbe<T extends NewContentItem>({
     let lastAutomaticProbeAt = Date.now();
     let lastEventProbeAt = 0;
     const controller = new AbortController();
+    const headExpired = () => {
+      const updatedAt = readHeadUpdatedAtRef.current?.();
+      return (
+        updatedAt !== undefined && Date.now() - updatedAt >= feedHeadFreshMs
+      );
+    };
     const probe = async () => {
       if (inFlight || !active || document.visibilityState === "hidden") {
         return;
@@ -154,7 +165,7 @@ export function useNewContentProbe<T extends NewContentItem>({
       let fresh: T[];
       inFlight = true;
       try {
-        fresh = await fetchHeadRef.current(controller.signal);
+        fresh = await fetchHeadRef.current(controller.signal, headExpired());
       } catch {
         // Best-effort probe; keep the current feed on transient failures.
         return;
@@ -203,7 +214,10 @@ export function useNewContentProbe<T extends NewContentItem>({
     }
     probeRef.current = probe;
     const automaticProbe = () => {
-      if (Date.now() - lastAutomaticProbeAt < intervalMs) {
+      if (
+        document.visibilityState === "hidden" ||
+        (!headExpired() && Date.now() - lastAutomaticProbeAt < intervalMs)
+      ) {
         return Promise.resolve();
       }
       lastAutomaticProbeAt = Date.now();

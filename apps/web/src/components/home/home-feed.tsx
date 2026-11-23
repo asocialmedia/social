@@ -28,7 +28,6 @@ import FeedViewSkeleton from "@/components/layouts/skeletons/feed-view-skeleton"
 import LoadMoreSkeleton from "@/components/layouts/skeletons/load-more-skeleton";
 import { useBlueskyFeed } from "@/components/protocols/use-bluesky-feed";
 import { useDiscoveryLocale } from "@/hooks/feed/use-discovery-locale";
-import { useExpiredFeedHead } from "@/hooks/feed/use-expired-feed-head";
 import { useFeedExposures } from "@/hooks/feed/use-feed-exposures";
 import { useFeedRecovery } from "@/hooks/feed/use-feed-recovery";
 import { useNetworkSettings } from "@/hooks/feed/use-network-settings";
@@ -42,6 +41,8 @@ import {
 import {
   FEED_QUERY_BEHAVIOR,
   prependPostsToFeedCache,
+  markFeedHeadRead,
+  readFeedHeadUpdatedAt,
   revealFeedHead,
 } from "@/lib/posts/feed-cache";
 import { feedContinuationDelay } from "@/lib/posts/feed-pagination";
@@ -287,11 +288,11 @@ export default function HomeFeed({
     enabled: globalEnabled && source !== "bluesky" && network.ready,
     getNextPageParam: (lastPage: PostsPage) => lastPage.nextCursor,
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam, signal }) => {
+    queryFn: async ({ pageParam, signal }) => {
       const current = queryClient.getQueryData<{ pages: PostsPage[] }>(
         queryKey
       );
-      return readFeedPage<PostsPage>(
+      const page = await readFeedPage<PostsPage>(
         (cursor) =>
           kyInstance.get(endpoint, {
             retry: 0,
@@ -301,22 +302,17 @@ export default function HomeFeed({
           }),
         pageParam,
         new Set(
-          current?.pages.flatMap((page) => page.posts.map((post) => post.id))
+          current?.pages.flatMap((entry) => entry.posts.map((post) => post.id))
         )
       );
+      if (!pageParam && !signal.aborted) {
+        markFeedHeadRead(queryClient, queryKey);
+      }
+      return page;
     },
     queryKey,
     ...HOME_FEED_QUERY_BEHAVIOR,
   });
-  useExpiredFeedHead(
-    queryKey,
-    globalEnabled &&
-      source !== "bluesky" &&
-      network.ready &&
-      !communitySlug &&
-      !excludePostId
-  );
-
   useFeedRecovery({
     enabled:
       source !== "bluesky" && Boolean(data) && Boolean(globalHasNextPage),
@@ -385,7 +381,7 @@ export default function HomeFeed({
       !communitySlug &&
       source !== "bluesky",
     eventSource: "asm",
-    fetchHead: async (signal) => {
+    fetchHead: async (signal, expired) => {
       // Cheap first, and only where it is sound: one row answers "did anything
       // arrive?" on a recency-ordered feed. The full head page - twenty
       // viewer-resolved posts, their vote and bookmark joins, and a view count
@@ -394,7 +390,7 @@ export default function HomeFeed({
       // same merge, a fraction of the work per poll. A ranked feed skips the
       // shortcut and pays for the page, because its new post is not obliged to
       // be sitting at the top.
-      if (probeSupportsSingleRow && globalPosts.length > 0) {
+      if (!expired && probeSupportsSingleRow && globalPosts.length > 0) {
         const head = await kyInstance
           .get(endpoint, {
             searchParams: { ...networkParams, refresh: "1", take: 1 },
@@ -406,7 +402,7 @@ export default function HomeFeed({
         }
       }
       let probeEndpoint = endpoint;
-      if (isRankedFeed && !isTrending) {
+      if (!expired && isRankedFeed && !isTrending) {
         probeEndpoint = "/api/posts/latest";
       }
       const fresh = await kyInstance
@@ -415,6 +411,9 @@ export default function HomeFeed({
           signal,
         })
         .json<PostsPage>();
+      if (probeEndpoint === endpoint && !signal.aborted) {
+        markFeedHeadRead(queryClient, queryKey);
+      }
       return isTrending ? fresh.posts.filter(isTrendingPost) : fresh.posts;
     },
     filter: (post) =>
@@ -428,6 +427,7 @@ export default function HomeFeed({
     intervalMs: isRankedFeed ? 180_000 : 20_000,
     order: isRankedFeed ? "ranked" : "newest-first",
     probeOnMount: true,
+    readHeadUpdatedAt: () => readFeedHeadUpdatedAt(queryClient, queryKey),
     resetKey: `${feedKey}:${user?.id ?? "guest"}:${network.scope}:${locale}`,
     visible: globalPosts,
   });

@@ -1,7 +1,10 @@
 import { afterAll, expect, mock, test } from "bun:test";
 
 import type { ExternalPost } from "@asm/protocols/contracts";
-import { defaultNetworkPreferences } from "@asm/protocols/discovery";
+import {
+  defaultNetworkPreferences,
+  feedHeadFreshMs,
+} from "@asm/protocols/discovery";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Window } from "happy-dom";
 import { act } from "react";
@@ -178,6 +181,46 @@ afterAll(async () => {
     } else {
       Reflect.deleteProperty(globalThis, key);
     }
+  }
+});
+
+test("returning to an expired Home feed retains its loaded pages and continuation", async () => {
+  const client = new QueryClient();
+  const key = [
+    "post-feed",
+    "trending",
+    "guest",
+    "test",
+    "en",
+    "focused",
+    "engaged-v1",
+  ];
+  const retained = {
+    pageParams: [null, "second"],
+    pages: [
+      { nextCursor: "second", posts: [] },
+      { nextCursor: "tail", posts: [] },
+    ],
+  };
+  client.setQueryData(key, retained, {
+    updatedAt: Date.now() - feedHeadFreshMs - 1,
+  });
+  const root = createRoot(dom.document.createElement("div"));
+  try {
+    await act(() =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <HomeFeed variant="trending" />
+        </QueryClientProvider>
+      )
+    );
+    await act(() =>
+      dom.document.dispatchEvent(new dom.Event("visibilitychange"))
+    );
+    expect(client.getQueryData(key)).toBe(retained);
+  } finally {
+    await act(() => root.unmount());
+    client.clear();
   }
 });
 

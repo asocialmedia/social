@@ -292,6 +292,10 @@ export function useFeedTab({
         // the active key; a stale guest fetch settling after a re-key must
         // not hijack the live probe.
         if (active && mode === "replace" && activeKeyRef.current === cacheKey) {
+          setNewItems([]);
+          if (manual) {
+            setIncomingIds(new Set());
+          }
           startProbe(cacheKey);
         }
         if (inflightKey.current === cacheKey) {
@@ -357,14 +361,12 @@ export function useFeedTab({
         return;
       }
       const current = feedCache.get(cacheKey);
-      if (
+      const headExpired =
         active &&
         variant !== "following" &&
         current.fetchedAt > 0 &&
-        Date.now() - current.fetchedAt >= feedHeadFreshMs
-      ) {
-        void runFetch("replace", null, true);
-      } else if (current.status === "idle" || current.stale) {
+        Date.now() - current.fetchedAt >= feedHeadFreshMs;
+      if (headExpired || current.status === "idle" || current.stale) {
         void runFetch("replace", null);
       } else if (active && current.pages.length > 0) {
         startProbe(cacheKey);
@@ -413,8 +415,6 @@ export function useFeedTab({
       return;
     }
     stopProbe();
-    setIncomingIds(new Set());
-    setNewItems([]);
     feedCache.invalidate(cacheKey);
     void runFetch("replace", null, true);
   }, [cacheKey, enabled, network, runFetch, stopProbe]);

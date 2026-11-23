@@ -2,7 +2,9 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 
 import {
   closePrisma,
+  networkSql,
   prisma,
+  rawQuery,
   readNetworkPreferences,
   invalidateFypProfile,
   recordNetworkSignal,
@@ -69,6 +71,55 @@ async function read(
   }
   return { page, status: response.status };
 }
+
+test("candidate date bounds are inclusive and independent of the database session timezone", async () => {
+  const topic = `timezone-boundary-${userId}`;
+  const lower = new Date("2026-10-17T09:00:00.000Z");
+  const upper = new Date("2026-10-17T10:00:00.000Z");
+  const [tooOld, atLower, atUpper, tooNew] = await Promise.all(
+    [
+      lower.getTime() - 1,
+      lower.getTime(),
+      upper.getTime(),
+      upper.getTime() + 1,
+    ].map((time) =>
+      prisma.orm.public.Posts.create({
+        content: "Timezone boundary fixture",
+        createdAt: toPrismaDateTime(new Date(time)),
+        semanticTags: [topic],
+        userId: authorId,
+      })
+    )
+  );
+  const rows = await prisma.transaction(async (transaction) => {
+    await rawQuery<{ zone: string }>(
+      "SELECT set_config('TimeZone', $1, true) AS zone",
+      ["Pacific/Honolulu"],
+      { zone: "pg/text@1" },
+      transaction
+    );
+    const result = await rawQuery<{ id: string }>(
+      networkSql.pagedCandidates,
+      [
+        [topic],
+        true,
+        "latest",
+        false,
+        0,
+        toPrismaDateTime(upper).toString(),
+        [],
+        toPrismaDateTime(lower).toString(),
+      ],
+      { id: "pg/text@1" },
+      transaction
+    );
+    return result.rows;
+  });
+  expect(rows.map((post) => post.id)).toEqual([atUpper.id, atLower.id]);
+  expect(
+    rows.some((post) => post.id === tooNew.id || post.id === tooOld.id)
+  ).toBe(false);
+});
 
 test("the home timeline and guest bootstrap stop serving expired ASM posts while the profile archive retains them", async () => {
   const now = Date.now();

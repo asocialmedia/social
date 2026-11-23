@@ -390,10 +390,16 @@ export function useSeamlessFeedHead<T extends { id: string }>({
   }, [enabled, root, scope, tracksUnread]);
 
   useEffect(() => {
-    if (enabled && count > 0 && !refreshing && !paging) {
+    if (
+      enabled &&
+      count > 0 &&
+      !refreshing &&
+      !paging &&
+      latest.current.scope === scope
+    ) {
       admitRef.current?.();
     }
-  }, [enabled, count, refreshing, paging]);
+  }, [enabled, count, refreshing, paging, scope]);
   return {
     acknowledge,
     pullState,

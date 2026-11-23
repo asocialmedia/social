@@ -33,6 +33,13 @@ interface DiscoveryState {
   sourceStatus?: FeedSourceStatus;
 }
 
+function nextReadRetryAt(failure: unknown) {
+  return (
+    Date.now() +
+    Math.max(failure instanceof FeedReadError ? failure.retryAfter : 0, 30_000)
+  );
+}
+
 export function createBlueskyFeed(
   apiBase: string,
   mode: DiscoveryMode,
@@ -55,6 +62,7 @@ export function createBlueskyFeed(
   let generation = 0;
   let retryable = false;
   let retryAt = 0;
+  let headRetryAt = 0;
   let headLoadedAt = 0;
   let failedRead: { cursor: string | null; replace: boolean } | null = null;
   const listeners = new Set<() => void>();
@@ -138,6 +146,7 @@ export function createBlueskyFeed(
       }
       if (replace && !page.sourceStatus) {
         headLoadedAt = Date.now();
+        headRetryAt = 0;
       }
       update({
         newItems: replace ? [] : state.newItems,
@@ -153,12 +162,7 @@ export function createBlueskyFeed(
         const failure = timedOut ? new FeedReadError(408) : error;
         failedRead = { cursor: retryCursor, replace: retryReplace };
         retryable = canRetryRead(failure);
-        retryAt =
-          Date.now() +
-          Math.max(
-            failure instanceof FeedReadError ? failure.retryAfter : 0,
-            30_000
-          );
+        retryAt = nextReadRetryAt(failure);
         update({
           error: "Bluesky is temporarily unavailable. Try again shortly.",
           status: "error",
@@ -179,10 +183,12 @@ export function createBlueskyFeed(
     headController?.abort();
     headController = null;
   };
-  const probe = async () => {
+  const probe = async (mergeHead = false) => {
     if (
       headController ||
       controller ||
+      headRetryAt > Date.now() ||
+      (failedRead?.replace && (!retryable || retryAt > Date.now())) ||
       (state.sourceStatus?.retryAt ?? 0) > Date.now()
     ) {
       return;
@@ -190,6 +196,8 @@ export function createBlueskyFeed(
     if (state.pages.length === 0) {
       return load(null, true);
     }
+    const tail = state.pages.at(-1);
+    const recoverContinuation = Boolean(tail?.sourceStatus && !tail.cursor);
     const current = new AbortController();
     headController = current;
     try {
@@ -199,32 +207,82 @@ export function createBlueskyFeed(
         cursor: null,
         fetch: baseFetch,
         following,
-        mode: !following && mode === "personalized" ? "latest" : mode,
+        // A restored continuation must use the feed's mode, not the latest-post probe.
+        mode:
+          !mergeHead &&
+          !recoverContinuation &&
+          !following &&
+          mode === "personalized"
+            ? "latest"
+            : mode,
         refresh: true,
         signal: current.signal,
       });
       if (current.signal.aborted) {
         return;
       }
-      update({ sourceStatus: page.sourceStatus });
       const known = new Set(
         state.pages.flatMap((entry) => entry.items.map((item) => item.id))
       );
-      const pending = new Set(state.newItems.map((post) => post.id));
-      const fresh = page.items.filter(
-        (item) => !known.has(item.id) && !pending.has(item.id)
-      );
-      const [first] = state.pages;
-      if (first && fresh.length) {
-        update({ newItems: [...fresh, ...state.newItems].slice(0, 100) });
+      const fresh = page.items.filter((item) => !known.has(item.id));
+      const patch: Partial<DiscoveryState> = {
+        sourceStatus: page.sourceStatus,
+      };
+      if (recoverContinuation && !page.sourceStatus) {
+        const currentTail = state.pages.at(-1);
+        if (!currentTail?.sourceStatus || currentTail.cursor) {
+          return;
+        }
+        patch.pages = [
+          ...state.pages.slice(0, -1),
+          { ...currentTail, cursor: page.cursor, sourceStatus: undefined },
+        ];
+        headLoadedAt = Date.now();
       }
-    } catch {
+      if (mergeHead && !page.sourceStatus) {
+        headLoadedAt = Date.now();
+        headRetryAt = 0;
+        if (failedRead?.replace) {
+          failedRead = null;
+          retryable = false;
+          patch.error = null;
+          patch.status = "success";
+        }
+        const [first, ...rest] = patch.pages ?? state.pages;
+        const admitted = new Set(fresh.map((item) => item.id));
+        patch.pages = [
+          { ...first, items: [...fresh, ...first.items] },
+          ...rest,
+        ];
+        patch.newItems = state.newItems.filter(
+          (item) => !admitted.has(item.id)
+        );
+      } else {
+        const pending = new Set(state.newItems.map((post) => post.id));
+        const unseen = fresh.filter((item) => !pending.has(item.id));
+        if (unseen.length) {
+          patch.newItems = [...unseen, ...state.newItems].slice(0, 100);
+        }
+      }
+      update(patch);
+    } catch (error) {
       // A background failure retains both the visible content and continuation cursor.
+      if (mergeHead && !current.signal.aborted) {
+        headRetryAt = canRetryRead(error) ? nextReadRetryAt(error) : Infinity;
+      }
     } finally {
       if (headController === current) {
         headController = null;
       }
     }
+  };
+  const recover = () => {
+    if (!failedRead || !retryable || Date.now() < retryAt) {
+      return Promise.resolve();
+    }
+    return failedRead.replace && state.pages.length > 0
+      ? probe(true)
+      : load(failedRead.cursor, failedRead.replace);
   };
   return {
     acceptNew: () => {
@@ -243,18 +301,22 @@ export function createBlueskyFeed(
       if (controller || (state.sourceStatus?.retryAt ?? 0) > Date.now()) {
         return;
       }
-      if (
-        state.pages.length === 0 ||
-        (failedRead && retryable && Date.now() >= retryAt) ||
-        (headLoadedAt > 0 && Date.now() - headLoadedAt >= feedHeadFreshMs)
-      ) {
+      if (failedRead) {
+        void recover();
+      } else if (state.pages.length === 0) {
         void load(null, true);
+      } else if (
+        headLoadedAt > 0 &&
+        Date.now() - headLoadedAt >= feedHeadFreshMs
+      ) {
+        void probe(true);
       }
     },
     dispose: () => {
       cancel();
       failedRead = null;
       retryable = false;
+      headRetryAt = 0;
       update({
         error: null,
         loadingMore: false,
@@ -277,12 +339,7 @@ export function createBlueskyFeed(
       update({ loadingMore: false, refreshing: false });
     },
     probe,
-    recover: () => {
-      if (failedRead && retryable && Date.now() >= retryAt) {
-        return load(failedRead.cursor, failedRead.replace);
-      }
-      return Promise.resolve();
-    },
+    recover,
     refresh: () => {
       cancel();
       return load(null, true);

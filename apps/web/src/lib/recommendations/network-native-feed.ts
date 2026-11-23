@@ -379,6 +379,11 @@ async function buildNetworkNativeFeed(
   const notBefore = homePostFeed
     ? new Date(Date.parse(anchor) - discoveryMaxAgeMs(mode))
     : null;
+  // Posts.createdAt stores UTC wall time without a timezone.
+  const candidateAnchor = toPrismaDateTime(new Date(anchor)).toString();
+  const candidateNotBefore = notBefore
+    ? toPrismaDateTime(notBefore).toString()
+    : null;
   const stopRetrieval = timing.start("retrieval");
   // Keep each surface's record and consider both when ranking a fresh head.
   const servedFeed = `${exploring ? "explore" : "home"}:${contentKind}:${mode}`;
@@ -438,7 +443,7 @@ async function buildNetworkNativeFeed(
       level === 1 && seeds.length === 0
         ? Promise.resolve({ rows: [] as { id: string }[] })
         : nativeCandidateIds({
-            anchor,
+            anchor: candidateAnchor,
             continuation:
               query.get("refresh") === "1" ||
               Boolean(cursor) ||
@@ -447,7 +452,7 @@ async function buildNetworkNativeFeed(
             explicit: context.preferences.showExplicitContent,
             gust: contentKind === "gust",
             mode,
-            notBefore: notBefore?.toISOString() ?? null,
+            notBefore: candidateNotBefore,
             offset: candidateOffset,
             seeds,
             served,
@@ -463,9 +468,9 @@ async function buildNetworkNativeFeed(
               mode,
               contentKind === "gust",
               candidateOffset,
-              anchor,
+              candidateAnchor,
               served,
-              notBefore?.toISOString() ?? null,
+              candidateNotBefore,
             ],
             { id: "pg/text@1" }
           ),

@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 
 import { Window } from "happy-dom";
 import { act, useRef, useState } from "react";
@@ -143,7 +143,7 @@ test("automatic head admission preserves the unread pill and waits for paginatio
   }
 });
 
-function FeedAtHead() {
+function FeedAtHead({ scope = "all" }: { scope?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pending, setPending] = useState([{ id: "live" }]);
   const notice = useSeamlessFeedHead({
@@ -153,6 +153,7 @@ function FeedAtHead() {
     pendingItems: pending,
     probe: async () => {},
     root: ref,
+    scope,
   });
   return (
     <div ref={ref}>
@@ -177,6 +178,41 @@ test("a batch that arrives at the latest post is inserted without a lasting pill
     expect(host.scrollTop).toBe(0);
   } finally {
     await act(() => root.unmount());
+    host.remove();
+  }
+});
+
+test("changing sources reschedules a queued merge even when the unread count is unchanged", async () => {
+  const host = dom.document.createElement("div");
+  host.style.overflowY = "auto";
+  dom.document.body.append(host);
+  const root = createRoot(host as unknown as HTMLElement);
+  let frameId = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  const schedule = spyOn(dom, "requestAnimationFrame").mockImplementation(
+    (runFrame) => {
+      frameId += 1;
+      frames.set(frameId, runFrame);
+      return frameId;
+    }
+  );
+  const cancel = spyOn(dom, "cancelAnimationFrame").mockImplementation((id) => {
+    frames.delete(id);
+  });
+  try {
+    await act(() => root.render(<FeedAtHead />));
+    const [original] = frames.keys();
+    expect(original).toBeDefined();
+    await act(() => root.render(<FeedAtHead scope="bluesky" />));
+    expect([...frames.keys()]).toEqual([2]);
+    await act(() => {
+      frames.get(2)?.(Date.now());
+    });
+    expect(host.querySelector('[data-post-id="live"]')).toBeTruthy();
+  } finally {
+    await act(() => root.unmount());
+    cancel.mockRestore();
+    schedule.mockRestore();
     host.remove();
   }
 });

@@ -14,6 +14,7 @@ import { BlueskyIcon } from "@/components/protocols/bluesky-icon";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { getAuraFlameClass } from "@/lib/aura/aura";
 import { CARD_QUERY_POLICY } from "@/lib/cards/query-policy";
+import { trendingFeedQueryKey } from "@/lib/recommendations/trending-query";
 import { profilePath } from "@/lib/users/profile-path";
 import { cn, formatNumber, truncateUsername } from "@/lib/utils";
 
@@ -191,7 +192,7 @@ const TrendingTopics: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
   const queryClient = useQueryClient();
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
-  const queryKey = ["trending-feed", "v6", user?.id ?? "guest"];
+  const queryKey = trendingFeedQueryKey(user?.id);
   const { data, isError, isFetching, isPending } = useQuery<TrendingFeed>({
     enabled,
     queryFn: async ({ signal }) => {
@@ -218,7 +219,9 @@ const TrendingTopics: React.FC<{ mediaQuery?: string }> = ({ mediaQuery }) => {
   const topAura = data?.topAura ?? [];
 
   const refresh = useMutation({
-    mutationFn: (_variables: { key: string[] }) => readTrending(true),
+    mutationFn: (_variables: {
+      key: ReturnType<typeof trendingFeedQueryKey>;
+    }) => readTrending(true),
     onSuccess: (fresh, variables) =>
       queryClient.setQueryData<TrendingFeed>(variables.key, (previous) =>
         mergeTrendingFeed(previous, fresh)

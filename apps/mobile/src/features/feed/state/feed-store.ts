@@ -65,14 +65,13 @@ export function reconcileFeedHead(
   head: FeedPost[]
 ): FeedPost[][] {
   const fresh = new Map(head.map((post) => [post.id, post]));
+  const known = new Set(pages.flat().map((post) => post.id));
   const retained = pages.map((page) =>
     page.map((post) => fresh.get(post.id) ?? post)
   );
   const first = retained[0] ?? [];
-  return [
-    [...head, ...first.filter((post) => !fresh.has(post.id))],
-    ...retained.slice(1),
-  ];
+  const unseen = [...fresh.values()].filter((post) => !known.has(post.id));
+  return [[...unseen, ...first], ...retained.slice(1)];
 }
 
 // A published post belongs at the head of the Latest tab, and the reader should

@@ -124,14 +124,9 @@ export function useNetworkSettings(options: { optimistic?: boolean } = {}) {
         });
       }
       client.setQueryData(queryKey, value);
-      void Promise.all([
-        client.resetQueries({
-          queryKey: ["trending-feed", "v6", user?.id ?? "guest"],
-        }),
-        client.resetQueries({
-          queryKey: ["discovery-suggestions", user?.id ?? "guest", "active"],
-        }),
-      ]);
+      void client.resetQueries({
+        queryKey: ["discovery-suggestions", user?.id ?? "guest", "active"],
+      });
       setDraft((current) =>
         current?.sequence === variables.sequence ? null : current
       );

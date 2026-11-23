@@ -1,4 +1,4 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, mock, spyOn, test } from "bun:test";
 
 import type { ExternalPost } from "@asm/protocols/contracts";
 import { feedHeadFreshMs, readDiscoveryPage } from "@asm/protocols/discovery";
@@ -7,21 +7,29 @@ import { createBlueskyFeed } from "./bluesky-feed";
 
 const page = { cursor: "next", items: [external("baseline")], partial: false };
 
-test("foreground activation refreshes an expired Bluesky head once", async () => {
+test("foreground activation merges an expired Bluesky head without replacing earlier cursors", async () => {
   const start = Date.now();
   const now = spyOn(Date, "now").mockReturnValue(start);
   const fresh = external("fresh-on-return");
-  let calls = 0;
-  const store = createBlueskyFeed("https://asm.test", "personalized", () => {
-    calls += 1;
-    return Promise.resolve(
-      Response.json(calls === 1 ? page : { ...page, items: [fresh] })
-    );
+  const deep = external("deep");
+  const older = external("older");
+  const queries: URLSearchParams[] = [];
+  const responses = [
+    page,
+    { ...page, cursor: "tail", items: [deep] },
+    { ...page, cursor: "new-session", items: [fresh, deep] },
+    { ...page, cursor: null, items: [older] },
+  ];
+  const store = createBlueskyFeed("https://asm.test", "personalized", (url) => {
+    queries.push(new URL(url).searchParams);
+    return Promise.resolve(Response.json(responses.shift()));
   });
   try {
     await store.refresh();
+    await store.fetchNext();
+    const [, tail] = store.snapshot().pages;
     store.activate();
-    expect(calls).toBe(1);
+    expect(queries).toHaveLength(2);
     now.mockReturnValue(start + feedHeadFreshMs);
     const arrival = Promise.withResolvers<boolean>();
     const unsubscribe = store.subscribe(() => {
@@ -33,12 +41,80 @@ test("foreground activation refreshes an expired Bluesky head once", async () =>
     store.activate();
     await arrival.promise;
     unsubscribe();
-    expect(calls).toBe(2);
+    expect(queries).toHaveLength(3);
+    expect(queries[2]?.get("mode")).toBe("personalized");
+    expect(store.snapshot().pages[0]?.items).toEqual([fresh, ...page.items]);
+    expect(store.snapshot().pages[0]?.cursor).toBe("next");
+    expect(store.snapshot().pages[1]).toBe(tail);
+    await store.fetchNext();
+    expect(queries[3]?.get("cursor")).toBe("tail");
+    expect(store.snapshot().pages[2]?.items).toEqual([older]);
   } finally {
     now.mockRestore();
     store.dispose();
   }
 });
+
+test.each([
+  { manual: false, status: 503 },
+  { manual: true, status: 503 },
+  { manual: true, status: 400 },
+])(
+  "an expired Bluesky head respects a failed $status read on activation",
+  async ({ manual, status }) => {
+    const start = Date.now();
+    const now = spyOn(Date, "now").mockReturnValue(start);
+    const fresh = external("recovered-head");
+    const fetchFeed = mock()
+      .mockResolvedValueOnce(Response.json(page))
+      .mockResolvedValueOnce(
+        new Response(null, { headers: { "Retry-After": "60" }, status })
+      )
+      .mockResolvedValueOnce(Response.json({ ...page, items: [fresh] }));
+    const store = createBlueskyFeed(
+      "https://asm.test",
+      "personalized",
+      fetchFeed
+    );
+    try {
+      await store.refresh();
+      now.mockReturnValue(start + feedHeadFreshMs);
+      if (manual) {
+        await store.refresh();
+      } else {
+        store.activate();
+        await Bun.sleep(0);
+      }
+      now.mockReturnValue(start + feedHeadFreshMs + 30_000);
+      store.activate();
+      expect(fetchFeed).toHaveBeenCalledTimes(2);
+      expect(store.snapshot().pages[0]?.items).toEqual(page.items);
+
+      now.mockReturnValue(start + feedHeadFreshMs + 60_000);
+      if (status === 400) {
+        store.activate();
+        expect(fetchFeed).toHaveBeenCalledTimes(2);
+        await store.retry();
+      } else if (manual) {
+        await store.recover();
+      } else {
+        store.activate();
+        await Bun.sleep(0);
+      }
+      expect(fetchFeed).toHaveBeenCalledTimes(3);
+      expect(store.snapshot().pages[0]?.items[0]).toEqual(fresh);
+      if (status === 503) {
+        expect(store.snapshot().pages[0]?.items).toEqual([
+          fresh,
+          ...page.items,
+        ]);
+      }
+    } finally {
+      now.mockRestore();
+      store.dispose();
+    }
+  }
+);
 
 test("repeated Bluesky cursors stop the skeleton and retain posts until manual retry", async () => {
   let calls = 0;
@@ -242,6 +318,54 @@ test("a deferred mixed continuation preserves visible posts and resumes the same
   expect(
     new URL(urls[3] ?? "https://asm.test").searchParams.get("cursor")
   ).toBe("tail");
+});
+
+test("a cached mixed head regains personalized pagination after Bluesky recovers", async () => {
+  const old = external("cached");
+  const fresh = external("fresh");
+  const older = external("older");
+  const deferred = {
+    ...page,
+    cursor: null,
+    items: [old],
+    sourceStatus: { reason: "upstream_unavailable", retryAt: Date.now() - 1 },
+  };
+  const queries: URLSearchParams[] = [];
+  const responses = [
+    deferred,
+    deferred,
+    { ...page, cursor: "recovered-tail", items: [fresh, old] },
+    { ...page, cursor: null, items: [old, older] },
+  ];
+  const store = createBlueskyFeed(
+    "https://asm.test",
+    "personalized",
+    (url) => {
+      queries.push(new URL(url).searchParams);
+      return Promise.resolve(Response.json(responses.shift()));
+    },
+    false,
+    { mixed: true }
+  );
+  await store.refresh();
+  await store.probe();
+  expect(store.snapshot().sourceStatus?.reason).toBe("upstream_unavailable");
+  expect(store.snapshot().pages[0]?.cursor).toBeNull();
+  await store.probe();
+  expect(queries[2]?.get("mode")).toBe("personalized");
+  expect(queries[2]?.get("refresh")).toBe("1");
+  expect(store.snapshot().sourceStatus).toBeUndefined();
+  expect(store.snapshot().pages[0]?.items).toEqual([old]);
+  expect(store.snapshot().newItems).toEqual([fresh]);
+  store.acceptNew();
+  await store.fetchNext();
+  expect(queries[3]?.get("cursor")).toBe("recovered-tail");
+  expect(store.snapshot().pages.flatMap((entry) => entry.items)).toEqual([
+    fresh,
+    old,
+    older,
+  ]);
+  store.dispose();
 });
 
 test("accepting new head posts keeps downward pagination on its existing cursor", async () => {
