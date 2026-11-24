@@ -59,6 +59,8 @@ if (import.meta.main) {
     await import("./jobs/safety/warm-external-media-safety");
   const { processMediaScan } = await import("./jobs/scanning/scan");
   const { processMedia } = await import("./jobs/processing/process");
+  const { processStorageDeferral } =
+    await import("./jobs/processing/storage-retry");
   const { processMediaCleanup } = await import("./jobs/maintenance/cleanup");
   const { processMediaAnalyze } = await import("./jobs/analysis/analyze");
   const { processExternalMediaSafety, ExternalMediaDownloadDeferredError } =
@@ -213,7 +215,29 @@ if (import.meta.main) {
     async (job) => {
       switch (job.name) {
         case MEDIA_JOB_NAMES.process: {
-          return await processMedia(job.data as { mediaId: string });
+          const data = job.data as {
+            mediaId: string;
+            bucketDeferrals?: number;
+          };
+          try {
+            return await processMedia(data);
+          } catch (error) {
+            const deferral = processStorageDeferral(
+              error,
+              data.bucketDeferrals
+            );
+            if (!job.token || !deferral) {
+              throw error;
+            }
+            const { bucketDeferrals, retryAt } = deferral;
+            await job.updateData({ ...data, bucketDeferrals });
+            await job.moveToDelayed(retryAt, job.token);
+            mediaLogger.warn(
+              { jobId: job.id, retryAt },
+              "Media processing deferred because the storage bucket is unavailable"
+            );
+            throw new DelayedError();
+          }
         }
         case MEDIA_JOB_NAMES.analyze: {
           try {

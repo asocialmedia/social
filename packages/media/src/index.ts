@@ -41,6 +41,7 @@ export type {
   VideoTechMetadata,
 } from "./types";
 export { isAudioTechMetadata, isVideoTechMetadata } from "./types";
+export { isStorageBucketMissing } from "./storage-error";
 
 export {
   DEFAULT_LIMITS,
