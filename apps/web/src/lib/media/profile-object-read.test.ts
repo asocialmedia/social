@@ -1,6 +1,36 @@
 import { expect, mock, test } from "bun:test";
 
-import { retryProfileObjectRead } from "./profile-object-read";
+import {
+  profileObjectErrorDetails,
+  retryProfileObjectRead,
+} from "./profile-object-read";
+
+test("storage diagnostics keep safe error codes and status without provider details", () => {
+  expect(
+    profileObjectErrorDetails({
+      cause: { code: "ECONNREFUSED" },
+      message: "private endpoint",
+    })
+  ).toEqual({ code: "ECONNREFUSED" });
+  expect(
+    profileObjectErrorDetails({
+      $metadata: { httpStatusCode: 403, requestId: "opaque-request-id" },
+      name: "AccessDenied",
+    })
+  ).toEqual({ code: "AccessDenied", upstreamStatus: 403 });
+  expect(
+    profileObjectErrorDetails({
+      $metadata: { httpStatusCode: 500 },
+      name: "InternalError",
+    })
+  ).toEqual({ code: "InternalError", upstreamStatus: 500 });
+  expect(
+    profileObjectErrorDetails({
+      code: "https://signed.example/path",
+      stack: "private",
+    })
+  ).toEqual({ code: "unknown" });
+});
 
 test("a temporary missing bucket is retried and can return the original image", async () => {
   const read = mock(() => Promise.resolve("image bytes")).mockRejectedValueOnce(

@@ -1,8 +1,10 @@
-import { isStorageBucketMissing } from "@asm/media";
 import { NextResponse } from "next/server";
 
 import type { ReadProfileObject } from "@/lib/media/profile-object-read";
-import { retryProfileObjectRead } from "@/lib/media/profile-object-read";
+import {
+  profileObjectErrorDetails,
+  retryProfileObjectRead,
+} from "@/lib/media/profile-object-read";
 
 // Banners live in the private ASMOB bucket (key prefix `banners/{userId}/...`)
 // and are streamed through this app route so content is only reachable via the
@@ -59,9 +61,10 @@ export async function serveBannerImage(
     if (error instanceof Error && error.name === "NoSuchKey") {
       return new NextResponse("Banner not found", { status: 404 });
     }
-    console.error("Banner object read failed", {
-      bucketUnavailable: isStorageBucketMissing(error),
-    });
+    console.error(
+      "Banner object read failed",
+      profileObjectErrorDetails(error)
+    );
     return new NextResponse("Banner temporarily unavailable", {
       headers: { "Cache-Control": "no-store", "Retry-After": "5" },
       status: 503,
