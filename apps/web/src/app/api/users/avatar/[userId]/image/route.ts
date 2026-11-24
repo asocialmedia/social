@@ -1,8 +1,10 @@
 import { avatarCache, prisma } from "@asm/db";
+import { isStorageBucketMissing } from "@asm/media";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
 import { ASMOB_BUCKET, asmobClient } from "@/lib/media/object-storage";
+import { retryProfileObjectRead } from "@/lib/media/profile-object-read";
 import { getDefaultAvatar } from "@/lib/utils/image-url";
 
 const IMAGE_CONTENT_TYPES = new Set([
@@ -57,7 +59,7 @@ export async function GET(
 
   let avatarKey: string | null = null;
   try {
-    const cached = await avatarCache.get(userId);
+    const cached = await avatarCache.get(userId).catch(() => null);
     if (cached?.key) {
       avatarKey = cached.key;
     }
@@ -78,11 +80,13 @@ export async function GET(
   }
 
   try {
-    const response = await asmobClient.send(
-      new GetObjectCommand({
-        Bucket: ASMOB_BUCKET,
-        Key: avatarKey,
-      })
+    const command = new GetObjectCommand({
+      Bucket: ASMOB_BUCKET,
+      Key: avatarKey,
+    });
+    const response = await retryProfileObjectRead(
+      () => asmobClient.send(command, { abortSignal: request.signal }),
+      request.signal
     );
 
     if (!response.Body || response.ContentLength === 0) {
@@ -115,10 +119,8 @@ export async function GET(
 
     return new NextResponse(response.Body.transformToWebStream(), { headers });
   } catch (error) {
-    // Expected when the object or bucket is simply absent (NoSuchKey /
-    // NoSuchBucket / 404), or when rustfs reports disk exhaustion
-    // ("Storage resources are insufficient"). Any other 5xx stays loud so
-    // real storage outages keep their error log.
+    // Ordinary missing objects use the default avatar. Bucket failures stay
+    // visible in logs and fallback redirects must be safe to retry.
     const maybeS3 = error as {
       Code?: string;
       message?: string;
@@ -128,15 +130,21 @@ export async function GET(
     const code = maybeS3?.Code ?? maybeS3?.name ?? "";
     const status = maybeS3?.$metadata?.httpStatusCode;
     const message = String(maybeS3?.message ?? "");
+    const bucketUnavailable = isStorageBucketMissing(error);
     const isMissing =
-      code === "NoSuchBucket" || code === "NoSuchKey" || status === 404;
+      !bucketUnavailable && (code === "NoSuchKey" || status === 404);
     const isDiskExhausted =
       message.includes("Storage resources are insufficient") &&
       (code === "InternalError" || status === 500);
-    if (!isMissing && !isDiskExhausted) {
+    if (bucketUnavailable) {
+      console.error("Avatar storage bucket unavailable after retry");
+    } else if (!isMissing && !isDiskExhausted && !request.signal.aborted) {
       console.error("Avatar proxy error:", error);
     }
     const fallbackPath = getDefaultAvatar(userId);
-    return NextResponse.redirect(new URL(fallbackPath, request.url), 307);
+    return NextResponse.redirect(new URL(fallbackPath, request.url), {
+      headers: { "Cache-Control": "no-store" },
+      status: 307,
+    });
   }
 }

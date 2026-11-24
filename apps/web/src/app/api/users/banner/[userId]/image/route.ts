@@ -1,14 +1,16 @@
 import { prisma } from "@asm/db";
+import { isStorageBucketMissing } from "@asm/media";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
 import { ASMOB_BUCKET, asmobClient } from "@/lib/media/object-storage";
+import { retryProfileObjectRead } from "@/lib/media/profile-object-read";
 
 // Banners live in the private ASMOB bucket (key prefix `banners/{userId}/...`)
 // and are streamed through this app route so content is only reachable via the
 // app, never directly from object storage.
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ userId: string }> }
 ) {
   const { userId } = await context.params;
@@ -22,11 +24,13 @@ export async function GET(
   }
 
   try {
-    const response = await asmobClient.send(
-      new GetObjectCommand({
-        Bucket: ASMOB_BUCKET,
-        Key: user.bannerKey,
-      })
+    const command = new GetObjectCommand({
+      Bucket: ASMOB_BUCKET,
+      Key: user.bannerKey,
+    });
+    const response = await retryProfileObjectRead(
+      () => asmobClient.send(command, { abortSignal: request.signal }),
+      request.signal
     );
 
     if (!response.Body) {
@@ -61,6 +65,13 @@ export async function GET(
 
     return new NextResponse(response.Body.transformToWebStream(), { headers });
   } catch (error) {
+    if (isStorageBucketMissing(error)) {
+      console.error("Banner storage bucket unavailable after retry");
+      return new NextResponse("Banner temporarily unavailable", {
+        headers: { "Cache-Control": "no-store", "Retry-After": "5" },
+        status: 503,
+      });
+    }
     console.error("Banner proxy error:", error);
     return new NextResponse("Banner not found", { status: 404 });
   }
