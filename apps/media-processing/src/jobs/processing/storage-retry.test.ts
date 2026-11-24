@@ -1,18 +1,29 @@
 import { expect, test } from "bun:test";
 
-import { processStorageRetryAt } from "./storage-retry";
+import { processStorageDeferral } from "./storage-retry";
 
-test("a missing bucket defers processing with a bounded backoff", () => {
+test("a missing bucket defers processing with a bounded independent backoff", () => {
   const error = { code: "NoSuchBucket" };
-  expect(processStorageRetryAt(error, 1, 1000)).toBe(31_000);
-  expect(processStorageRetryAt(error, 2, 1000)).toBe(121_000);
-  expect(processStorageRetryAt(error, 3, 1000)).toBe(301_000);
-  expect(processStorageRetryAt(error, 4, 1000)).toBeUndefined();
+  const first = processStorageDeferral(error, undefined, 1000);
+  expect(first).toEqual({ bucketDeferrals: 1, retryAt: 31_000 });
+  expect(
+    processStorageDeferral(
+      new Error("Network failure"),
+      first?.bucketDeferrals,
+      1000
+    )
+  ).toBeUndefined();
+  const second = processStorageDeferral(error, first?.bucketDeferrals, 1000);
+  expect(second).toEqual({ bucketDeferrals: 2, retryAt: 121_000 });
+  const third = processStorageDeferral(error, second?.bucketDeferrals, 1000);
+  expect(third).toEqual({ bucketDeferrals: 3, retryAt: 301_000 });
+  expect(
+    processStorageDeferral(error, third?.bucketDeferrals, 1000)
+  ).toBeUndefined();
 });
 
-test("missing objects and generic errors use normal queue failure handling", () => {
-  expect(processStorageRetryAt({ code: "NoSuchKey" }, 1, 1000)).toBeUndefined();
+test("missing objects use normal queue failure handling", () => {
   expect(
-    processStorageRetryAt(new Error("Network failure"), 1, 1000)
+    processStorageDeferral({ code: "NoSuchKey" }, 0, 1000)
   ).toBeUndefined();
 });

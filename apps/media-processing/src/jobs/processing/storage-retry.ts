@@ -2,13 +2,13 @@ import { isStorageBucketMissing } from "@asm/media";
 
 const delaysMs = [30_000, 120_000, 300_000];
 
-export function processStorageRetryAt(
+export function processStorageDeferral(
   error: unknown,
-  attemptsStarted: number,
+  bucketDeferrals = 0,
   now = Date.now()
-): number | undefined {
-  const delay = delaysMs[attemptsStarted - 1];
+) {
+  const delay = delaysMs[bucketDeferrals];
   if (delay !== undefined && isStorageBucketMissing(error)) {
-    return now + delay;
+    return { bucketDeferrals: bucketDeferrals + 1, retryAt: now + delay };
   }
 }

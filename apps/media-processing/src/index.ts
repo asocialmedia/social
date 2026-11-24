@@ -59,7 +59,7 @@ if (import.meta.main) {
     await import("./jobs/safety/warm-external-media-safety");
   const { processMediaScan } = await import("./jobs/scanning/scan");
   const { processMedia } = await import("./jobs/processing/process");
-  const { processStorageRetryAt } =
+  const { processStorageDeferral } =
     await import("./jobs/processing/storage-retry");
   const { processMediaCleanup } = await import("./jobs/maintenance/cleanup");
   const { processMediaAnalyze } = await import("./jobs/analysis/analyze");
@@ -215,13 +215,22 @@ if (import.meta.main) {
     async (job) => {
       switch (job.name) {
         case MEDIA_JOB_NAMES.process: {
+          const data = job.data as {
+            mediaId: string;
+            bucketDeferrals?: number;
+          };
           try {
-            return await processMedia(job.data as { mediaId: string });
+            return await processMedia(data);
           } catch (error) {
-            const retryAt = processStorageRetryAt(error, job.attemptsStarted);
-            if (!job.token || retryAt === undefined) {
+            const deferral = processStorageDeferral(
+              error,
+              data.bucketDeferrals
+            );
+            if (!job.token || !deferral) {
               throw error;
             }
+            const { bucketDeferrals, retryAt } = deferral;
+            await job.updateData({ ...data, bucketDeferrals });
             await job.moveToDelayed(retryAt, job.token);
             mediaLogger.warn(
               { jobId: job.id, retryAt },
