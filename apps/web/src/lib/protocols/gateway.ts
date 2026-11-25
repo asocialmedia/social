@@ -3,11 +3,13 @@ import {
   getTrustedIngressIp,
   hashViewerId,
 } from "@asm/db";
+import { ProtocolError } from "@asm/protocols/contracts";
 import { abortable, readJsonBounded } from "@asm/protocols/discovery";
 
 import { getWebLogger } from "@/lib/otel";
 import { admitFeedRead } from "@/lib/recommendations/feed-admission";
 import { feedTiming } from "@/lib/recommendations/feed-timing";
+import { requestNetworkErrorCodes } from "@/lib/request-error";
 import { isTrustedMutationOrigin } from "@/lib/security/request-origin";
 
 import { consumeProtocolBudget, ProtocolBudgetError } from "./budget";
@@ -77,7 +79,19 @@ export async function protocolRoute(
   };
   const isSearch = operation === "search";
   const isFeed = operation === "discovery";
+  const route = new URL(request.url).pathname;
   if (!isFeed && (isSearch ? activeSearches >= 256 : active >= 128)) {
+    getWebLogger()?.warn(
+      {
+        code: "gateway_capacity",
+        event: "protocols.gateway",
+        operation,
+        requestId: id,
+        route,
+        status: 503,
+      },
+      "Protocol gateway capacity exhausted"
+    );
     return Response.json(
       { error: "Bluesky is busy. Try again shortly." },
       { headers: { ...headers, "retry-after": "2" }, status: 503 }
@@ -90,8 +104,11 @@ export async function protocolRoute(
   }
   let response: Response;
   let code = "ok";
+  let networkErrorCodes: string[] = [];
+  let stage: "admission" | "budget" | "handler" = "admission";
   try {
     const execute = async () => {
+      stage = "budget";
       const ip =
         process.env.NODE_ENV === "production"
           ? getTrustedIngressIp(request.headers)
@@ -107,6 +124,7 @@ export async function protocolRoute(
           AbortSignal.any([request.signal, AbortSignal.timeout(2500)])
         )
       );
+      stage = "handler";
       return await abortable(
         run(id),
         AbortSignal.any([request.signal, AbortSignal.timeout(20_000)])
@@ -114,11 +132,22 @@ export async function protocolRoute(
     };
     response = isFeed ? await admitFeedRead(request, execute) : await execute();
   } catch (error) {
-    let failure = new ProtocolGatewayError(503, "dependency_unavailable");
-    if (error instanceof ProtocolBudgetError) {
+    networkErrorCodes = requestNetworkErrorCodes([error]);
+    let failure = new ProtocolGatewayError(503, `${stage}_unavailable`);
+    if (request.signal.aborted) {
+      failure = new ProtocolGatewayError(499, "client_disconnected");
+    } else if (error instanceof ProtocolBudgetError) {
       failure = new ProtocolGatewayError(429, "rate_limited", error.retryAfter);
     } else if (error instanceof ProtocolGatewayError) {
       failure = error;
+    } else if (error instanceof ProtocolError) {
+      failure = new ProtocolGatewayError(
+        503,
+        `${stage}_${error.code}`,
+        error.retryAfterSeconds
+      );
+    } else if (error instanceof Error && error.name === "TimeoutError") {
+      failure = new ProtocolGatewayError(503, `${stage}_timeout`);
     }
     ({ code } = failure);
     let message = "Bluesky is temporarily unavailable";
@@ -157,12 +186,15 @@ export async function protocolRoute(
     response.headers.append("set-cookie", guest.cookie);
   }
   const fields = {
-    code,
+    code: code === "ok" && response.status >= 500 ? "handler_response" : code,
     durationMs: Math.round(performance.now() - startedAt),
     event: "protocols.gateway",
     operation,
     requestId: id,
+    route,
+    stage,
     status: response.status,
+    ...(networkErrorCodes.length ? { networkErrorCodes } : {}),
   };
   if (response.status >= 500) {
     getWebLogger()?.warn(fields, "Protocol gateway dependency failed");

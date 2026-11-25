@@ -1,11 +1,20 @@
 export function isStorageBucketMissing(error: unknown): boolean {
-  if (!error || typeof error !== "object") {
-    return false;
+  let current = error;
+  for (
+    let depth = 0;
+    depth < 5 && current && typeof current === "object";
+    depth += 1
+  ) {
+    const { Code, code, name, cause } = current as {
+      Code?: unknown;
+      code?: unknown;
+      name?: unknown;
+      cause?: unknown;
+    };
+    if ([Code, code, name].includes("NoSuchBucket")) {
+      return true;
+    }
+    current = cause;
   }
-  const { Code, code, name } = error as {
-    Code?: unknown;
-    code?: unknown;
-    name?: unknown;
-  };
-  return [Code, code, name].includes("NoSuchBucket");
+  return false;
 }

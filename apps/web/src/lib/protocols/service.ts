@@ -134,10 +134,29 @@ export async function readBlueskyProfileResource(
     boundedSignal
   );
   if (!response.ok) {
-    await response.body?.cancel();
+    const body = await readJsonBounded(response, 1024, boundedSignal).catch(
+      () => null
+    );
+    boundedSignal.throwIfAborted();
+    const upstream = z
+      .object({
+        error: z.enum([
+          "cancelled",
+          "capacity",
+          "internal",
+          "invalid_input",
+          "invalid_response",
+          "rate_limited",
+          "restricted",
+          "unavailable",
+        ]),
+      })
+      .safeParse(body);
     throw new ProtocolGatewayError(
       [400, 403, 404, 429].includes(response.status) ? response.status : 503,
-      "profile_unavailable",
+      upstream.success
+        ? `profile_${upstream.data.error}`
+        : "profile_unavailable",
       Math.ceil(
         (retryAfterMs(response.headers.get("retry-after")) ?? 2000) / 1000
       )

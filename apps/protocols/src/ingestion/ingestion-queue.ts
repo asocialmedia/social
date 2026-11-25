@@ -14,6 +14,7 @@ import {
   HydrationLifetimeExpiredError,
   hydrationLifetimeMs,
   hydrationRetryDelay,
+  maxRefenceAgeMs,
   resolveRefence,
 } from "./hydration-retry";
 
@@ -145,7 +146,7 @@ export function createIngestionQueue(options: {
       attempts: 3,
       backoff: { delay: 1000, type: "exponential" },
       removeOnComplete: { age: 120, count: 100 },
-      removeOnFail: { age: 300, count: 100 },
+      removeOnFail: { age: 86_400, count: 512 },
     },
     streams: { events: { maxLen: 1000 } },
   });
@@ -216,11 +217,17 @@ export function createIngestionQueue(options: {
               }
               throw error;
             }
+            const retryAt = Date.now() + delay;
+            if (retryAt > job.timestamp + maxRefenceAgeMs) {
+              throw new UnrecoverableError(
+                "Protocol hydration retry would exceed the outage recovery window"
+              );
+            }
             if (reschedule) {
               await job.updateData(error.batch);
             }
             // Only report deferral after durable scheduling succeeds; storage failures remain errors.
-            await job.moveToDelayed(Date.now() + delay, job.token);
+            await job.moveToDelayed(retryAt, job.token);
             options.logger.info(
               {
                 event: "ingestion.deferred",
@@ -258,13 +265,16 @@ export function createIngestionQueue(options: {
   });
   worker.on("failed", (job, error) => {
     failed += 1;
-    counter.add(1, { node: options.node, outcome: "failed" });
     // Include job identity and cause. Unrecoverable rejections are terminal,
     // and so is an ordinary error once the attempt budget is spent, since
     // BullMQ will not retry it further.
     const maxAttempts = job?.opts?.attempts ?? 3;
     const exhausted = (job?.attemptsMade ?? 0) >= maxAttempts;
     const terminal = error instanceof UnrecoverableError || exhausted;
+    counter.add(1, {
+      node: options.node,
+      outcome: terminal ? "failed" : "retrying",
+    });
     const log = terminal ? options.logger.error : options.logger.warn;
     log.call(
       options.logger,
@@ -276,6 +286,7 @@ export function createIngestionQueue(options: {
         node: options.node,
         reason:
           error instanceof Error ? error.message.slice(0, 300) : "unknown",
+        retained: terminal,
         terminal,
       },
       terminal

@@ -97,7 +97,7 @@ test.skipIf(!redisUrl)(
 );
 
 test.skipIf(!redisUrl)(
-  "reader cooldowns defer hydration without exhausting job attempts",
+  "temporary reader failures without Retry-After recover without exhausting job attempts",
   async () => {
     if (!redisUrl) {
       return;
@@ -111,7 +111,7 @@ test.skipIf(!redisUrl)(
         reads += 1;
         return reads === 1
           ? Promise.reject(
-              new ProtocolError("unavailable", "Reader recovering", 1)
+              new ProtocolError("unavailable", "Reader recovering")
             )
           : Promise.resolve(4);
       },
@@ -125,7 +125,7 @@ test.skipIf(!redisUrl)(
       await queue.worker.waitUntilReady();
       await queue.refresh();
       expect(await queue.enqueue([id], Date.now())).toBe(true);
-      await until(() => queue.status().completed === 1);
+      await until(() => queue.status().completed === 1, 24_000);
       expect(reads).toBe(2);
       expect(queue.status().failed).toBe(0);
       const [job] = await queue.queue.getCompleted(0, 0);
@@ -139,7 +139,7 @@ test.skipIf(!redisUrl)(
       redis.disconnect();
     }
   },
-  10_000
+  30_000
 );
 
 test.skipIf(!redisUrl)(

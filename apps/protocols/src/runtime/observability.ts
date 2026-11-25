@@ -151,6 +151,7 @@ export function observeRequest<T>(
         span_id: spanContext.spanId,
         trace_id: spanContext.traceId,
       };
+      let outcome = "success";
       try {
         const result = await read();
         span.setStatus({ code: SpanStatusCode.OK });
@@ -163,14 +164,41 @@ export function observeRequest<T>(
         );
         return result;
       } catch (error) {
-        const code = error instanceof ProtocolError ? error.code : "internal";
+        const cancelled =
+          request.signal.aborted &&
+          (error === request.signal.reason ||
+            (error instanceof ProtocolError && error.code === "cancelled") ||
+            (error instanceof Error && error.name === "AbortError"));
+        let failure = error;
+        if (cancelled) {
+          failure = new ProtocolError("cancelled", "Request cancelled");
+        } else if (error instanceof Error && error.name === "TimeoutError") {
+          failure = new ProtocolError(
+            "unavailable",
+            "Protocol read timed out",
+            2
+          );
+        }
+        const code =
+          failure instanceof ProtocolError ? failure.code : "internal";
         const deferred = options.isDeferredError?.(error) === true;
-        span.setAttribute(
-          "asm.request.outcome",
-          deferred ? "deferred" : "error"
-        );
+        const rateLimited = code === "rate_limited";
+        const expected = deferred || cancelled || rateLimited;
+        outcome = "error";
+        let message = "Protocol request failed";
+        if (deferred) {
+          outcome = "deferred";
+          message = "Protocol request deferred";
+        } else if (cancelled) {
+          outcome = "cancelled";
+          message = "Protocol request cancelled";
+        } else if (rateLimited) {
+          outcome = "rate_limited";
+          message = "Protocol request rate limited";
+        }
+        span.setAttribute("asm.request.outcome", outcome);
         span.setStatus({
-          code: deferred ? SpanStatusCode.UNSET : SpanStatusCode.ERROR,
+          code: expected ? SpanStatusCode.UNSET : SpanStatusCode.ERROR,
           message: deferred ? "deferred" : code,
         });
         const expiredCursor =
@@ -180,12 +208,12 @@ export function observeRequest<T>(
             "Discovery session expired",
             "Discovery session needs refreshing",
           ].includes(error.message);
-        const log = expiredCursor || deferred ? logger.debug : logger.warn;
+        const log = expiredCursor || expected ? logger.debug : logger.warn;
         let reason = "Unexpected protocol failure";
         if (deferred) {
           reason = "Hydration durably rescheduled";
-        } else if (error instanceof ProtocolError) {
-          reason = error.message;
+        } else if (failure instanceof ProtocolError) {
+          reason = failure.message;
         } else if (error instanceof Error) {
           // Preserve the real cause instead of a generic internal marker.
           reason = `${error.name}: ${error.message}`.slice(0, 300);
@@ -202,11 +230,14 @@ export function observeRequest<T>(
               : { errorName: "unknown" }),
             reason,
           },
-          deferred ? "Protocol request deferred" : "Protocol request failed"
+          message
         );
-        throw error;
+        throw failure;
       } finally {
-        requestDuration.record(performance.now() - startedAt, { operation });
+        requestDuration.record(performance.now() - startedAt, {
+          operation,
+          outcome,
+        });
         span.end();
       }
     }

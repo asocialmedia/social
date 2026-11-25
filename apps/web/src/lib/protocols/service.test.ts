@@ -82,7 +82,13 @@ test.each(["profile", "author-feed"] as const)(
       configurable: true,
       value: mock(() =>
         Promise.resolve(
-          new Response(null, { headers: { "retry-after": "4" }, status: 503 })
+          Response.json(
+            { error: "capacity" },
+            {
+              headers: { "retry-after": "4" },
+              status: 503,
+            }
+          )
         )
       ),
       writable: true,
@@ -95,7 +101,11 @@ test.each(["profile", "author-feed"] as const)(
         "test",
         false
       )
-    ).rejects.toMatchObject({ retryAfter: 4, status: 503 });
+    ).rejects.toMatchObject({
+      code: "profile_capacity",
+      retryAfter: 4,
+      status: 503,
+    });
   }
 );
 

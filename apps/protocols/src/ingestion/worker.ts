@@ -302,6 +302,9 @@ export async function runJetstreamWorker(
           attempt,
           code,
           event: "jetstream.retry",
+          lastSourceEventAgeMs: options.health.lastSourceEventAt
+            ? Math.max(0, Date.now() - options.health.lastSourceEventAt)
+            : undefined,
           reason: error instanceof Error ? error.message : "Checkpoint failure",
         };
         if (warn) {

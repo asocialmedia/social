@@ -67,8 +67,8 @@ export async function hydrateDiscoveryBatch(
       } else if (
         result.status === "rejected" &&
         (!failure ||
-          (hydrationRetryDelay(result.reason) ?? 0) >
-            (hydrationRetryDelay(failure.reason) ?? 0))
+          (hydrationRetryDelay(result.reason, () => 0) ?? 0) >
+            (hydrationRetryDelay(failure.reason, () => 0) ?? 0))
       ) {
         failure = result;
       }
@@ -279,7 +279,8 @@ export function createDiscoveryIngestion(options: {
         ) {
           pausedUntil = now() + delay;
         }
-        // Retain at most four batches for three attempts, with the original invalidation fence.
+        const nextAt = now() + (delay ?? 1000 * 2 ** (attempts - 1));
+        // Keep the local fallback bounded while Redis is unavailable.
         if (
           attempts < 3 &&
           retries.length < 4 &&
@@ -288,7 +289,7 @@ export function createDiscoveryIngestion(options: {
           retries.push({
             attempts,
             ids,
-            nextAt: now() + (delay ?? 1000 * 2 ** (attempts - 1)),
+            nextAt,
             startedAt,
           });
         } else {

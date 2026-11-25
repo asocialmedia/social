@@ -289,7 +289,9 @@ test("search cooldowns stay private and cannot evict origin backoff", async () =
   );
   expect(JSON.stringify(status)).not.toContain("private-");
   const before = calls.filter((url) => url === profile).length;
-  expect((await pool.fetch(profile, {})).status).toBe(503);
+  const paused = await pool.fetch(profile, {});
+  expect(paused.status).toBe(429);
+  expect(Number(paused.headers.get("retry-after"))).toBeGreaterThan(0);
   expect(calls.filter((url) => url === profile)).toHaveLength(before);
 });
 
@@ -409,6 +411,36 @@ test("one rate-limited generator leaves other AppView reads available in the wor
   expect((await pool.fetch(throttledFeed, {})).status).toBe(429);
   expect((await pool.fetch(profile, {})).status).toBe(200);
 });
+
+test.each(["pool", "worker"] as const)(
+  "%s keeps a longer cooldown when a concurrent 429 carries a shorter delay",
+  async (kind) => {
+    const first = Promise.withResolvers<Response>();
+    const second = Promise.withResolvers<Response>();
+    const fetcher = mock(() => second.promise);
+    fetcher.mockImplementationOnce(() => first.promise);
+    const options = { fetch: fetcher, now: () => 0 };
+    const reader =
+      kind === "pool"
+        ? createReadWorkerPool({ ...options, logger: logger(), nodes: [] })
+        : createWorkerReader(options);
+    const loadHead = reader.fetch(throttledFeed, {});
+    const loadNext = reader.fetch(`${throttledFeed}&cursor=next`, {});
+    first.resolve(
+      Response.json({}, { headers: { "retry-after": "120" }, status: 429 })
+    );
+    await loadHead;
+    second.resolve(
+      Response.json({}, { headers: { "retry-after": "1" }, status: 429 })
+    );
+    const later = await loadNext;
+    const paused = await reader.fetch(throttledFeed, {});
+    expect(later.headers.get("retry-after")).toBe("120");
+    expect(paused.status).toBe(429);
+    expect(paused.headers.get("retry-after")).toBe("120");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  }
+);
 
 test.each(["coordinator", "worker"] as const)(
   "%s pauses the generator endpoint when several distinct generators throttle",

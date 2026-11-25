@@ -29,6 +29,7 @@ mock.module("@opentelemetry/api", () => ({
 }));
 const { observeRequest } = await import("./observability");
 const { DelayedError } = await import("bullmq");
+const { ProtocolError } = await import("@asm/protocols/contracts");
 const logger = { debug: mock(), error: mock(), info: mock(), warn: mock() };
 const request = new Request("http://protocols.internal/ingestion");
 const options = {
@@ -93,4 +94,54 @@ test("request failures are errors by default even if they resemble queue control
   ).rejects.toBeInstanceOf(DelayedError);
   expect(span.setStatus).toHaveBeenCalledWith({ code: 2, message: "internal" });
   expect(logger.warn).toHaveBeenCalledTimes(1);
+});
+
+test("caller cancellation and an upstream deadline carry different outcomes", async () => {
+  const controller = new AbortController();
+  const disconnected = new Request(request, { signal: controller.signal });
+  controller.abort();
+  await expect(
+    observeRequest("bluesky.hashtag", disconnected, "disconnect", logger, () =>
+      Promise.reject(disconnected.signal.reason)
+    )
+  ).rejects.toMatchObject({ code: "cancelled" });
+  expect(span.setStatus).toHaveBeenCalledWith({
+    code: 0,
+    message: "cancelled",
+  });
+  expect(logger.warn).not.toHaveBeenCalled();
+
+  await expect(
+    observeRequest("bluesky.hashtag", request, "deadline", logger, () =>
+      Promise.reject(new DOMException("Deadline", "TimeoutError"))
+    )
+  ).rejects.toMatchObject({ code: "unavailable" });
+  expect(span.setStatus).toHaveBeenCalledWith({
+    code: 2,
+    message: "unavailable",
+  });
+  expect(logger.warn).toHaveBeenCalledTimes(1);
+});
+
+test("upstream cooldown preserves rate-limit information without an error span or warning", async () => {
+  const throttled = new ProtocolError(
+    "rate_limited",
+    "Upstream is cooling down",
+    3
+  );
+  await expect(
+    observeRequest("bluesky.feed", request, "throttled", logger, () =>
+      Promise.reject(throttled)
+    )
+  ).rejects.toBe(throttled);
+  expect(span.setAttribute).toHaveBeenCalledWith(
+    "asm.request.outcome",
+    "rate_limited"
+  );
+  expect(span.setStatus).toHaveBeenCalledWith({
+    code: 0,
+    message: "rate_limited",
+  });
+  expect(logger.warn).not.toHaveBeenCalled();
+  expect(logger.debug.mock.calls[0]?.[1]).toBe("Protocol request rate limited");
 });

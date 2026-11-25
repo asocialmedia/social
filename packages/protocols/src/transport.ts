@@ -5,8 +5,7 @@ export function abortable<T>(
   signal: AbortSignal
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const abort = () =>
-      reject(new DOMException("Request cancelled", "AbortError"));
+    const abort = () => reject(signal.reason);
     if (signal.aborted) {
       abort();
     } else {
@@ -29,7 +28,7 @@ export function waitForReadRetry(
     }, milliseconds);
     const abort = () => {
       clearTimeout(timer);
-      reject(new DOMException("Request cancelled", "AbortError"));
+      reject(signal.reason);
     };
     if (signal.aborted) {
       abort();

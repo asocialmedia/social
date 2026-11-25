@@ -1,6 +1,12 @@
 import { ProtocolError } from "./contracts";
 import { abortable } from "./transport";
 
+function readAbort(signal: AbortSignal): ProtocolError {
+  return signal.reason instanceof Error && signal.reason.name === "TimeoutError"
+    ? new ProtocolError("unavailable", "Read deadline exceeded", 2)
+    : new ProtocolError("cancelled", "Read cancelled");
+}
+
 export class BoundedReadQueue {
   private active = 0;
   private rejected = 0;
@@ -37,7 +43,7 @@ export class BoundedReadQueue {
 
   async run<T>(read: () => Promise<T>, signal: AbortSignal): Promise<T> {
     if (signal.aborted) {
-      throw new ProtocolError("cancelled", "Search cancelled");
+      throw readAbort(signal);
     }
     if (this.closed) {
       throw new ProtocolError("cancelled", "Search queue is closed");
@@ -47,7 +53,7 @@ export class BoundedReadQueue {
         return await abortable(this.execute(read), signal);
       } catch (error) {
         if (signal.aborted) {
-          throw new ProtocolError("cancelled", "Search cancelled");
+          throw readAbort(signal);
         }
         throw error;
       }
@@ -67,7 +73,7 @@ export class BoundedReadQueue {
     };
     const cancel = () => {
       remove();
-      deferred.reject(new ProtocolError("cancelled", "Search cancelled"));
+      deferred.reject(readAbort(signal));
     };
     const entry = {
       cancel,
@@ -96,7 +102,7 @@ export class BoundedReadQueue {
       return await abortable(deferred.promise, signal);
     } catch (error) {
       if (signal.aborted) {
-        throw new ProtocolError("cancelled", "Search cancelled");
+        throw readAbort(signal);
       }
       throw error;
     }

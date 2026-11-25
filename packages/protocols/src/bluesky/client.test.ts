@@ -12,6 +12,23 @@ import type { ProtocolFetch } from "./client";
 import { normalizePost, normalizeSegments } from "./normalize";
 import { postViewSchema } from "./schemas";
 
+function mockRepositoryIdentity(
+  url: string,
+  endpoint = "https://fern.us-east.host.bsky.network"
+) {
+  const did = new URL(url).pathname.slice(1);
+  return Response.json({
+    id: did,
+    service: [
+      {
+        id: "#atproto_pds",
+        serviceEndpoint: endpoint,
+        type: "AtprotoPersonalDataServer",
+      },
+    ],
+  });
+}
+
 test("malformed generator responses cool down without blocking healthy generators", async () => {
   let now = 0;
   let reads = 0;
@@ -76,6 +93,9 @@ test("rejected social repository reads pause per actor instead of retrying every
   let reads = 0;
   const client = new BlueskyClient({
     fetch: async (url) => {
+      if (new URL(url).hostname === "plc.directory") {
+        return mockRepositoryIdentity(url);
+      }
       if (new URL(url).searchParams.get("repo") !== authorDid) {
         return Response.json({ records: [] });
       }
@@ -789,10 +809,18 @@ test("failures in independent feed generators cannot open the AppView-wide break
 });
 
 test("public social bootstrap reads bounded repository records without credentials or post bodies", async () => {
+  let identityReads = 0;
   const client = new BlueskyClient({
     fetch: async (url, options) => {
-      expect(new URL(url).origin).toBe("https://bsky.social");
       expect(new Headers(options.headers).has("authorization")).toBe(false);
+      expect(options.redirect).toBe("error");
+      if (new URL(url).hostname === "plc.directory") {
+        identityReads += 1;
+        return mockRepositoryIdentity(url);
+      }
+      expect(new URL(url).origin).toBe(
+        "https://fern.us-east.host.bsky.network"
+      );
       const collection = new URL(url).searchParams.get("collection") ?? "";
       return Response.json({
         records: [
@@ -814,6 +842,7 @@ test("public social bootstrap reads bounded repository records without credentia
     maxConcurrentRequests: 4,
   });
   const records = await client.getPublicSocialRecords(authorDid);
+  expect(identityReads).toBe(1);
   expect(records.map((record) => record.action).toSorted()).toEqual([
     "follow",
     "like",
@@ -828,11 +857,29 @@ test("public social bootstrap reads bounded repository records without credentia
   client.close();
 });
 
+test("public repository identity cannot send requests outside the managed PDS hosts", async () => {
+  const fetches: string[] = [];
+  const client = new BlueskyClient({
+    fetch: (url) => {
+      fetches.push(new URL(url).origin);
+      return Promise.resolve(mockRepositoryIdentity(url, "https://127.0.0.1"));
+    },
+  });
+  await expect(client.getPublicSocialRecords(authorDid)).rejects.toMatchObject({
+    code: "restricted",
+  });
+  expect(fetches).toEqual(["https://plc.directory"]);
+  client.close();
+});
+
 test("a restricted public repository does not cool down other actors' social records", async () => {
   const other = "did:plc:other";
   const requested: string[] = [];
   const client = new BlueskyClient({
     fetch: (url) => {
+      if (new URL(url).hostname === "plc.directory") {
+        return Promise.resolve(mockRepositoryIdentity(url));
+      }
       const repo = new URL(url).searchParams.get("repo") ?? "";
       requested.push(repo);
       return Promise.resolve(

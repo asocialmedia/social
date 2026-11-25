@@ -1,4 +1,7 @@
-import type { ProtocolObserver } from "@asm/protocols/contracts";
+import type {
+  ProtocolDiagnostic,
+  ProtocolObserver,
+} from "@asm/protocols/contracts";
 import {
   abortable,
   readJsonBounded,
@@ -98,10 +101,11 @@ export function createWorkerReader(options: {
           if (blocked.size >= 512 && !blocked.has(scope)) {
             blocked.delete(blocked.keys().next().value ?? "");
           }
-          blocked.set(scope, now() + delay);
+          const until = Math.max(blocked.get(scope) ?? 0, now() + delay);
+          blocked.set(scope, until);
           retryAfter = String(
             Math.ceil(
-              Math.max(delay, generatorBackoff.remaining(target)) / 1000
+              Math.max(until - now(), generatorBackoff.remaining(target)) / 1000
             )
           );
         }
@@ -125,11 +129,16 @@ export function createWorkerReader(options: {
           "error" in body &&
           body.error === "RecordNotFound";
         const successfulLookup = response.ok || expectedMissingDeclaration;
-        let code: "rate_limited" | "restricted" | "unavailable" | undefined;
+        let code: ProtocolDiagnostic["code"];
         if (!successfulLookup) {
           code = response.status === 429 ? "rate_limited" : "unavailable";
           if (response.status === 401 || response.status === 403) {
             code = "restricted";
+          } else if (
+            response.status === 400 &&
+            target.pathname === "/xrpc/com.atproto.repo.listRecords"
+          ) {
+            code = "invalid_input";
           }
         }
         options.observe?.({
@@ -148,6 +157,7 @@ export function createWorkerReader(options: {
           status: response.status,
         });
       } catch {
+        init.signal?.throwIfAborted();
         options.observe?.({
           code: "unavailable",
           durationMs: now() - startedAt,

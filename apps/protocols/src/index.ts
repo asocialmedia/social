@@ -82,6 +82,7 @@ export async function startProtocols() {
     maxConcurrentRequests: 16,
     maxRetries: 0,
     observe,
+    repositoryFetch: globalThis.fetch,
     timeoutMs: readTimeoutMs,
   });
   const explicitClient = new BlueskyClient({

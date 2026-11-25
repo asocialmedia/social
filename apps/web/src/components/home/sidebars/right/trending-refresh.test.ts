@@ -1,8 +1,14 @@
-import { afterEach, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 
 let dbOffline = false;
 let blueskySnapshot: string | null = null;
 const originalFetch = globalThis.fetch;
+const originalNow = Date.now;
+let now = originalNow();
+beforeEach(() => {
+  now += 2 * 60 * 60_000;
+  Date.now = () => now;
+});
 const read = () =>
   dbOffline
     ? Promise.reject(new Error("database unavailable"))
@@ -34,8 +40,38 @@ const { fetchBlueskyTrendingTopics, getTrendingFeed } =
   await import("./trending-actions");
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  Date.now = originalNow;
   dbOffline = false;
   blueskySnapshot = null;
+});
+
+test("serves the local snapshot across Redis misses and backs off after a 429", async () => {
+  const fetcher = mock(() =>
+    Promise.resolve(Response.json({ topics: [{ topic: "software" }] }))
+  );
+  globalThis.fetch = Object.assign(fetcher, {
+    preconnect: originalFetch.preconnect,
+  });
+  const saved = await fetchBlueskyTrendingTopics();
+  expect(saved).toHaveLength(1);
+  fetcher.mockImplementation(() =>
+    Promise.resolve(
+      new Response(null, {
+        headers: { "retry-after": "30" },
+        status: 429,
+      })
+    )
+  );
+  now += 6 * 60_000;
+  expect(await fetchBlueskyTrendingTopics(true)).toEqual(saved);
+  expect(await fetchBlueskyTrendingTopics(true)).toEqual(saved);
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  now += 30_000;
+  fetcher.mockImplementation(() =>
+    Promise.resolve(Response.json({ topics: [] }))
+  );
+  expect(await fetchBlueskyTrendingTopics(true)).toEqual([]);
+  expect(fetcher).toHaveBeenCalledTimes(3);
 });
 
 test("an expired Bluesky cache and upstream failure are reported separately from a valid empty feed", async () => {

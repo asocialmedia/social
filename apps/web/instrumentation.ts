@@ -1,6 +1,9 @@
 import type { Instrumentation } from "next";
 
-import { requestErrorAttributes } from "./src/lib/request-error";
+import {
+  isExpectedNextNavigation,
+  requestErrorAttributes,
+} from "./src/lib/request-error";
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
@@ -15,10 +18,11 @@ export const onRequestError: Instrumentation.onRequestError = async (
   context
 ) => {
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    const attributes = requestErrorAttributes(error, request, context);
+    if (isExpectedNextNavigation(attributes.digest)) {
+      return;
+    }
     const { getWebLogger } = await import("./src/lib/otel");
-    getWebLogger()?.error(
-      requestErrorAttributes(error, request, context),
-      "Next.js request failed"
-    );
+    getWebLogger()?.error(attributes, "Next.js request failed");
   }
 };

@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 
-import { requestErrorAttributes } from "./request-error";
+import {
+  isExpectedNextNavigation,
+  requestErrorAttributes,
+  requestNetworkErrorCodes,
+} from "./request-error";
 
 test("reports render context without copying request secrets or action identifiers", () => {
   const attributes = requestErrorAttributes(
@@ -42,6 +46,37 @@ test("reports render context without copying request secrets or action identifie
   ]) {
     expect(serialized).not.toContain(secret);
   }
+});
+
+test("identifies only redirect and not-found control flow", () => {
+  expect(isExpectedNextNavigation("NEXT_REDIRECT")).toBe(true);
+  expect(isExpectedNextNavigation("NEXT_REDIRECT;replace;/profile;307;")).toBe(
+    true
+  );
+  expect(isExpectedNextNavigation("NEXT_HTTP_ERROR_FALLBACK;404")).toBe(true);
+  expect(isExpectedNextNavigation("NEXT_HTTP_ERROR_FALLBACK;403")).toBe(false);
+  expect(isExpectedNextNavigation("Application error: NEXT_REDIRECT")).toBe(
+    false
+  );
+});
+
+test("extracts nested connection codes without copying addresses or messages", () => {
+  const errors = [
+    new Error("private hostname", {
+      cause: new AggregateError(
+        [
+          Object.assign(new Error("private address"), { code: "ECONNREFUSED" }),
+          Object.assign(new Error("private address"), { code: "ETIMEDOUT" }),
+          Object.assign(new Error("private address"), { code: "private-data" }),
+        ],
+        "Connection attempts failed"
+      ),
+    }),
+  ];
+  expect(requestNetworkErrorCodes(errors)).toEqual([
+    "ECONNREFUSED",
+    "ETIMEDOUT",
+  ]);
 });
 
 test("handles thrown primitives and distinguishes ordinary POST requests", () => {

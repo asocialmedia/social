@@ -84,6 +84,7 @@ export type ProtocolFetch = (
 export interface BlueskyClientOptions {
   allowExplicitMedia?: boolean;
   fetch?: ProtocolFetch;
+  repositoryFetch?: ProtocolFetch;
   cache?: ProtocolCache;
   observe?: ProtocolObserver;
   timeoutMs?: number;
@@ -124,6 +125,16 @@ export interface FeedReadOptions {
 }
 export type AuthorFeedTab = "posts" | "replies" | "media";
 
+function managedRepositoryOrigin(raw: string): string | undefined {
+  if (
+    /^https:\/\/(?:bsky\.social|[a-z0-9-]+\.(?:us-east|us-west)\.host\.bsky\.network)\/?$/.test(
+      raw
+    )
+  ) {
+    return new URL(raw).origin;
+  }
+}
+
 async function boundedJson(
   response: Response,
   maxBytes: number,
@@ -155,6 +166,7 @@ export class BlueskyClient {
   >;
   private readonly cache: ProtocolCache;
   private readonly observe?: ProtocolObserver;
+  private readonly repositoryFetch: ProtocolFetch;
   private readonly rpc: Client;
   private readonly pending = new Map<string, Promise<unknown>>();
   private readonly unavailable = new Map<
@@ -204,6 +216,7 @@ export class BlueskyClient {
     }
     this.cache = options.cache ?? new BoundedCache({ now: this.options.now });
     this.observe = options.observe;
+    this.repositoryFetch = options.repositoryFetch ?? this.options.fetch;
     this.rpc = new Client((path, init) => this.fetchBounded(path, init), {
       validateRequest: true,
       validateResponse: true,
@@ -272,6 +285,14 @@ export class BlueskyClient {
       throw new ProtocolError("invalid_input", "Invalid Bluesky account");
     }
     const repo = parsed.data;
+    const identity = repo.startsWith("did:plc:")
+      ? await this.request(
+          "repo_identity",
+          { repo },
+          z.object({ origin: z.string().url() }),
+          15 * 60_000
+        )
+      : { origin: "https://bsky.social" };
     const collections = [
       "app.bsky.feed.like",
       "app.bsky.feed.repost",
@@ -281,7 +302,13 @@ export class BlueskyClient {
       collections.map(async (collection) => {
         const page = await this.request(
           "com.atproto.repo.listRecords",
-          { collection, limit: "50", repo, reverse: "true" },
+          {
+            collection,
+            limit: "50",
+            origin: identity.origin,
+            repo,
+            reverse: "true",
+          },
           z.object({
             records: z
               .array(
@@ -750,6 +777,7 @@ export class BlueskyClient {
             ![
               "app.bsky.feed.getFeed",
               "com.atproto.repo.listRecords",
+              "repo_identity",
               "app.bsky.feed.searchPosts",
               "app.bsky.feed.searchPostsV2",
             ].includes(operation)
@@ -776,6 +804,8 @@ export class BlueskyClient {
               (operation === "app.bsky.feed.getFeed" &&
                 error.code === "invalid_response") ||
               (operation === "com.atproto.repo.listRecords" &&
+                error.code === "invalid_input") ||
+              (operation === "repo_identity" &&
                 error.code === "invalid_input") ||
               (operation === "app.bsky.feed.getFeed" &&
                 error.code === "invalid_input" &&
@@ -857,23 +887,58 @@ export class BlueskyClient {
       maxRetries: 0,
     };
     try {
-      if (operation === "com.atproto.repo.listRecords") {
-        return await this.rpc.call(
-          com.atproto.repo.listRecords,
-          {
-            collection: z
-              .enum([
-                "app.bsky.feed.like",
-                "app.bsky.feed.repost",
-                "app.bsky.graph.follow",
-              ])
-              .parse(query.get("collection")),
-            limit: 50,
-            repo: actorSchema.parse(query.get("repo")),
-            reverse: true,
-          },
-          options
+      if (operation === "repo_identity") {
+        const did = z
+          .string()
+          .regex(/^did:plc:[a-z0-9]+$/)
+          .parse(query.get("repo"));
+        const response = await this.fetchBounded(
+          `/${did}`,
+          {},
+          "https://plc.directory"
         );
+        const identity = z
+          .object({
+            id: z.literal(did),
+            service: z.array(
+              z.object({
+                id: z.string(),
+                serviceEndpoint: z.string(),
+                type: z.unknown(),
+              })
+            ),
+          })
+          .safeParse(await response.json());
+        const endpoint = identity.data?.service.find(
+          (service) =>
+            (service.id === "#atproto_pds" ||
+              service.id === `${did}#atproto_pds`) &&
+            service.type === "AtprotoPersonalDataServer"
+        )?.serviceEndpoint;
+        const origin = endpoint ? managedRepositoryOrigin(endpoint) : undefined;
+        if (!origin) {
+          throw new ProtocolError(
+            "restricted",
+            "Public repository host is unsupported"
+          );
+        }
+        return { origin };
+      }
+      if (operation === "com.atproto.repo.listRecords") {
+        const origin = managedRepositoryOrigin(query.get("origin") ?? "");
+        if (!origin) {
+          throw new ProtocolError(
+            "restricted",
+            "Public repository host is unsupported"
+          );
+        }
+        query.delete("origin");
+        const response = await this.fetchBounded(
+          `/xrpc/com.atproto.repo.listRecords?${query}`,
+          { headers: options.headers },
+          origin
+        );
+        return await response.json();
       }
       if (operation === "content_visibility") {
         try {
@@ -1053,7 +1118,8 @@ export class BlueskyClient {
 
   private async fetchBounded(
     path: string,
-    init: RequestInit
+    init: RequestInit,
+    repositoryOrigin?: string
   ): Promise<Response> {
     this.active += 1;
     try {
@@ -1064,8 +1130,8 @@ export class BlueskyClient {
         ]);
         try {
           let origin = "https://public.api.bsky.app";
-          if (path.startsWith("/xrpc/com.atproto.repo.listRecords?")) {
-            origin = "https://bsky.social";
+          if (repositoryOrigin) {
+            origin = repositoryOrigin;
           } else if (
             path.startsWith("/xrpc/app.bsky.feed.searchPosts?") ||
             path.startsWith("/xrpc/app.bsky.feed.searchPostsV2?")
@@ -1091,11 +1157,14 @@ export class BlueskyClient {
             );
           }
           const response = await abortable(
-            this.options.fetch(target.href, {
-              ...init,
-              redirect: "error",
-              signal,
-            }),
+            (repositoryOrigin ? this.repositoryFetch : this.options.fetch)(
+              target.href,
+              {
+                ...init,
+                redirect: "error",
+                signal,
+              }
+            ),
             signal
           );
           if (!response.ok) {
