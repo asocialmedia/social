@@ -141,10 +141,12 @@ export function ExternalPostMenu({
   post,
   className,
   iconClassName,
+  showFollowForGuest = true,
 }: {
   post: ExternalPost;
   className?: string;
   iconClassName?: string;
+  showFollowForGuest?: boolean;
 }) {
   const feedback = useExternalFeedback(post);
   return (
@@ -159,7 +161,11 @@ export function ExternalPostMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="rounded-2xl! p-2">
-        <PostAuthorFollow post={externalPostView(post)} menu />
+        <PostAuthorFollow
+          post={externalPostView(post)}
+          menu
+          showForGuest={showFollowForGuest}
+        />
         <DropdownMenuItem
           className="pill-3d-hover gap-3 rounded-lg px-2 py-2"
           onSelect={() => {

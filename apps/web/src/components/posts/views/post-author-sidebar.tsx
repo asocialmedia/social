@@ -445,7 +445,7 @@ const PostAuthorSidebar: React.FC<PostAuthorSidebarProps> = ({ post }) => {
           </Link>
 
           <div className="px-2 pt-3 pb-1">
-            {isOwnProfile || post.external ? (
+            {!currentUser || isOwnProfile || post.external ? (
               <Link
                 className="follow-btn-3d flex h-8 w-full items-center justify-center rounded-md px-3 text-sm"
                 href={

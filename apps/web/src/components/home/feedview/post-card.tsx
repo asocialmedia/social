@@ -227,6 +227,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
           <PostMoreButton
             className="h-7 w-7 p-0 sm:h-7.5 sm:w-7.5"
             post={post}
+            showFollowForGuest={false}
           />
           {post.external ? (
             <ExternalBookmarkButton
@@ -289,7 +290,11 @@ const PostHeader: React.FC<PostHeaderProps> = ({
       </div>
 
       <div className="-my-1 flex shrink-0 items-center gap-1 sm:gap-1.5">
-        <PostMoreButton className="h-7 w-7 p-0 sm:h-7.5 sm:w-7.5" post={post} />
+        <PostMoreButton
+          className="h-7 w-7 p-0 sm:h-7.5 sm:w-7.5"
+          post={post}
+          showFollowForGuest={!detail}
+        />
         {post.external ? (
           <ExternalBookmarkButton
             post={post.external}

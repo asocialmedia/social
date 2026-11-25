@@ -45,6 +45,7 @@ interface PostMoreButtonProps {
   // captions and transcript toggles), styled like the built-in items.
   extraItems?: React.ReactNode;
   post: PostData;
+  showFollowForGuest?: boolean;
   /** Applies the media page's dark 3D chip styling (same look as the mobile
    * viewer's control buttons) instead of the default pill hover treatment. */
   variant?: "default" | "media-page";
@@ -62,6 +63,7 @@ function NativePostMoreButton({
   iconClassName,
   variant = "default",
   extraItems,
+  showFollowForGuest = true,
 }: PostMoreButtonProps) {
   const { user } = useSession();
   const { toast } = useToast();
@@ -217,7 +219,11 @@ function NativePostMoreButton({
             the primitive's `panel-3d` surface; dropping it lets the shared
             3D recipe - and its now-rounded corners - apply. */}
         <DropdownMenuContent align="end" className="rounded-2xl! p-2">
-          <PostAuthorFollow post={post} menu />
+          <PostAuthorFollow
+            post={post}
+            menu
+            showForGuest={showFollowForGuest}
+          />
           {extraItems}
           {user && post.community && !post.moderated ? (
             <DropdownMenuItem
@@ -332,6 +338,7 @@ export default function PostMoreButton(props: PostMoreButtonProps) {
       post={props.post.external}
       className={props.className}
       iconClassName={props.iconClassName}
+      showFollowForGuest={props.showFollowForGuest}
     />
   ) : (
     <NativePostMoreButton {...props} />
