@@ -32,7 +32,7 @@ jobs:
     name: Lint and Typecheck
     needs: [detect-pr-merge, lint-types, unit-tests, integration-tests]
     if: ${{ always() && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-pr-merge.outputs.quality-already-passed == 'true') }}
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - name: Require every quality job
@@ -49,7 +49,7 @@ jobs:
     name: Lint and types
     needs: detect-pr-merge
     if: ${{ always() && !(github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-pr-merge.outputs.quality-already-passed == 'true') }}
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - name: Checkout repository
@@ -78,7 +78,7 @@ jobs:
     name: Unit tests (${{ matrix.shard }}/2)
     needs: lint-types
     if: ${{ !cancelled() && needs.lint-types.result == 'success' }}
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -117,7 +117,7 @@ jobs:
     name: PostgreSQL and Redis integration tests
     needs: lint-types
     if: ${{ !cancelled() && needs.lint-types.result == 'success' }}
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5433/asocialmedia
@@ -160,7 +160,7 @@ jobs:
     name: Save test scheduling timings
     needs: unit-tests
     if: ${{ !cancelled() && needs.unit-tests.result == 'success' }}
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - name: Checkout repository
@@ -192,7 +192,7 @@ jobs:
   detect-pr-merge:
     name: Detect merged PR push
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.replay_pr != ''))
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-26.04
     outputs:
       should-build: ${{ steps.pr-check.outputs.should-build }}
       merge-pr-number: ${{ steps.pr-check.outputs.pr-number }}
@@ -215,7 +215,7 @@ jobs:
     name: Determine changed app images
     needs: detect-pr-merge
     if: github.ref == 'refs/heads/main' && needs.detect-pr-merge.outputs.should-build == 'true'
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-26.04
     outputs:
       matrix: ${{ steps.changed-apps.outputs.matrix }}
       has-app-changes: ${{ steps.changed-apps.outputs.has-app-changes }}
@@ -248,7 +248,7 @@ jobs:
       - determine-build-matrix
       - prisma-sync
     if: ${{ always() && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-app-changes == 'true' && (needs.prisma-sync.result == 'success' || needs.prisma-sync.result == 'skipped') }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write
@@ -390,7 +390,7 @@ jobs:
     name: Cleanup old GHCR images
     needs: build-and-push
     if: github.ref == 'refs/heads/main'
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-26.04
     permissions:
       packages: write
     strategy:
@@ -412,7 +412,7 @@ jobs:
   dokploy-preflight:
     name: Check Dokploy credentials (read only)
     if: github.event_name == 'workflow_dispatch' && inputs.replay_pr == ''
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -431,7 +431,7 @@ jobs:
       - detect-pr-merge
       - determine-build-matrix
     if: ${{ always() && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' }}
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write
@@ -538,7 +538,7 @@ jobs:
       - detect-pr-merge
       - determine-build-matrix
     if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && needs.determine-build-matrix.outputs.has-mobile-changes == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -661,7 +661,7 @@ jobs:
       - prisma-sync
       - build-mobile-apk
     if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') && needs.detect-pr-merge.outputs.should-build == 'true' && (needs.build-and-push.result == 'success' || needs.build-and-push.result == 'skipped') && (needs.prisma-sync.result == 'success' || needs.prisma-sync.result == 'skipped') && (needs.build-mobile-apk.result == 'success' || needs.build-mobile-apk.result == 'skipped') }}
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       pull-requests: read
