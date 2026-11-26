@@ -906,7 +906,7 @@ describe("GET /api/messages/conversations", () => {
     expect(body.items[0]?.conversation.id).toBe("dm-1");
   });
 
-  test("hides an empty DM and keeps an empty den", async () => {
+  test("hides an empty DM and keeps a named den even before its first message", async () => {
     // Starting a chat creates the row immediately, and without this rule the rail
     // filled with messageless rows for every person the reader had ever opened a
     // thread with. A den keeps its place even when quiet: membership is the fact
@@ -914,10 +914,14 @@ describe("GET /api/messages/conversations", () => {
     // anybody speaks.
     conversationPage = [
       pageConversation("dm-1", "DM", ["user1", "user2"], { messages: [] }),
-      pageConversation("den-1", "DEN", ["user1", "user2"], { messages: [] }),
+      pageConversation("den-1", "DEN", ["user1", "user2"], {
+        messages: [],
+        name: "Weekend Plans",
+      }),
     ];
     const body = await readList();
     expect(body.items.map((item) => item.conversation.id)).toEqual(["den-1"]);
+    expect(body.items[0]?.conversation).toHaveProperty("name", "Weekend Plans");
   });
 
   test("shows a DM again once it has a message", async () => {

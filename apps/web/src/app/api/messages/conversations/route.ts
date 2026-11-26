@@ -267,6 +267,7 @@ function mapConversation(
           : null,
       })
     ),
+    name: conversation.name,
     pairKey: conversation.pairKey,
     type: conversation._type,
     updatedAt: fromPrismaDateTime(conversation.updatedAt),
