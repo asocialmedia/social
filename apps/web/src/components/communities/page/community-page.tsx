@@ -19,8 +19,12 @@ import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-botto
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import { useCommunityChatViewport } from "@/hooks/use-community-chat-viewport";
 import { useCommunityNavigation } from "@/hooks/use-community-navigation";
+import { communityChatChannelsQuery } from "@/lib/communities/chat-channels-query";
 import { communityChatUiEnabled } from "@/lib/communities/chat-features";
-import { communityChatLocation } from "@/lib/communities/chat-navigation";
+import {
+  communityChatLocation,
+  defaultCommunityChatChannel,
+} from "@/lib/communities/chat-navigation";
 import type { CommunityRoleValue } from "@/lib/communities/client";
 import { cn } from "@/lib/utils";
 import { useActiveCommunityStore } from "@/store/active-community-store";
@@ -219,6 +223,22 @@ export default function ClientCommunity({
   }, [router]);
 
   const isBlocked = community.mature && !matureAccepted;
+  const chatChannels = useQuery({
+    ...communityChatChannelsQuery(slug, user?.id),
+    enabled:
+      view === "posts" &&
+      communityChatUiEnabled &&
+      !isBlocked &&
+      !lostPrivateAccess &&
+      (community.type !== "PRIVATE" ||
+        privatePreview.data?.permissions.canReadContent === true),
+  });
+  const defaultChannel = defaultCommunityChatChannel(
+    chatChannels.data?.channels ?? []
+  );
+  const globalChatHref = defaultChannel
+    ? `/a/${slug}/chat/${defaultChannel.id}`
+    : undefined;
 
   if (community.type === "PRIVATE" && privatePreview.isError) {
     return (
@@ -287,16 +307,11 @@ export default function ClientCommunity({
               avatarUrl={community.avatarUrl}
               communityName={community.name}
               desktop={navigation.desktop}
+              globalChatHref={globalChatHref}
+              postsSearchParams={searchParams.toString()}
               navigation={
-                communityChatUiEnabled && navigation.open ? (
-                  <CommunityChannelShortcuts
-                    slug={slug}
-                    onNavigate={() => {
-                      if (!navigation.desktop) {
-                        navigation.setOpen(false);
-                      }
-                    }}
-                  />
+                communityChatUiEnabled && navigation.open && !isBlocked ? (
+                  <CommunityChannelShortcuts slug={slug} />
                 ) : null
               }
               open={navigation.open}
@@ -321,6 +336,8 @@ export default function ClientCommunity({
                   channelId={channelId}
                   communityId={community.id}
                   communityName={community.name}
+                  initialChannels={chatChannels.data?.channels}
+                  initialChannelsUpdatedAt={chatChannels.dataUpdatedAt}
                   membership={membership}
                   memberCount={stats.members}
                   canReviewRequests={
@@ -336,6 +353,7 @@ export default function ClientCommunity({
             ) : (
               <CommunityPostsWorkspace
                 community={community}
+                globalChatHref={globalChatHref}
                 members={stats.members}
                 membership={membership}
                 subscribed={subscribed}

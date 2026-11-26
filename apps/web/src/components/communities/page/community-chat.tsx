@@ -38,7 +38,6 @@ import {
   ArrowDown,
   LockKeyhole,
   MessageCircle,
-  Plus,
   Pin,
   Reply,
   Send,
@@ -61,6 +60,7 @@ import { SavableSticker } from "@/components/messages/savable-sticker";
 import { StickerPicker } from "@/components/messages/sticker-picker";
 import { useCommunityNavigation } from "@/hooks/use-community-navigation";
 import { communityAccentStyle } from "@/lib/communities/accent";
+import type { CommunityChatChannelsResponse } from "@/lib/communities/chat-channels-query";
 import { loadCommunityChatResources } from "@/lib/communities/chat-loading";
 import {
   communityChatLocation,
@@ -78,11 +78,13 @@ import CommunityAvatar from "../card/community-avatar";
 import CommunityRoleBadge, {
   isCommunityBadgedRole,
 } from "../card/community-role-badge";
+import CommunityChannelListHeader from "./community-channel-list-header";
 import CommunityChannelSettings from "./community-channel-settings";
 import CommunityChatMessageActions from "./community-chat-message-actions";
 import CommunityConversationHeader from "./community-conversation-header";
 import CommunityJoinRequests from "./community-join-requests";
 import CommunityWorkspaceNavigation, {
+  communityNavigationChatIconClassName,
   communityNavigationRowClassName,
 } from "./community-workspace-navigation";
 import JoinButton from "./join-button";
@@ -94,6 +96,8 @@ interface CommunityChatProps {
   threadId?: string;
   communityId: string;
   communityName: string;
+  initialChannels?: CommunityChatRoom[];
+  initialChannelsUpdatedAt?: number;
   memberCount: number;
   canReviewRequests?: boolean;
   membership: {
@@ -106,11 +110,6 @@ interface CommunityChatProps {
 interface ChatResponse extends CommunityChatMessagePage {
   permissions: CommunityChatPermissions;
   room: CommunityChatRoom;
-}
-
-interface ChannelResponse {
-  channels: CommunityChatRoom[];
-  permissions: CommunityChatPermissions;
 }
 
 interface ThreadResponse {
@@ -197,10 +196,12 @@ function CommunityChatWorkspace(props: CommunityChatProps) {
         : "Community chat | asocialmedia";
     }
   }, [pathname, props.slug, threadId]);
-  const [channels, setChannels] = useState<CommunityChatRoom[]>([]);
+  const [channels, setChannels] = useState<CommunityChatRoom[]>(
+    props.initialChannels ?? []
+  );
   const [channelsError, setChannelsError] = useState(false);
   const [channelAttempt, setChannelAttempt] = useState(0);
-  const channelsUpdatedAt = useRef(0);
+  const channelsUpdatedAt = useRef(props.initialChannelsUpdatedAt ?? 0);
   const updateChannels: Dispatch<SetStateAction<CommunityChatRoom[]>> =
     useCallback((value) => {
       if (Array.isArray(value) && value.length === 0) {
@@ -232,7 +233,7 @@ function CommunityChatWorkspace(props: CommunityChatProps) {
           }
           return;
         }
-        const data = (await response.json()) as ChannelResponse;
+        const data = (await response.json()) as CommunityChatChannelsResponse;
         if (!controller.signal.aborted) {
           setChannels(data.channels);
           channelsUpdatedAt.current = Date.now();
@@ -345,12 +346,6 @@ function CommunityChatTimeline({
     setOpen: setCommunityNavigationOpen,
   } = useCommunityNavigation();
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [createChannelOpen, setCreateChannelOpen] = useState(false);
-  const [newChannelName, setNewChannelName] = useState("");
-  const [newChannelType, setNewChannelType] = useState<"ANNOUNCEMENT" | "TEXT">(
-    "TEXT"
-  );
-  const [creatingChannel, setCreatingChannel] = useState(false);
   const [privateThreadOpen, setPrivateThreadOpen] = useState(false);
   const [privateThreadName, setPrivateThreadName] = useState("");
   const [privateThreadStarter, setPrivateThreadStarter] = useState("");
@@ -637,7 +632,8 @@ function CommunityChatTimeline({
         try {
           const response = await fetch(channelsUrl, { cache: "no-store" });
           if (response.ok) {
-            const data = (await response.json()) as ChannelResponse;
+            const data =
+              (await response.json()) as CommunityChatChannelsResponse;
             setChannels(data.channels);
           }
         } catch {
@@ -1035,50 +1031,6 @@ function CommunityChatTimeline({
     permissions?.canSend,
     roomUrl,
     sending,
-  ]);
-
-  const createChannel = useCallback(async () => {
-    const name = newChannelName.trim();
-    if (!name || creatingChannel) {
-      return;
-    }
-    setCreatingChannel(true);
-    try {
-      const response = await fetch(channelsUrl, {
-        body: JSON.stringify({ channelType: newChannelType, name }),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      });
-      if (!response.ok) {
-        const data = (await response.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        throw new Error(data?.error ?? "Couldn't create channel");
-      }
-      const data = (await response.json()) as { channel: CommunityChatRoom };
-      setChannels((current) => [...current, data.channel]);
-      setNewChannelName("");
-      setCreateChannelOpen(false);
-      if (!desktopNavigation) {
-        setCommunityNavigationOpen(false);
-      }
-      navigateCommunityChat(`/a/${slug}/chat/${data.channel.id}`);
-    } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : "Couldn't create channel"
-      );
-    } finally {
-      setCreatingChannel(false);
-    }
-  }, [
-    channelsUrl,
-    creatingChannel,
-    desktopNavigation,
-    newChannelName,
-    newChannelType,
-    slug,
-    setCommunityNavigationOpen,
-    setChannels,
   ]);
 
   useEffect(() => {
@@ -1491,44 +1443,28 @@ function CommunityChatTimeline({
       "You are timed out from contributing to this community. You can still read along.",
   };
 
-  const parentChannelName = channels.find(
-    (item) => item.id === channelId
-  )?.name;
-
   const channelList = (
     <div className="flex min-h-0 flex-1 flex-col">
       {canManage && canReviewRequests ? (
-        <div className="border-border/50 shrink-0 border-b px-3 py-1">
+        <div className="mx-2.5 shrink-0">
           <CommunityJoinRequests slug={slug} openOnLink={false} />
         </div>
       ) : null}
-      <div className="flex min-h-12 shrink-0 items-center justify-between gap-2 pr-2 pl-5">
-        <h2 className="text-muted-foreground flex items-baseline gap-2 text-xs font-semibold">
-          Channels{" "}
-          <span className="text-muted-foreground text-xs font-normal tabular-nums">
-            {channels.length}
-          </span>
-        </h2>
-        {canManage ? (
-          <Button
-            aria-label={
-              createChannelOpen ? "Cancel channel creation" : "Create channel"
-            }
-            aria-expanded={createChannelOpen}
-            aria-controls="community-create-channel"
-            className="size-11 shrink-0 rounded-lg"
-            onClick={() => setCreateChannelOpen((open) => !open)}
-            size="icon"
-            variant="ghost"
-          >
-            {createChannelOpen ? (
-              <X className="size-4" />
-            ) : (
-              <Plus className="size-4" />
-            )}
-          </Button>
-        ) : null}
-      </div>
+      <CommunityChannelListHeader
+        count={channels.length}
+        onCreated={
+          canManage
+            ? (channel) => {
+                setChannels((current) => [...current, channel]);
+                if (!desktopNavigation) {
+                  setCommunityNavigationOpen(false);
+                }
+                navigateCommunityChat(`/a/${slug}/chat/${channel.id}`);
+              }
+            : undefined
+        }
+        slug={slug}
+      />
       {channelsError ? (
         <div className="text-muted-foreground px-5 py-2 text-xs">
           Couldn’t load channels.{" "}
@@ -1537,61 +1473,13 @@ function CommunityChatTimeline({
           </button>
         </div>
       ) : null}
-      {createChannelOpen && canManage ? (
-        <div
-          id="community-create-channel"
-          className="border-border/70 mx-3 mb-3 rounded-xl border bg-[hsl(var(--background))] p-3"
-        >
-          <label
-            className="text-muted-foreground mb-1.5 block text-xs font-medium"
-            htmlFor="community-channel-name"
-          >
-            Channel name
-          </label>
-          <Input
-            autoFocus
-            className="min-h-11"
-            id="community-channel-name"
-            maxLength={64}
-            onChange={(event) => setNewChannelName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                void createChannel();
-              }
-            }}
-            placeholder="updates"
-            value={newChannelName}
-          />
-          <div className="mt-2 flex gap-1.5">
-            {(["TEXT", "ANNOUNCEMENT"] as const).map((type) => (
-              <button
-                aria-pressed={newChannelType === type}
-                className={`chip-3d min-h-11 flex-1 rounded-lg px-2.5 py-2 text-xs ${newChannelType === type ? "text-foreground" : "text-muted-foreground"}`}
-                key={type}
-                onClick={() => setNewChannelType(type)}
-                type="button"
-              >
-                {type === "TEXT" ? "Text" : "Announcement"}
-              </button>
-            ))}
-          </div>
-          <Button
-            className="mt-3 min-h-11 w-full text-sm"
-            disabled={!newChannelName.trim() || creatingChannel}
-            onClick={async () => {
-              await createChannel();
-            }}
-            variant="premium"
-          >
-            {creatingChannel ? "Creating…" : "Create channel"}
-          </Button>
-        </div>
-      ) : null}
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+      <div className="hide-native-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3">
         {channels.map((channel) => (
           <button
             aria-current={channel.id === channelId ? "page" : undefined}
-            className={`${communityNavigationRowClassName} ${channel.id === channelId ? "text-foreground bg-[color-mix(in_srgb,var(--community-accent-resolved)_9%,hsl(var(--background)))] font-semibold" : "text-foreground/80 hover:bg-muted/60 hover:text-foreground"}`}
+            className={communityNavigationRowClassName(
+              channel.id === channelId
+            )}
             key={channel.id}
             onClick={() => {
               if (!desktopNavigation) {
@@ -1601,29 +1489,25 @@ function CommunityChatTimeline({
             }}
             type="button"
           >
-            <MessageCircle className="size-4 shrink-0 opacity-75" />
+            <MessageCircle
+              aria-hidden="true"
+              className={communityNavigationChatIconClassName(
+                channel.id === channelId
+              )}
+            />
             <span className="min-w-0 flex-1 truncate text-sm">
               {channel.name}
             </span>
             {channel.channelType === "ANNOUNCEMENT" ? (
-              <span className="text-muted-foreground text-xs font-medium">
+              <span className="text-muted-foreground/75 shrink-0 text-[10px] font-medium">
                 Staff
               </span>
             ) : null}
-            {channel.id === channelId ? (
-              <span className="absolute inset-y-3 left-0 w-0.5 rounded-full bg-[var(--community-accent-resolved)]" />
-            ) : null}
           </button>
         ))}
-        <div className="border-border/50 mt-3 border-t pt-2">
-          <h2 className="text-muted-foreground flex min-h-8 items-center gap-2 px-3 text-xs font-semibold">
-            Threads{" "}
-            <span
-              className="min-w-0 truncate font-normal"
-              title={parentChannelName}
-            >
-              {parentChannelName}
-            </span>
+        <div className="mt-3">
+          <h2 className="text-muted-foreground flex min-h-8 items-center px-3 text-xs font-semibold">
+            Threads
           </h2>
           {threadsLoading ? (
             <output className="text-muted-foreground block px-3 py-2 text-xs">
@@ -1656,7 +1540,9 @@ function CommunityChatTimeline({
             threads.map((thread) => (
               <button
                 aria-current={threadId === thread.room.id ? "page" : undefined}
-                className={`${communityNavigationRowClassName} ${threadId === thread.room.id ? "text-foreground bg-[color-mix(in_srgb,var(--community-accent-resolved)_9%,hsl(var(--background)))] font-semibold" : "text-foreground/80 hover:bg-muted/60 hover:text-foreground"}`}
+                className={communityNavigationRowClassName(
+                  threadId === thread.room.id
+                )}
                 key={thread.room.id}
                 onClick={() => {
                   if (!desktopNavigation) {
@@ -1669,9 +1555,14 @@ function CommunityChatTimeline({
                 type="button"
               >
                 {thread.room.visibility === "PRIVATE" ? (
-                  <LockKeyhole className="size-3.5 shrink-0" />
+                  <LockKeyhole aria-hidden="true" className="size-4 shrink-0" />
                 ) : (
-                  <MessageCircle className="size-3.5 shrink-0" />
+                  <MessageCircle
+                    aria-hidden="true"
+                    className={communityNavigationChatIconClassName(
+                      threadId === thread.room.id
+                    )}
+                  />
                 )}
                 <span
                   className="line-clamp-2 min-w-0 flex-1 break-words"

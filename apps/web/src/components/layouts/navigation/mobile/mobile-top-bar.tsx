@@ -15,6 +15,7 @@ import UserProfilePopover from "@/components/home/sidebars/left/user-profile-pop
 import UserAvatar from "@/components/layouts/user/user-avatar";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useUnreadNotificationCount } from "@/hooks/notifications/use-unread-notification-count";
+import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import kyInstance from "@/lib/ky";
 import { profilePath } from "@/lib/users/profile-path";
 import { cn } from "@/lib/utils";
@@ -26,12 +27,13 @@ const MobileTopBar: React.FC<{
   const { user } = useSession();
   const { openSpotlight } = useSpotlight();
   const { data: notificationData } = useUnreadNotificationCount();
+  const isHydrated = useIsHydrated();
 
   const pathname = usePathname();
   const isNotifications = pathname.startsWith("/notifications");
   const canGoBack = Boolean(backHref || onBack);
 
-  const unreadCount = notificationData?.unreadCount ?? 0;
+  const unreadCount = isHydrated ? (notificationData?.unreadCount ?? 0) : 0;
 
   const { data: userData } = useQuery({
     enabled: Boolean(user),
@@ -44,7 +46,7 @@ const MobileTopBar: React.FC<{
     if (!user) {
       return null;
     }
-    if (userData) {
+    if (isHydrated && userData) {
       return <UserProfilePopover compact userData={userData} />;
     }
     return (

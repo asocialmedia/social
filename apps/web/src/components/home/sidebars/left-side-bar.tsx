@@ -31,7 +31,7 @@ import Image from "next/image";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { JoinedCommunitiesRail } from "@/components/communities/rails/joined-communities-rail";
@@ -41,6 +41,7 @@ import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useUnreadNotificationCount } from "@/hooks/notifications/use-unread-notification-count";
 import { useBookmarkCount } from "@/hooks/posts/use-bookmark-count";
+import { useIsHydrated } from "@/hooks/use-is-hydrated";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useOpenComposer } from "@/hooks/use-open-composer";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
@@ -58,20 +59,6 @@ import UserProfilePopover from "./left/user-profile-popover";
 interface LeftSidebarProps {
   userData: UserData | null;
 }
-
-// Hydration marker: false while rendering server markup, true once the client
-// has taken over. Lets the theme toggle read next-themes state without
-// mismatching SSR output, without a setState-in-effect cascade.
-const emptySubscribe = () => () => {
-  /* empty */
-};
-
-const useIsHydrated = () =>
-  useSyncExternalStore(
-    emptySubscribe,
-    () => true,
-    () => false
-  );
 
 interface NavItem {
   count?: number;
@@ -559,7 +546,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
         </button>
       </div>
 
-      <nav className="flex min-h-0 flex-col gap-1 overflow-y-auto overscroll-contain">
+      <nav className="hide-native-scrollbar flex min-h-0 flex-col gap-1 overflow-y-auto overscroll-contain">
         {primaryItems.map((item) => {
           if (item.href === "/search") {
             return renderActionItem({

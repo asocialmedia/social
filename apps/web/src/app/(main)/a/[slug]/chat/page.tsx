@@ -12,6 +12,7 @@ import CommunityChatLoading from "@/components/communities/page/community-chat-l
 import { getSessionFromApi } from "@/lib/auth/session";
 import { communityChatAvailabilityResponse } from "@/lib/communities/chat-api";
 import { communityChatUiEnabled } from "@/lib/communities/chat-features";
+import { defaultCommunityChatChannel } from "@/lib/communities/chat-navigation";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -48,9 +49,9 @@ async function CommunityChatLanding({ params }: PageProps) {
     redirect(`/a/${slug}`);
   }
   const { channels } = await listCommunityChatChannels(community.id, userId);
-  const [firstChannel] = channels;
-  if (!firstChannel) {
+  const defaultChannel = defaultCommunityChatChannel(channels);
+  if (!defaultChannel) {
     notFound();
   }
-  return redirect(`/a/${community.slug}/chat/${firstChannel.id}`);
+  return redirect(`/a/${community.slug}/chat/${defaultChannel.id}`);
 }

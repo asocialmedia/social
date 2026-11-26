@@ -13,6 +13,7 @@ interface CommunitySectionNavProps {
   active: "chat" | "posts";
   accentColor: string;
   channelId?: string;
+  globalChatHref?: string;
   slug: string;
   navigationOpen?: boolean;
   onOpenNavigation?: () => void;
@@ -25,6 +26,7 @@ export default function CommunitySectionNav({
   identity,
   accentColor,
   channelId,
+  globalChatHref,
   slug,
   navigationOpen,
   onOpenNavigation,
@@ -56,6 +58,7 @@ export default function CommunitySectionNav({
         <CommunitySectionLinks
           active={active}
           channelId={channelId}
+          globalChatHref={globalChatHref}
           slug={slug}
         />
       ) : null}

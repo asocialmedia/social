@@ -37,6 +37,7 @@ type CommunityPostsWorkspaceProps = Omit<
   | "detailsStyle"
 > & {
   children?: ReactNode;
+  globalChatHref?: string;
   navigationOpen?: boolean;
   navigationModalOpen?: boolean;
   onOpenNavigation?: () => void;
@@ -46,6 +47,7 @@ type CommunityPostsWorkspaceProps = Omit<
 export default function CommunityPostsWorkspace({
   community,
   children,
+  globalChatHref,
   canReadContent = true,
   navigationOpen,
   navigationModalOpen,
@@ -211,6 +213,7 @@ export default function CommunityPostsWorkspace({
               active="posts"
               showSections={canReadContent}
               accentColor={community.accentColor}
+              globalChatHref={globalChatHref}
               slug={community.slug}
               navigationOpen={navigationOpen}
               onOpenNavigation={onOpenNavigation}
