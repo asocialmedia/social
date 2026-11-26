@@ -31,17 +31,22 @@ import Image from "next/image";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import type React from "react";
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { JoinedCommunitiesRail } from "@/components/communities/rails/joined-communities-rail";
 import Spinner3D from "@/components/layouts/feedback/spinner-3d";
+import { RecentChatsRail } from "@/components/messages/recent-chats-rail";
 import { useSpotlight } from "@/components/search/spotlight-provider";
 import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 import { useUnreadNotificationCount } from "@/hooks/notifications/use-unread-notification-count";
 import { useBookmarkCount } from "@/hooks/posts/use-bookmark-count";
+import { useIsHydrated } from "@/hooks/use-is-hydrated";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useOpenComposer } from "@/hooks/use-open-composer";
 import { useUserDataQuery } from "@/hooks/users/use-user-data-query";
+import { useRefreshConversationList } from "@/lib/messages/conversation-list-query";
+import { useMessageActivity } from "@/lib/messages/use-message-activity";
 import { useUnreadMessageCount } from "@/lib/messages/use-unread-messages";
 import { reselectFeedNavigation } from "@/lib/posts/feed-navigation";
 import { profilePath } from "@/lib/users/profile-path";
@@ -54,20 +59,6 @@ import UserProfilePopover from "./left/user-profile-popover";
 interface LeftSidebarProps {
   userData: UserData | null;
 }
-
-// Hydration marker: false while rendering server markup, true once the client
-// has taken over. Lets the theme toggle read next-themes state without
-// mismatching SSR output, without a setState-in-effect cascade.
-const emptySubscribe = () => () => {
-  /* empty */
-};
-
-const useIsHydrated = () =>
-  useSyncExternalStore(
-    emptySubscribe,
-    () => true,
-    () => false
-  );
 
 interface NavItem {
   count?: number;
@@ -219,6 +210,13 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
     ? `Post in a/${composerTarget.slug}`
     : "Create Post";
   const { isCollapsed, toggleCollapsed } = useSidebarStore();
+  const desktop = useMediaQuery("(min-width: 64rem)");
+  const showRecentChats = desktop && !isCollapsed;
+  const refreshConversationList = useRefreshConversationList(user?.id);
+  useMessageActivity(
+    refreshConversationList,
+    showRecentChats || pathname === "/messages"
+  );
 
   const handleToggleTheme = useCallback(() => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark");
@@ -524,8 +522,8 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
   }
 
   return (
-    <aside className="bg-background border-border/60 sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-r px-2.5 pt-2.5 pb-5 transition-[width] duration-300 ease-in-out lg:flex">
-      <div className="mb-8 flex items-center justify-between gap-2 px-2">
+    <aside className="bg-background border-border/60 sticky top-0 hidden h-dvh w-72 shrink-0 flex-col border-r px-2.5 pt-2.5 pb-5 transition-[width] duration-300 ease-in-out lg:flex">
+      <div className="mb-8 flex shrink-0 items-center justify-between gap-2 px-2">
         <Link href="/">
           <div className="relative h-11 w-14.5">
             <Image
@@ -548,7 +546,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
         </button>
       </div>
 
-      <nav className="flex flex-col gap-1">
+      <nav className="hide-native-scrollbar flex min-h-0 flex-col gap-1 overflow-y-auto overscroll-contain">
         {primaryItems.map((item) => {
           if (item.href === "/search") {
             return renderActionItem({
@@ -570,14 +568,21 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ userData }) => {
           );
         })}
 
-        <Separator className="bg-border/60 my-3" />
+        <Separator className="bg-border/60 my-3 shrink-0" />
 
-        {secondaryItems.map((item) => renderItem(withSecondaryCount(item)))}
+        {secondaryItems.map((item) => (
+          <div key={item.href}>
+            {renderItem(withSecondaryCount(item))}
+            {item.href === "/messages" && showRecentChats && user ? (
+              <RecentChatsRail userId={user.id} />
+            ) : null}
+          </div>
+        ))}
 
         {renderItem(profileItem)}
       </nav>
 
-      <div className="mt-auto flex flex-col gap-3">
+      <div className="mt-auto flex shrink-0 flex-col gap-3">
         {isLoggedIn ? (
           <Button
             className="h-12 w-full rounded-2xl px-6 py-3"

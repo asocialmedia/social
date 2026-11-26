@@ -27,3 +27,13 @@ test("missing objects use normal queue failure handling", () => {
     processStorageDeferral({ code: "NoSuchKey" }, 0, 1000)
   ).toBeUndefined();
 });
+
+test("a provider error wrapped with a cause still defers bucket outages", () => {
+  const error = new Error("Object read failed", {
+    cause: { Code: "NoSuchBucket" },
+  });
+  expect(processStorageDeferral(error, 0, 1000)).toEqual({
+    bucketDeferrals: 1,
+    retryAt: 31_000,
+  });
+});

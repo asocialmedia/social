@@ -5,6 +5,7 @@ import {
   postViewsCache,
   prisma,
 } from "@asm/db";
+import { readJsonBounded } from "@asm/protocols/discovery";
 
 import { getSessionFromApi } from "@/lib/auth/session";
 
@@ -13,6 +14,39 @@ import { getSessionFromApi } from "@/lib/auth/session";
 // per viewer (15 minutes). Self-views by authors return current counts without
 // inflating metrics or milestone aura.
 export async function POST(request: Request) {
+  let body: unknown;
+  try {
+    body = await readJsonBounded(
+      request,
+      64 * 1024,
+      AbortSignal.any([request.signal, AbortSignal.timeout(5000)])
+    );
+  } catch (error) {
+    if (
+      request.signal.aborted ||
+      (error instanceof Error &&
+        (error.name === "AbortError" ||
+          ("code" in error && error.code === "ECONNRESET")))
+    ) {
+      return new Response(null, { status: 499 });
+    }
+    if (error instanceof Error && error.name === "TimeoutError") {
+      return Response.json({ error: "View batch timed out" }, { status: 408 });
+    }
+    return Response.json({ error: "Invalid view batch" }, { status: 400 });
+  }
+  if (typeof body !== "object" || body === null || !("postIds" in body)) {
+    return Response.json({ error: "Invalid view batch" }, { status: 400 });
+  }
+  const postIds = Array.isArray(body.postIds)
+    ? [
+        ...new Set(
+          body.postIds
+            .filter((id): id is string => typeof id === "string")
+            .slice(0, 100)
+        ),
+      ]
+    : [];
   try {
     const session = await getSessionFromApi();
     const userId = session?.user?.id;
@@ -38,13 +72,6 @@ export async function POST(request: Request) {
         }
       );
     }
-
-    const body = (await request.json()) as { postIds?: unknown };
-    const postIds = Array.isArray(body.postIds)
-      ? body.postIds
-          .filter((id): id is string => typeof id === "string")
-          .slice(0, 100)
-      : [];
 
     const viewerHash = userId ? undefined : hashViewerId(clientIp);
 

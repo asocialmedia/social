@@ -19,9 +19,11 @@ const connectionSchema = z.object({
 export function PostAuthorFollow({
   post,
   menu = false,
+  showForGuest = false,
 }: {
   post: PresentedPost;
   menu?: boolean;
+  showForGuest?: boolean;
 }) {
   const { user } = useSession();
   const connection = useQuery({
@@ -37,6 +39,7 @@ export function PostAuthorFollow({
     staleTime: 30_000,
   });
   if (
+    (!user && !showForGuest) ||
     !canFollowPostAuthor({
       authorId: post.user?.id,
       connectionKnown: Boolean(connection.data),
@@ -53,7 +56,7 @@ export function PostAuthorFollow({
       <ExternalFollowButton
         did={post.external.author.id}
         menu={menu}
-        showForGuest
+        showForGuest={showForGuest}
         className="relative z-10 h-8! shrink-0 rounded-full px-4 text-xs!"
       />
     );

@@ -86,10 +86,16 @@ export function shouldDropSpan(
 class DroppingSpanProcessor implements SpanProcessor {
   readonly #inner: SpanProcessor;
   readonly #patterns: string[];
+  readonly #shouldDrop?: (span: ReadableSpan) => boolean;
 
-  constructor(inner: SpanProcessor, patterns: string[]) {
+  constructor(
+    inner: SpanProcessor,
+    patterns: string[],
+    shouldDrop?: (span: ReadableSpan) => boolean
+  ) {
     this.#inner = inner;
     this.#patterns = patterns;
+    this.#shouldDrop = shouldDrop;
   }
 
   onStart(span: Span, parentContext: Context): void {
@@ -97,7 +103,7 @@ class DroppingSpanProcessor implements SpanProcessor {
   }
 
   onEnd(span: ReadableSpan): void {
-    if (!shouldDropSpan(span, this.#patterns)) {
+    if (!shouldDropSpan(span, this.#patterns) && !this.#shouldDrop?.(span)) {
       this.#inner.onEnd(span);
     }
   }
@@ -144,6 +150,7 @@ export function initTelemetry(options: {
   traceEndpoint?: string;
   metricEndpoint?: string;
   logEndpoint?: string;
+  shouldDropSpan?: (span: ReadableSpan) => boolean;
 }): Telemetry {
   const config = readOtelConfig();
 
@@ -209,7 +216,8 @@ export function initTelemetry(options: {
     spanProcessors: [
       new DroppingSpanProcessor(
         new BatchSpanProcessor(traceExporter),
-        readDropSpanPatterns()
+        readDropSpanPatterns(),
+        options.shouldDropSpan
       ),
     ],
   });

@@ -136,8 +136,11 @@ export function createProtocolsApp(options: ProtocolsAppOptions) {
       set.headers["x-request-id"] = requestId(request);
       set.headers["cache-control"] = "no-store";
     })
-    .onError(ProtocolError, ({ error, set }) => {
-      set.status = statusByCode[error.code];
+    .onError(ProtocolError, ({ error, request, set }) => {
+      set.status =
+        error.code === "cancelled" && request.signal.aborted
+          ? 499
+          : statusByCode[error.code];
       if (error.retryAfterSeconds) {
         set.headers["retry-after"] = String(error.retryAfterSeconds);
       }

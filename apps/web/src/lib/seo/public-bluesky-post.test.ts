@@ -4,10 +4,11 @@ import type { ExternalPost } from "@asm/protocols/contracts";
 
 const read = mock((): Promise<ExternalPost[]> => Promise.resolve([]));
 const cacheLife = mock(() => {});
-const io = mock(() => Promise.resolve());
+const connection = mock(() => Promise.resolve());
 const frameworkError = new Error("prerender interrupted");
 mock.module("server-only", () => ({}));
-mock.module("next/cache", () => ({ cacheLife, io }));
+mock.module("next/cache", () => ({ cacheLife }));
+mock.module("next/server", () => ({ connection }));
 mock.module("next/navigation", () => ({
   unstable_rethrow(error: unknown) {
     if (error === frameworkError) {
@@ -20,7 +21,7 @@ const { getPublicBlueskyPost } = await import("./public-bluesky-post");
 const { ProtocolGatewayError } = await import("@/lib/protocols/gateway");
 const originalWarn = console.warn;
 const warn = mock(() => {
-  expect(io).toHaveBeenCalledTimes(1);
+  expect(connection).toHaveBeenCalledTimes(1);
 });
 console.warn = warn;
 afterAll(() => {
@@ -28,7 +29,7 @@ afterAll(() => {
 });
 beforeEach(() => {
   read.mockReset();
-  io.mockClear();
+  connection.mockClear();
   cacheLife.mockClear();
   warn.mockClear();
 });
@@ -52,7 +53,7 @@ test("source outages defer logging beyond prerender and keep the preview fallbac
 test("framework interruptions propagate without logging or replacing the route tree", async () => {
   read.mockRejectedValue(frameworkError);
   await expect(getPublicBlueskyPost(uri)).rejects.toBe(frameworkError);
-  expect(io).not.toHaveBeenCalled();
+  expect(connection).toHaveBeenCalledTimes(1);
   expect(warn).not.toHaveBeenCalled();
 });
 test("a public preview retains the provider's retry delay during throttling", async () => {
@@ -69,7 +70,19 @@ test("a public preview retains the provider's retry delay during throttling", as
 
 test("invalid addresses never request a source preview", async () => {
   expect(await getPublicBlueskyPost("https://invalid.test")).toBeNull();
+  expect(connection).not.toHaveBeenCalled();
   expect(read).not.toHaveBeenCalled();
+});
+
+test("does not start the cached source read while rendering is waiting for a request", async () => {
+  const runtime = Promise.withResolvers<undefined>();
+  connection.mockImplementationOnce(() => runtime.promise);
+  read.mockResolvedValueOnce([]);
+  const preview = getPublicBlueskyPost(uri);
+  expect(read).not.toHaveBeenCalled();
+  runtime.resolve();
+  await expect(preview).resolves.toBeNull();
+  expect(read).toHaveBeenCalledTimes(1);
 });
 
 test("successful missing posts retain the normal preview lifetime and guest policy", async () => {

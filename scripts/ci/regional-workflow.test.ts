@@ -17,24 +17,21 @@ interface Workflow {
   >;
 }
 
-test("all app images and Android use four-core runners while other jobs keep base runners and storage", async () => {
-  for (const filename of [
-    "ci.yml",
-    "deploy-protocols.yml",
-    "rustfs-buckets.yml",
-  ]) {
+test("active workflows use GitHub-hosted Ubuntu and the GitHub Actions build cache", async () => {
+  const workflowDirectory = path.resolve(
+    import.meta.dir,
+    "../../.github/workflows"
+  );
+  const files = Array.from(
+    new Bun.Glob("*.{yml,yaml}").scanSync(workflowDirectory)
+  );
+  expect(files).toContain("ci.yml");
+  for (const filename of files) {
     const workflow = Bun.YAML.parse(
-      await Bun.file(
-        path.resolve(import.meta.dir, "../../.github/workflows", filename)
-      ).text()
+      await Bun.file(path.join(workflowDirectory, filename)).text()
     ) as Workflow;
-    for (const [name, job] of Object.entries(workflow.jobs)) {
-      expect(job["runs-on"]).toBe(
-        filename === "ci.yml" &&
-          ["build-and-push", "build-mobile-apk"].includes(name)
-          ? "blacksmith-4vcpu-ubuntu-2404"
-          : "blacksmith-2vcpu-ubuntu-2404"
-      );
+    for (const job of Object.values(workflow.jobs)) {
+      expect(job["runs-on"]).toBe("ubuntu-26.04");
       for (const step of job.steps) {
         expect(step.uses ?? "").not.toMatch(/^useblacksmith\//);
         if (step.uses?.startsWith("docker/build-push-action@")) {

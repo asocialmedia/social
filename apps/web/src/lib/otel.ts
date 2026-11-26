@@ -1,3 +1,8 @@
+import {
+  isExpectedNextNavigation,
+  requestNetworkErrorCodes,
+} from "./request-error";
+
 // Edge-runtime safe. @asm/logger is Node-only (uses node:stream / process.stderr)
 // so it is imported lazily inside initWebTelemetry, which is itself only
 // reached on the Node.js runtime. Statically importing it here would pull the
@@ -82,6 +87,12 @@ function forwardConsoleOutput(logger: PinoLogger): void {
       if (isIgnoredConsoleMessage(message)) {
         return;
       }
+      const networkErrorCodes =
+        method === "error" ? requestNetworkErrorCodes(args) : [];
+      if (networkErrorCodes.length) {
+        logger.error({ networkErrorCodes }, "Web dependency connection failed");
+        return;
+      }
       logger[pinoLevel](message);
     };
   }
@@ -113,7 +124,14 @@ export async function initWebTelemetry(): Promise<
     level: process.env.LOG_LEVEL ?? "info",
     serviceName: "web",
   });
-  const telemetry = initTelemetry({ serviceName: "web", version: "1.1.85" });
+  const telemetry = initTelemetry({
+    serviceName: "web",
+    shouldDropSpan: (span) =>
+      span.attributes["next.span_type"] ===
+        "ResolveMetadata.generateMetadata" &&
+      isExpectedNextNavigation(span.status.message),
+    version: "1.1.85",
+  });
 
   initialized = true;
   webLogger = logger;

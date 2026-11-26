@@ -1,5 +1,11 @@
 import type { CommunityChatRoom } from "@asm/messages";
 
+export function defaultCommunityChatChannel<T extends { slug: string }>(
+  channels: readonly T[]
+) {
+  return channels.find((channel) => channel.slug === "general") ?? channels[0];
+}
+
 export function isCommunityPath(pathname: string, slug: string): boolean {
   const root = `/a/${slug}`;
   return pathname === root || pathname.startsWith(`${root}/`);

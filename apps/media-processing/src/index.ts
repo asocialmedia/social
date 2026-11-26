@@ -40,7 +40,8 @@ if (import.meta.main) {
     EXTERNAL_MEDIA_SAFETY_QUEUE,
     prisma,
   } = await import("@asm/db");
-  const { MEDIA_JOB_NAMES } = await import("@asm/media");
+  const { isStorageBucketMissing, MEDIA_JOB_NAMES } =
+    await import("@asm/media");
   const { Worker, DelayedError } = await import("bullmq");
   const { ClefDeferredError, withAnalysisLane } =
     await import("./analyze/classification/clef");
@@ -423,7 +424,9 @@ if (import.meta.main) {
   ) => {
     mediaLogger.error(
       {
-        error: String(error),
+        ...(isStorageBucketMissing(error)
+          ? { bucket: workerEnv.ASMOB_BUCKET, errorCode: "NoSuchBucket" }
+          : { error: String(error) }),
         jobId: job?.id,
         mediaId: job?.data?.mediaId,
         name: job?.name,
@@ -599,7 +602,13 @@ if (import.meta.main) {
             { status: ready ? "ready" : "not-ready" },
             { status: ready ? 200 : 503 }
           );
-        } catch {
+        } catch (error) {
+          if (isStorageBucketMissing(error)) {
+            return Response.json(
+              { reason: "storage_bucket_missing", status: "not-ready" },
+              { status: 503 }
+            );
+          }
           return Response.json({ status: "not-ready" }, { status: 503 });
         }
       }

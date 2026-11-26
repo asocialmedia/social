@@ -99,15 +99,6 @@ export async function warmDiscoveryInventory(options: {
             lease
           );
         }
-        if (
-          signal.aborted &&
-          error instanceof Error &&
-          error.name === "AbortError" &&
-          signal.reason instanceof Error &&
-          signal.reason.name === "TimeoutError"
-        ) {
-          throw signal.reason;
-        }
         throw error;
       }
       signal.throwIfAborted();

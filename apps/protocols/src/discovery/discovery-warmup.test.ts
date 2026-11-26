@@ -505,7 +505,7 @@ test("caller cancellation releases warmup ownership and still propagates", async
       store,
       watch,
     })
-  ).rejects.toMatchObject({ name: "AbortError" });
+  ).rejects.toBe(failure);
   const reads: string[] = [];
   await warmDiscoveryInventory({
     head,

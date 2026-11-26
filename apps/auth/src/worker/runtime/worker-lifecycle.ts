@@ -99,22 +99,38 @@ const CONNECTION_ERROR_CODES = new Set([
   "ENOTFOUND",
   "EHOSTUNREACH",
   "EAI_AGAIN",
+  "ENETUNREACH",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
 ]);
 
 export function messageWorkerErrorFields(error: unknown): {
   errorCode: string;
 } {
-  if (typeof error !== "object" || error === null) {
-    return { errorCode: "UNKNOWN" };
-  }
-  const candidate = error as { code?: unknown; sqlState?: unknown };
-  const code = candidate.sqlState ?? candidate.code;
-  if (
-    typeof code === "string" &&
-    (CONNECTION_ERROR_CODES.has(code) ||
-      /^(?:\d{2}[\dA-Z]{3}|XX\d{3}|P\d{4})$/.test(code))
-  ) {
-    return { errorCode: code };
+  const pending = [error];
+  for (let index = 0; index < pending.length && index < 12; index += 1) {
+    const candidate = pending[index];
+    if (typeof candidate !== "object" || candidate === null) {
+      continue;
+    }
+    for (const code of [
+      "sqlState" in candidate ? candidate.sqlState : undefined,
+      "code" in candidate ? candidate.code : undefined,
+    ]) {
+      if (
+        typeof code === "string" &&
+        (CONNECTION_ERROR_CODES.has(code) ||
+          /^(?:\d{2}[\dA-Z]{3}|XX\d{3}|P\d{4})$/.test(code))
+      ) {
+        return { errorCode: code };
+      }
+    }
+    if ("cause" in candidate && candidate.cause) {
+      pending.push(candidate.cause);
+    }
+    if (candidate instanceof AggregateError) {
+      pending.push(...candidate.errors.slice(0, 6));
+    }
   }
   return { errorCode: "UNKNOWN" };
 }
@@ -150,6 +166,7 @@ export function attachWorkerFailureReporting(
       {
         ...messageWorkerErrorFields(error),
         attemptsMade: job?.attemptsMade,
+        jobName: job?.name,
         queue: worker.name,
       },
       "queue job failed"

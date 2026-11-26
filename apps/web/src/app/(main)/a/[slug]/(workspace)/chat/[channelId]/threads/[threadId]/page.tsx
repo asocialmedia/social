@@ -1,21 +1,14 @@
-import {
-  canViewCommunity,
-  getCachedCommunityStats,
-  getCommunityBySlug,
-  getCommunityChatRoomAccess,
-  getMembership,
-  isSubscribedToCommunity,
-} from "@asm/db";
+import { getCommunityChatRoomAccess } from "@asm/db";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
 import CommunityChatLoading from "@/components/communities/page/community-chat-loading";
-import CommunityPage from "@/components/communities/page/community-page";
-import { getSessionFromApi } from "@/lib/auth/session";
+import CommunityDensView from "@/components/communities/page/community-dens-view";
 import { communityChatAvailabilityResponse } from "@/lib/communities/chat-api";
 import { communityChatUiEnabled } from "@/lib/communities/chat-features";
+import { getCommunityWorkspaceAccess } from "@/lib/communities/workspace-access";
 
 interface PageProps {
   params: Promise<{ channelId: string; slug: string; threadId: string }>;
@@ -40,15 +33,9 @@ async function CommunityChatThreadPage({ params }: PageProps) {
     notFound();
   }
   const { channelId, slug, threadId } = await params;
-  const [session, community] = await Promise.all([
-    getSessionFromApi(),
-    getCommunityBySlug(slug),
-  ]);
-  const userId = session?.user?.id ?? "";
-  if (!community) {
-    notFound();
-  }
-  if (!(await canViewCommunity(community, userId))) {
+  const { canRead, community, userId } =
+    await getCommunityWorkspaceAccess(slug);
+  if (!canRead) {
     redirect(`/a/${slug}`);
   }
 
@@ -72,25 +59,5 @@ async function CommunityChatThreadPage({ params }: PageProps) {
     notFound();
   }
 
-  const [stats, membership, subscribed] = await Promise.all([
-    getCachedCommunityStats(community.id),
-    userId ? getMembership(community.id, userId) : Promise.resolve(null),
-    userId
-      ? isSubscribedToCommunity(community.id, userId)
-      : Promise.resolve(false),
-  ]);
-
-  return (
-    <CommunityPage
-      viewerId={userId}
-      channelId={channelId}
-      community={community}
-      membership={membership}
-      slug={community.slug}
-      stats={stats}
-      subscribed={subscribed}
-      threadId={threadId}
-      view="chat"
-    />
-  );
+  return <CommunityDensView channelId={channelId} threadId={threadId} />;
 }

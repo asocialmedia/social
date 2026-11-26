@@ -1,37 +1,21 @@
-import {
-  canViewCommunity,
-  getCachedCommunityStats,
-  getCommunityBySlug,
-  getMembership,
-  getCommunityPreview,
-  isSubscribedToCommunity,
-} from "@asm/db";
+import { getCommunityBySlug } from "@asm/db";
 import { siteConfig } from "@asm/ui/meta/site";
 import type { Metadata } from "next";
 import { cacheLife } from "next/cache";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
-import { cache, Suspense } from "react";
+import { Suspense } from "react";
 
-import CommunityPage from "@/components/communities/page/community-page";
-import CommunityPrivateLanding from "@/components/communities/page/community-private-landing";
-import CommunityPageSkeleton from "@/components/layouts/skeletons/community-page-skeleton";
+import { CommunityPostsView } from "@/components/communities/page/community-page";
+import { CommunityPostContentSkeleton } from "@/components/layouts/skeletons/community-page-skeleton";
 import JsonLd from "@/components/seo/json-ld";
-import { getSessionFromApi } from "@/lib/auth/session";
+import { getCommunityWorkspaceAccess } from "@/lib/communities/workspace-access";
 import { getCommunityPostsForCrawl } from "@/lib/posts/server-feed";
 import { absoluteUrl, excerpt, getPostPath } from "@/lib/seo/seo";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
 }
-
-const getCommunity = cache(async (slug: string) => {
-  const community = await getCommunityBySlug(slug);
-  if (!community) {
-    notFound();
-  }
-  return community;
-});
 
 // Metadata never varies by viewer; the public community select is enough.
 async function getMetadataCommunity(slug: string) {
@@ -110,11 +94,8 @@ export async function generateMetadata(props: PageProps): Promise<Metadata> {
 }
 
 export default function Page(props: PageProps) {
-  // The fallback mirrors the real page so the community's server reads stream
-  // into a fully-formed shell instead of a blank frame. This also keeps the
-  // route's own loading.tsx boundary consistent with streamed navigation.
   return (
-    <Suspense fallback={<CommunityPageSkeleton />}>
+    <Suspense fallback={<CommunityPostContentSkeleton />}>
       <CommunityContent params={props.params} />
     </Suspense>
   );
@@ -129,29 +110,10 @@ async function CommunityContent({ params }: PageProps) {
   await connection();
 
   const { slug } = await params;
-  const session = await getSessionFromApi();
-  const userId = session?.user?.id ?? "";
-
-  const community = await getCommunity(slug);
-  if (!(await canViewCommunity(community, userId))) {
-    const preview = await getCommunityPreview(slug, userId);
-    if (!preview) {
-      notFound();
-    }
-    return (
-      <CommunityPrivateLanding initialPreview={preview} viewerId={userId} />
-    );
+  const { canRead, community } = await getCommunityWorkspaceAccess(slug);
+  if (!canRead) {
+    return null;
   }
-  // The owner is no longer fetched here: the sidebar's roster lists the founder
-  // (with the owner badge) straight from the members API, so this second read
-  // was the same person fetched twice.
-  const [stats, membership, subscribed] = await Promise.all([
-    getCachedCommunityStats(community.id),
-    userId ? getMembership(community.id, userId) : Promise.resolve(null),
-    userId
-      ? isSubscribedToCommunity(community.id, userId)
-      : Promise.resolve(false),
-  ]);
 
   const communityUrl = absoluteUrl(`/a/${community.slug}`);
   const avatar = community.avatarUrl
@@ -218,14 +180,7 @@ async function CommunityContent({ params }: PageProps) {
   return (
     <>
       <JsonLd data={[jsonLd, breadcrumbJsonLd]} />
-      <CommunityPage
-        viewerId={userId}
-        community={community}
-        membership={membership}
-        slug={community.slug}
-        stats={stats}
-        subscribed={subscribed}
-      />
+      <CommunityPostsView />
       {crawlPosts.length > 0 ? (
         <nav aria-label={`Posts in a/${community.slug}`} className="sr-only">
           <ul>

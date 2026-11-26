@@ -40,14 +40,20 @@ export function resolveRefence(
   return { refencedAt: first, terminal: false };
 }
 
-export function hydrationRetryDelay(error: unknown): number | undefined {
+export function hydrationRetryDelay(
+  error: unknown,
+  random = Math.random
+): number | undefined {
   if (
-    error instanceof ProtocolError &&
-    ["capacity", "unavailable", "rate_limited"].includes(error.code) &&
-    error.retryAfterSeconds &&
-    Number.isFinite(error.retryAfterSeconds) &&
-    error.retryAfterSeconds > 0
+    !(error instanceof ProtocolError) ||
+    !["capacity", "unavailable", "rate_limited"].includes(error.code)
   ) {
-    return Math.min(60_000, Math.max(1000, error.retryAfterSeconds * 1000));
+    return;
   }
+  const hint = error.retryAfterSeconds;
+  if (hint && Number.isFinite(hint) && hint > 0) {
+    return Math.max(1000, Math.min(2_147_483_647, hint * 1000));
+  }
+  const fallback = error.code === "capacity" ? 2000 : 15_000;
+  return fallback + Math.floor(random() * fallback * 0.5);
 }

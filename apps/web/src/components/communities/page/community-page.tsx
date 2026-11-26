@@ -1,10 +1,6 @@
 "use client";
 
-import type {
-  CommunityData,
-  CommunityStats,
-  getCommunityPreview,
-} from "@asm/db";
+import type { getCommunityPreview } from "@asm/db";
 import {
   communityFeedSearchParams,
   readCommunityFeedSelection,
@@ -12,16 +8,21 @@ import {
 import { Button } from "@asm/ui/shadui/button";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSession } from "@/app/(main)/session-provider";
 import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
 import { useCommunityChatViewport } from "@/hooks/use-community-chat-viewport";
 import { useCommunityNavigation } from "@/hooks/use-community-navigation";
+import { communityChatChannelsQuery } from "@/lib/communities/chat-channels-query";
 import { communityChatUiEnabled } from "@/lib/communities/chat-features";
-import { communityChatLocation } from "@/lib/communities/chat-navigation";
-import type { CommunityRoleValue } from "@/lib/communities/client";
+import {
+  communityChatLocation,
+  defaultCommunityChatChannel,
+  isCommunityChatPath,
+} from "@/lib/communities/chat-navigation";
 import { cn } from "@/lib/utils";
 import { useActiveCommunityStore } from "@/store/active-community-store";
 import {
@@ -30,47 +31,38 @@ import {
 } from "@/store/community-section-store";
 
 import CommunityChannelShortcuts from "./community-channel-shortcuts";
-import CommunityChat from "./community-chat";
 import CommunityMatureGate from "./community-mature-gate";
 import CommunityPostsWorkspace from "./community-posts-workspace";
 import CommunityPrivateLanding from "./community-private-landing";
 import CommunitySidebar from "./community-sidebar";
-import { CommunityWorkspacePortalContext } from "./community-workspace-context";
+import {
+  CommunityWorkspacePortalContext,
+  CommunityWorkspaceViewContext,
+  useCommunityWorkspace,
+} from "./community-workspace-context";
+import type { CommunityWorkspaceData } from "./community-workspace-context";
 import CommunityWorkspaceNavigation from "./community-workspace-navigation";
 
-interface ClientCommunityProps {
-  viewerId?: string;
-  community: CommunityData;
-  membership: {
-    role: CommunityRoleValue;
-    status: "ACTIVE" | "PENDING";
-  } | null;
+interface ClientCommunityProps extends CommunityWorkspaceData {
+  children: ReactNode;
   slug: string;
-  stats: CommunityStats;
-  view?: "chat" | "posts";
-  channelId?: string;
-  threadId?: string;
-  // Whether the viewer follows this community's posts; drives the header bell.
-  subscribed: boolean;
+  viewerId: string;
 }
 
-// Community page shell. The center column holds the header + feed; the right
-// rail holds the about block. A mature community gates the whole page behind an
-// 18+ interstitial before any content renders.
 export default function ClientCommunity({
+  children,
   community,
   membership,
   slug,
   stats,
   subscribed,
-  view = "posts",
-  channelId,
-  threadId,
   viewerId,
 }: ClientCommunityProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const view = isCommunityChatPath(pathname) ? "chat" : "posts";
+  const channelId = communityChatLocation(pathname, slug)?.channelId;
   const { user } = useSession();
   const queryClient = useQueryClient();
   const privatePreview = useQuery({
@@ -135,7 +127,9 @@ export default function ClientCommunity({
       }
     }
   }, [pathname, rememberSection, searchParams, sectionScope, slug, view]);
-  const navigation = useCommunityNavigation();
+  const navigation = useCommunityNavigation(view);
+  const [navigationTarget, setNavigationTarget] =
+    useState<HTMLDivElement | null>(null);
   const navigationTriggerRef = useRef<HTMLButtonElement>(null);
   const chatViewportRef = useCommunityChatViewport(view === "chat");
   const [workspaceElement, setWorkspaceElement] =
@@ -219,6 +213,47 @@ export default function ClientCommunity({
   }, [router]);
 
   const isBlocked = community.mature && !matureAccepted;
+  const chatChannels = useQuery({
+    ...communityChatChannelsQuery(slug, user?.id),
+    enabled:
+      view === "posts" &&
+      communityChatUiEnabled &&
+      !isBlocked &&
+      !lostPrivateAccess &&
+      (community.type !== "PRIVATE" ||
+        privatePreview.data?.permissions.canReadContent === true),
+  });
+  const defaultChannel = defaultCommunityChatChannel(
+    chatChannels.data?.channels ?? []
+  );
+  const globalChatHref = defaultChannel
+    ? `/a/${slug}/chat/${defaultChannel.id}`
+    : undefined;
+  const workspace = useMemo(
+    () => ({
+      channels: chatChannels.data?.channels,
+      channelsUpdatedAt: chatChannels.dataUpdatedAt,
+      community,
+      globalChatHref,
+      membership,
+      navigation,
+      navigationTarget,
+      navigationTriggerRef,
+      stats,
+      subscribed,
+    }),
+    [
+      chatChannels.data?.channels,
+      chatChannels.dataUpdatedAt,
+      community,
+      globalChatHref,
+      membership,
+      navigation,
+      navigationTarget,
+      stats,
+      subscribed,
+    ]
+  );
 
   if (community.type === "PRIVATE" && privatePreview.isError) {
     return (
@@ -277,34 +312,43 @@ export default function ClientCommunity({
           )}
           inert={isBlocked || undefined}
         >
-          {/* Same column metrics as the home feed: lg:max-w-5xl on the center
-              column and a w-72 rail, so the two pages share one grid instead of
-              the community reading narrower with a wider rail. */}
-          {view === "posts" ? (
-            <CommunityWorkspaceNavigation
-              active="posts"
-              accentColor={community.accentColor}
-              avatarUrl={community.avatarUrl}
-              communityName={community.name}
-              desktop={navigation.desktop}
-              navigation={
-                communityChatUiEnabled && navigation.open ? (
-                  <CommunityChannelShortcuts
-                    slug={slug}
-                    onNavigate={() => {
-                      if (!navigation.desktop) {
-                        navigation.setOpen(false);
-                      }
-                    }}
-                  />
-                ) : null
-              }
-              open={navigation.open}
-              onOpenChange={(open) => navigation.setOpen(open)}
-              slug={slug}
-              triggerRef={navigationTriggerRef}
-            />
-          ) : null}
+          <CommunityWorkspaceNavigation
+            active={view}
+            accentColor={community.accentColor}
+            avatarUrl={community.avatarUrl}
+            channelId={channelId}
+            communityName={community.name}
+            desktop={navigation.desktop}
+            globalChatHref={globalChatHref}
+            postsSearchParams={searchParams.toString()}
+            navigation={
+              communityChatUiEnabled && navigation.open && !isBlocked ? (
+                <div className="flex min-h-0 flex-1 flex-col">
+                  {view === "chat" ? (
+                    <div
+                      ref={setNavigationTarget}
+                      className="peer flex min-h-0 flex-1 flex-col empty:hidden"
+                    />
+                  ) : null}
+                  <div
+                    className={cn(
+                      "min-h-0 flex-1 flex-col",
+                      view === "chat" ? "hidden peer-empty:flex" : "flex"
+                    )}
+                  >
+                    <CommunityChannelShortcuts
+                      channelId={channelId}
+                      slug={slug}
+                    />
+                  </div>
+                </div>
+              ) : null
+            }
+            open={navigation.open}
+            onOpenChange={(open) => navigation.setOpen(open)}
+            slug={slug}
+            triggerRef={navigationTriggerRef}
+          />
           <div
             className={cn(
               "border-border/60 mx-auto flex min-h-0 min-w-0 flex-1 flex-col bg-[hsl(var(--background-alt))] sm:border-x",
@@ -312,39 +356,9 @@ export default function ClientCommunity({
             )}
           >
             {view === "posts" ? <MobileTopBar /> : null}
-            {view === "chat" ? (
-              channelId && (
-                <CommunityChat
-                  key={threadId ?? channelId}
-                  accentColor={community.accentColor}
-                  avatarUrl={community.avatarUrl}
-                  channelId={channelId}
-                  communityId={community.id}
-                  communityName={community.name}
-                  membership={membership}
-                  memberCount={stats.members}
-                  canReviewRequests={
-                    community.type !== "PUBLIC" &&
-                    membership?.status === "ACTIVE" &&
-                    (membership.role === "OWNER" ||
-                      membership.role === "MODERATOR")
-                  }
-                  slug={slug}
-                  threadId={threadId}
-                />
-              )
-            ) : (
-              <CommunityPostsWorkspace
-                community={community}
-                members={stats.members}
-                membership={membership}
-                subscribed={subscribed}
-                navigationOpen={navigation.open}
-                navigationModalOpen={navigation.open && !navigation.desktop}
-                onOpenNavigation={() => navigation.setOpen(true)}
-                navigationTriggerRef={navigationTriggerRef}
-              />
-            )}
+            <CommunityWorkspaceViewContext.Provider value={workspace}>
+              {children}
+            </CommunityWorkspaceViewContext.Provider>
           </div>
 
           {view === "posts" ? (
@@ -366,5 +380,30 @@ export default function ClientCommunity({
         {view === "posts" ? <MobileBottomNav /> : null}
       </div>
     </CommunityWorkspacePortalContext.Provider>
+  );
+}
+
+export function CommunityPostsView() {
+  const {
+    community,
+    globalChatHref,
+    membership,
+    navigation,
+    navigationTriggerRef,
+    stats,
+    subscribed,
+  } = useCommunityWorkspace();
+  return (
+    <CommunityPostsWorkspace
+      community={community}
+      globalChatHref={globalChatHref}
+      members={stats.members}
+      membership={membership}
+      subscribed={subscribed}
+      navigationOpen={navigation.open}
+      navigationModalOpen={navigation.open && !navigation.desktop}
+      onOpenNavigation={() => navigation.setOpen(true)}
+      navigationTriggerRef={navigationTriggerRef}
+    />
   );
 }

@@ -11,7 +11,6 @@ import { useEffect } from "react";
 import { useSession } from "@/app/(main)/session-provider";
 import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
 import MobileTopBar from "@/components/layouts/navigation/mobile/mobile-top-bar";
-import { useRequireAuth } from "@/hooks/auth/use-require-auth";
 
 import CommunityPostsWorkspace from "./community-posts-workspace";
 
@@ -25,7 +24,6 @@ export default function CommunityPrivateLanding({
   viewerId: string;
 }) {
   const { user } = useSession();
-  const { goToLogin } = useRequireAuth();
   const router = useRouter();
   const client = useQueryClient();
   const { slug } = initialPreview.community;
@@ -74,10 +72,7 @@ export default function CommunityPrivateLanding({
   });
   const busy = updateRequest.isPending;
   const error = updateRequest.error?.message;
-  let requestLabel = user ? "Request to join" : "Sign in to request access";
-  if (busy) {
-    requestLabel = "Sending…";
-  }
+  const requestLabel = busy ? "Sending…" : "Request to join";
 
   const { community } = initialPreview;
   const pending = preview?.membership?.status === "PENDING";
@@ -125,7 +120,7 @@ export default function CommunityPrivateLanding({
               >
                 {accessDescription}
               </p>
-              {banned ? null : (
+              {user && !banned ? (
                 <div className="mt-5">
                   {pending ? (
                     <div className="space-y-3">
@@ -151,14 +146,8 @@ export default function CommunityPrivateLanding({
                       aria-describedby="community-access-description"
                       className="min-h-11 w-full sm:w-auto"
                       variant="premium"
-                      disabled={busy || (Boolean(user) && !preview)}
-                      onClick={() => {
-                        if (user) {
-                          updateRequest.mutate(false);
-                        } else {
-                          goToLogin();
-                        }
-                      }}
+                      disabled={busy || !preview}
+                      onClick={() => updateRequest.mutate(false)}
                     >
                       {busy ? (
                         <Loader2
@@ -170,7 +159,7 @@ export default function CommunityPrivateLanding({
                     </Button>
                   )}
                 </div>
-              )}
+              ) : null}
               {error || query.isError ? (
                 <div className="mt-3">
                   <p

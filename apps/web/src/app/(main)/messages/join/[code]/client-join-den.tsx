@@ -15,6 +15,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
+import { useSession } from "@/app/(main)/session-provider";
 import {
   MessagesApiError,
   createConversation,
@@ -23,6 +24,7 @@ import {
   joinDen,
 } from "@/lib/messages/client";
 import type { DenInvitePreviewResponse } from "@/lib/messages/client";
+import { useRefreshConversationList } from "@/lib/messages/conversation-list-query";
 import {
   DEN_BAN_JOIN_DESCRIPTION,
   DEN_BAN_JOIN_DISMISS,
@@ -74,6 +76,8 @@ type ScreenState =
   | { kind: "failed"; reason: DenJoinFailure };
 
 export default function ClientJoinDen({ code }: { code: string }) {
+  const { user } = useSession();
+  const refreshConversationList = useRefreshConversationList(user?.id);
   const router = useRouter();
   const [state, setState] = useState<ScreenState>({ kind: "loading" });
   const [joining, setJoining] = useState(false);
@@ -135,6 +139,7 @@ export default function ClientJoinDen({ code }: { code: string }) {
     setJoining(true);
     try {
       const { conversationId } = await joinDen(code);
+      refreshConversationList();
       // `alreadyMember` needs no handling here: the POST succeeds either way and
       // answers with the same conversation, so opening it is the whole outcome.
       // Announcing "you were already in" would be a toast for something the
@@ -147,7 +152,7 @@ export default function ClientJoinDen({ code }: { code: string }) {
       setState({ kind: "failed", reason });
       setJoining(false);
     }
-  }, [code, router]);
+  }, [code, refreshConversationList, router]);
 
   // Somebody already inside this den opens it directly rather than pressing a join
   // button, and that is not a shortcut. The code may have been rotated since the

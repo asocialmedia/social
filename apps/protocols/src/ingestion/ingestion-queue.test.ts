@@ -21,7 +21,16 @@ test("hydration waits out reader cooldowns instead of spending all retries insid
   );
   expect(
     hydrationRetryDelay(new ProtocolError("rate_limited", "Paused", 120))
-  ).toBe(60_000);
+  ).toBe(120_000);
+  expect(
+    hydrationRetryDelay(new ProtocolError("unavailable", "Recovering"), () => 0)
+  ).toBe(15_000);
+  expect(
+    hydrationRetryDelay(
+      new ProtocolError("unavailable", "Recovering"),
+      () => 0.9
+    )
+  ).toBe(21_750);
   expect(
     hydrationRetryDelay(new ProtocolError("restricted", "Denied", 30))
   ).toBeUndefined();

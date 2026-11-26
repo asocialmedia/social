@@ -9,7 +9,13 @@ import {
   SYSTEM_MODERATION_USER_ID,
 } from "@asm/db";
 import type { CommunityRoleRow } from "@asm/db";
-import { abortable } from "@asm/protocols/discovery";
+import {
+  abortable,
+  readJsonBounded,
+  retryAfterMs,
+} from "@asm/protocols/discovery";
+
+import { getWebLogger } from "@/lib/otel";
 
 import { getTrendingTopics } from "./topic-actions";
 import { selectTopAuraUsers, weaveTrendingItems } from "./trending-utils";
@@ -68,29 +74,65 @@ export interface TrendingFeed {
 const BLUESKY_TRENDING_KEY = "trending:bluesky:topics:v3";
 const BLUESKY_TRENDING_FRESH_MS = 5 * 60_000;
 const BLUESKY_TRENDING_RETENTION_SECONDS = 60 * 60;
+interface BlueskyTrendingSnapshot {
+  at: number;
+  topics: TrendingBlueskyTopic[];
+}
+let localBlueskyTrending: BlueskyTrendingSnapshot | undefined;
 let pendingBlueskyTrending: Promise<TrendingBlueskyTopic[]> | undefined;
+let blueskyTrendingRetryAt = 0;
 
 export async function fetchBlueskyTrendingTopics(
   bypassCache = false
 ): Promise<TrendingBlueskyTopic[]> {
-  let snapshot: { at: number; topics: TrendingBlueskyTopic[] } | undefined;
+  const now = Date.now();
+  let snapshot = localBlueskyTrending;
+  if (
+    snapshot &&
+    now - snapshot.at < BLUESKY_TRENDING_FRESH_MS &&
+    !bypassCache
+  ) {
+    return snapshot.topics;
+  }
   try {
     const cached = await abortable(
       redis.get(BLUESKY_TRENDING_KEY),
       AbortSignal.timeout(150)
     );
     if (cached) {
-      snapshot = JSON.parse(cached) as typeof snapshot;
+      const shared = JSON.parse(cached) as BlueskyTrendingSnapshot | null;
       if (
-        snapshot &&
-        !bypassCache &&
-        Date.now() - snapshot.at < BLUESKY_TRENDING_FRESH_MS
+        shared &&
+        Number.isFinite(shared.at) &&
+        shared.at <= now + 5000 &&
+        Array.isArray(shared.topics) &&
+        (!snapshot || shared.at >= snapshot.at)
       ) {
-        return snapshot.topics;
+        snapshot = shared;
+        localBlueskyTrending = shared;
       }
     }
   } catch {
     // Public trends can still be read while Redis recovers.
+  }
+  if (
+    snapshot &&
+    now - snapshot.at >= BLUESKY_TRENDING_RETENTION_SECONDS * 1000
+  ) {
+    snapshot = undefined;
+  }
+  if (
+    snapshot &&
+    now - snapshot.at < BLUESKY_TRENDING_FRESH_MS &&
+    !bypassCache
+  ) {
+    return snapshot.topics;
+  }
+  if (now < blueskyTrendingRetryAt) {
+    if (snapshot) {
+      return snapshot.topics;
+    }
+    throw new Error("Bluesky trending is temporarily unavailable");
   }
   pendingBlueskyTrending ??= refreshBlueskyTrending();
   const read = pendingBlueskyTrending;
@@ -123,21 +165,25 @@ async function settleBlueskyTrending(read: Promise<TrendingBlueskyTopic[]>) {
 
 async function refreshBlueskyTrending(): Promise<TrendingBlueskyTopic[]> {
   try {
+    const signal = AbortSignal.timeout(1800);
     const res = await fetch(
       "https://public.api.bsky.app/xrpc/app.bsky.unspecced.getTrendingTopics",
       {
         headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(1500),
+        signal,
       }
     );
 
     if (!res.ok) {
+      blueskyTrendingRetryAt =
+        Date.now() + (retryAfterMs(res.headers.get("retry-after")) ?? 10_000);
+      await res.body?.cancel();
       throw new Error(
         `Bluesky trending topics endpoint returned ${res.status}`
       );
     }
 
-    const data = (await res.json()) as {
+    const data = (await readJsonBounded(res, 128 * 1024, signal)) as {
       topics?: {
         description?: string;
         displayName?: string;
@@ -146,7 +192,7 @@ async function refreshBlueskyTrending(): Promise<TrendingBlueskyTopic[]> {
       }[];
     };
 
-    if (!Array.isArray(data.topics)) {
+    if (!Array.isArray(data?.topics)) {
       throw new TypeError("Bluesky returned invalid trending topics");
     }
     const rawTopics = data.topics;
@@ -162,23 +208,39 @@ async function refreshBlueskyTrending(): Promise<TrendingBlueskyTopic[]> {
         type: "bluesky_topic",
       }));
 
+    const snapshot = { at: Date.now(), topics };
+    localBlueskyTrending = snapshot;
     try {
       await abortable(
         redis.set(
           BLUESKY_TRENDING_KEY,
-          JSON.stringify({ at: Date.now(), topics }),
+          JSON.stringify(snapshot),
           "EX",
           BLUESKY_TRENDING_RETENTION_SECONDS
         ),
         AbortSignal.timeout(150)
       );
-    } catch (error) {
-      console.error("Error caching Bluesky trending topics in Redis:", error);
+    } catch {
+      getWebLogger()?.warn(
+        { dependency: "redis", operation: "trending.snapshot.write" },
+        "Bluesky trending snapshot could not be shared"
+      );
     }
 
     return topics;
   } catch (error) {
-    console.error("Error fetching Bluesky trending topics:", error);
+    blueskyTrendingRetryAt = Math.max(
+      blueskyTrendingRetryAt,
+      Date.now() + 10_000
+    );
+    getWebLogger()?.warn(
+      {
+        dependency: "bluesky",
+        operation: "trending.refresh",
+        timeout: error instanceof Error && error.name === "TimeoutError",
+      },
+      "Bluesky trending refresh unavailable"
+    );
     throw error;
   }
 }

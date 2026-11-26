@@ -132,6 +132,28 @@ describe("POST /api/views/batch", () => {
     expect(findManyOrder).toBeLessThan(incrementOrder);
   });
 
+  test("rejects malformed and interrupted bodies before using dependencies", async () => {
+    const url = "http://localhost:3000/api/views/batch";
+    const malformed = new Request(url, { body: "{", method: "POST" });
+    const malformedResponse = await POST(malformed);
+    expect(malformedResponse.status).toBe(400);
+    const interrupted = new Request(url, {
+      body: new ReadableStream({
+        start(controller) {
+          controller.error(
+            Object.assign(new Error("aborted"), { code: "ECONNRESET" })
+          );
+        },
+      }),
+      method: "POST",
+    });
+    const interruptedResponse = await POST(interrupted);
+    expect(interruptedResponse.status).toBe(499);
+    expect(mockGetSession).not.toHaveBeenCalled();
+    expect(mockConsumeRateLimit).not.toHaveBeenCalled();
+    expect(mockIncrementView).not.toHaveBeenCalled();
+  });
+
   test("treats unknown post ids as zero persisted", async () => {
     const req = new Request("http://localhost:3000/api/views/batch", {
       body: JSON.stringify({ postIds: ["missing-post"] }),

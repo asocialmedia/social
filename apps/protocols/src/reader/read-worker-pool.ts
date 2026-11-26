@@ -26,6 +26,7 @@ const createNode = (node: ReadWorkerNode, now: () => number) => ({
   deniedSearches: new Map<string, { resources: Set<string>; at: number }>(),
   generatorBackoff: createGeneratorBackoff(now),
   operationFailures: new Map<string, { count: number; at: number }>(),
+  rateLimited: new Map<string, number>(),
   recovering: new Set<string>(),
   transportFailures: 0,
 });
@@ -48,6 +49,10 @@ export function createReadWorkerPool(options: {
   const duration = meter.createHistogram("asm.protocols.worker.duration", {
     unit: "ms",
   });
+  const reportedFailures = new Map<
+    string,
+    { at: number; suppressed: number }
+  >();
   const block = (blocked: Map<string, number>, key: string, delay: number) => {
     for (const [entry, until] of blocked) {
       if (until <= now()) {
@@ -57,7 +62,9 @@ export function createReadWorkerPool(options: {
     if (blocked.size >= 512 && !blocked.has(key)) {
       blocked.delete(blocked.keys().next().value ?? "");
     }
-    blocked.set(key, now() + delay);
+    const until = Math.max(blocked.get(key) ?? 0, now() + delay);
+    blocked.set(key, until);
+    return until;
   };
   let next = 0;
   const read: PublicFetch = async (raw, init) => {
@@ -80,6 +87,7 @@ export function createReadWorkerPool(options: {
       ? `${target.origin}${target.pathname}:${target.searchParams}`
       : `${target.origin}${target.pathname}:${target.searchParams.get("feed") ?? ""}`;
     const operationKey = `${target.origin}${target.pathname}`;
+    const rateLimitScope = publicReadRateLimitScope(target);
     let pauseMs = 1000;
     let lastStatus = 503;
     let lastFailure: Response | undefined;
@@ -88,11 +96,30 @@ export function createReadWorkerPool(options: {
       message: string;
     }[] = [];
     const reportFailures = (recovered: boolean) => {
-      const log = recovered ? options.logger.debug : options.logger.warn;
       for (const failure of attemptFailures) {
-        log.call(
-          options.logger,
-          { ...failure.fields, recovered },
+        const { node, operation, status, reason } = failure.fields;
+        const key = JSON.stringify([node, operation, status, reason]);
+        const previous = reportedFailures.get(key);
+        if (recovered || (previous && now() - previous.at < 30_000)) {
+          if (!recovered && previous) {
+            previous.suppressed += 1;
+          }
+          options.logger.debug(
+            { ...failure.fields, recovered },
+            failure.message
+          );
+          continue;
+        }
+        if (reportedFailures.size >= 256 && !previous) {
+          reportedFailures.delete(reportedFailures.keys().next().value ?? "");
+        }
+        reportedFailures.set(key, { at: now(), suppressed: 0 });
+        options.logger.warn(
+          {
+            ...failure.fields,
+            recovered,
+            suppressed: previous?.suppressed ?? 0,
+          },
           failure.message
         );
       }
@@ -218,12 +245,13 @@ export function createReadWorkerPool(options: {
             defaultPauseMs;
           let cooldownKey = resource;
           if (upstreamStatus === 429) {
-            cooldownKey = publicReadRateLimitScope(target);
+            cooldownKey = rateLimitScope;
             node.generatorBackoff.record(target, pauseMs);
             pauseMs = Math.max(
               pauseMs,
               node.generatorBackoff.remaining(target)
             );
+            block(node.rateLimited, cooldownKey, pauseMs);
           } else if (workerAuthFailure) {
             cooldownKey = target.origin;
           } else if (upstreamStatus === 403 && !search) {
@@ -246,13 +274,14 @@ export function createReadWorkerPool(options: {
               cooldownKey = operationKey;
             }
           }
-          block(
+          const blockedUntil = block(
             search && cooldownKey === resource
               ? node.blockedSearches
               : node.blocked,
             cooldownKey,
             pauseMs
           );
+          pauseMs = Math.max(pauseMs, blockedUntil - now());
           if (trusted) {
             const body = await readJsonBounded(
               response,
@@ -387,7 +416,14 @@ export function createReadWorkerPool(options: {
         },
         status:
           lastStatus === 429 ||
-          readNodes.every((node) => node.generatorBackoff.remaining(target) > 0)
+          readNodes.every(
+            (node) =>
+              Math.max(
+                node.generatorBackoff.remaining(target),
+                (node.rateLimited.get(rateLimitScope) ?? 0) - now(),
+                (node.rateLimited.get(target.origin) ?? 0) - now()
+              ) > 0
+          )
             ? 429
             : 503,
       }

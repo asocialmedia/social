@@ -211,4 +211,14 @@ describe("search-safe worker diagnostics", () => {
       expect(messageWorkerErrorFields(error)).toEqual({ errorCode: "UNKNOWN" });
     }
   });
+
+  test("extracts a safe nested driver error from a wrapped queue failure", () => {
+    const error = new Error("sensitive query", {
+      cause: new AggregateError(
+        [Object.assign(new Error("private address"), { code: "ETIMEDOUT" })],
+        "Connection attempts failed"
+      ),
+    });
+    expect(messageWorkerErrorFields(error)).toEqual({ errorCode: "ETIMEDOUT" });
+  });
 });

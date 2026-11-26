@@ -5,7 +5,16 @@ import {
   communityChatLocation,
   communityChatRoomMatchesLocation,
   isCommunityChatPath,
+  defaultCommunityChatChannel,
 } from "./chat-navigation";
+
+test("global chat prefers general and falls back to the first visible channel", () => {
+  const news = { id: "1", slug: "news" };
+  const general = { id: "2", slug: "general" };
+  expect(defaultCommunityChatChannel([news, general])).toBe(general);
+  expect(defaultCommunityChatChannel([news])).toBe(news);
+  expect(defaultCommunityChatChannel([])).toBeUndefined();
+});
 
 test("community rail stays active on Posts, channels, and threads without matching similarly named communities", () => {
   for (const path of [

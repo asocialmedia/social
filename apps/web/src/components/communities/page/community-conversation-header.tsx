@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@asm/ui/shadui/button";
+import { DialogTrigger } from "@asm/ui/shadui/dialog";
 import { ArrowLeft, MoreHorizontal, PanelLeft } from "lucide-react";
 import Link from "next/link";
 import type { Ref } from "react";
@@ -8,7 +9,6 @@ import type { Ref } from "react";
 import { navigateCommunityChat } from "@/lib/communities/chat-navigation";
 
 import CommunityAvatar from "../card/community-avatar";
-import CommunitySectionLinks from "./community-section-links";
 import { COMMUNITY_NAVIGATION_ID } from "./community-workspace-navigation";
 
 interface Props {
@@ -20,7 +20,6 @@ interface Props {
   channelsOpen: boolean;
   communityName: string;
   onBrowse: () => void;
-  onTools: () => void;
   reconnecting: boolean;
   slug: string;
   thread: boolean;
@@ -94,25 +93,17 @@ export default function CommunityConversationHeader({
           </span>
         </span>
       </div>
-      <Button
-        aria-label="Conversation details and tools"
-        className="size-11 shrink-0 rounded-full"
-        onClick={props.onTools}
-        size="icon"
-        variant="ghost"
-      >
-        <MoreHorizontal className="size-5" />
-      </Button>
-      <nav
-        aria-label={`${props.slug} community sections`}
-        className="flex h-12 shrink-0"
-      >
-        <CommunitySectionLinks
-          active="chat"
-          channelId={props.channelId}
-          slug={props.slug}
-        />
-      </nav>
+      <DialogTrigger asChild>
+        <Button
+          aria-label="Conversation details and tools"
+          className="size-11 shrink-0 rounded-full"
+          size="icon"
+          type="button"
+          variant="ghost"
+        >
+          <MoreHorizontal className="size-5" />
+        </Button>
+      </DialogTrigger>
     </header>
   );
 }
