@@ -1,18 +1,14 @@
-import {
-  canViewCommunity,
-  getCommunityBySlug,
-  listCommunityChatChannels,
-} from "@asm/db";
+import { listCommunityChatChannels } from "@asm/db";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
 import CommunityChatLoading from "@/components/communities/page/community-chat-loading";
-import { getSessionFromApi } from "@/lib/auth/session";
 import { communityChatAvailabilityResponse } from "@/lib/communities/chat-api";
 import { communityChatUiEnabled } from "@/lib/communities/chat-features";
 import { defaultCommunityChatChannel } from "@/lib/communities/chat-navigation";
+import { getCommunityWorkspaceAccess } from "@/lib/communities/workspace-access";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -37,15 +33,9 @@ async function CommunityChatLanding({ params }: PageProps) {
     notFound();
   }
   const { slug } = await params;
-  const [session, community] = await Promise.all([
-    getSessionFromApi(),
-    getCommunityBySlug(slug),
-  ]);
-  const userId = session?.user?.id ?? "";
-  if (!community) {
-    notFound();
-  }
-  if (!(await canViewCommunity(community, userId))) {
+  const { canRead, community, userId } =
+    await getCommunityWorkspaceAccess(slug);
+  if (!canRead) {
     redirect(`/a/${slug}`);
   }
   const { channels } = await listCommunityChatChannels(community.id, userId);

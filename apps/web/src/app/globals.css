@@ -3,6 +3,29 @@
 @import "@asm/ui/styles/base.css";
 @import "@asm/ui/styles/fonts.css";
 
+@layer components {
+  .community-section-switcher[data-active-section="chat"]
+    .community-section-selector,
+  .community-section-switcher:has(
+      [data-section-link="chat"] [data-section-pending]
+    )
+    .community-section-selector {
+    transform: translateX(100%);
+  }
+
+  .community-section-switcher:has(
+      [data-section-link="posts"] [data-section-pending]
+    )
+    .community-section-selector {
+    transform: translateX(0);
+  }
+
+  .community-section-switcher:has([data-section-pending])
+    [aria-current="page"]:not(:has([data-section-pending])) {
+    opacity: 0.65;
+  }
+}
+
 .form-input-transition {
   @apply transition-all duration-200 ease-in-out;
   @apply focus:ring-primary/20 focus:ring-2;

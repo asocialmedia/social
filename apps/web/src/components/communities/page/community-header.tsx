@@ -126,7 +126,7 @@ export default function CommunityHeader({
               An owner cannot leave their own community, so the Join pill is
               dead weight for them - but the bell stays, because a subscribed
               owner is still notified when other members post. */}
-          {canReadContent ? (
+          {canReadContent && isLoggedIn ? (
             <motion.div
               className="pointer-events-auto flex flex-wrap items-center justify-end gap-2 pb-1"
               style={detailsStyle}

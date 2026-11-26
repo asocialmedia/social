@@ -49,6 +49,7 @@ export function useCreateCommunityMutation() {
 }
 
 export function useJoinCommunityMutation(slug: string) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -62,6 +63,8 @@ export function useJoinCommunityMutation(slug: string) {
       });
     },
     onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["community-chat", slug] });
+      router.refresh();
       queryClient.invalidateQueries({ queryKey: ["community", slug] });
       queryClient.invalidateQueries({ queryKey: ["community-joined"] });
       queryClient.invalidateQueries({ queryKey: ["communities"] });
@@ -96,6 +99,7 @@ export function useLeaveCommunityMutation(slug: string) {
     },
     onSuccess: () => {
       queryClient.removeQueries({ queryKey: ["community-feed", slug] });
+      queryClient.removeQueries({ queryKey: ["community-chat", slug] });
       queryClient.invalidateQueries({ queryKey: ["community-preview", slug] });
       router.refresh();
       queryClient.invalidateQueries({ queryKey: ["community", slug] });
@@ -114,6 +118,7 @@ export function useCommunitySubscriptionMutation(
   communityId: string,
   slug: string
 ) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -133,6 +138,7 @@ export function useCommunitySubscriptionMutation(
       // subscription, so the client feed must refetch. The bell's own state is
       // mirrored locally by the button, matching the JoinButton pattern.
       queryClient.invalidateQueries({ queryKey: ["post-feed", "latest"] });
+      router.refresh();
       toast({
         description: subscribe
           ? `You'll get new posts from a/${slug}`

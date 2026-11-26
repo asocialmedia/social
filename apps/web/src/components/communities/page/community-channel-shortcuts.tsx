@@ -12,9 +12,18 @@ import { LinkStatusHint } from "@/components/layouts/feedback/link-status-hint";
 import { communityChatChannelsQuery } from "@/lib/communities/chat-channels-query";
 
 import CommunityChannelListHeader from "./community-channel-list-header";
-import { communityNavigationRowClassName } from "./community-workspace-navigation";
+import {
+  communityNavigationChatIconClassName,
+  communityNavigationRowClassName,
+} from "./community-workspace-navigation";
 
-export default function CommunityChannelShortcuts({ slug }: { slug: string }) {
+export default function CommunityChannelShortcuts({
+  channelId,
+  slug,
+}: {
+  channelId?: string;
+  slug: string;
+}) {
   const { user } = useSession();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -66,12 +75,20 @@ export default function CommunityChannelShortcuts({ slug }: { slug: string }) {
         ) : null}
         {channels.map((channel) => (
           <Link
+            aria-current={channel.id === channelId ? "page" : undefined}
             key={channel.id}
             href={`/a/${slug}/chat/${channel.id}`}
             scroll={false}
-            className={communityNavigationRowClassName()}
+            className={communityNavigationRowClassName(
+              channel.id === channelId
+            )}
           >
-            <MessageCircle aria-hidden="true" className="size-4 shrink-0" />
+            <MessageCircle
+              aria-hidden="true"
+              className={communityNavigationChatIconClassName(
+                channel.id === channelId
+              )}
+            />
             <span className="min-w-0 flex-1 truncate">{channel.name}</span>
             <LinkStatusHint className="shrink-0" />
             {channel.channelType === "ANNOUNCEMENT" ? (

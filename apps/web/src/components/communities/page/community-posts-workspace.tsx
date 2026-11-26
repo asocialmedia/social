@@ -210,7 +210,6 @@ export default function CommunityPostsWorkspace({
           </div>
           <div className="relative z-20 bg-[hsl(var(--background-alt))]">
             <CommunitySectionNav
-              active="posts"
               showSections={canReadContent}
               accentColor={community.accentColor}
               globalChatHref={globalChatHref}

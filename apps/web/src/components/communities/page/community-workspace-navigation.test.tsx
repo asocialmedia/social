@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 
+import { Dialog } from "@asm/ui/shadui/dialog";
 import { createRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -36,6 +37,8 @@ test("the collapsed rail links Posts and the current chat without mounting chann
   expect(html).toContain('href="/a/table/chat/general"');
   expect(html).toContain('aria-label="Expand community sidebar"');
   expect(html).toContain('aria-label="Show community channels"');
+  expect(html).toContain("transition-[width]");
+  expect(html).toContain("motion-reduce:transition-none");
   expect(html).toContain("sidebar-icon-hover");
   expect(html).toContain("chip-3d-raised");
   expect(html.match(/fill-current/g)).toHaveLength(1);
@@ -61,9 +64,11 @@ test("expanded navigation presents channels and a collapse action in the desktop
     expect(html).toContain('aria-label="Collapse community sidebar"');
     expect(html).toContain('aria-current="page"');
     expect(html).toContain('href="/a/table/chat"');
-    expect(html).toContain("Global chat");
+    expect(html).toContain("Dens");
+    expect(html).toContain("segmented-3d");
+    expect(html).toContain("community-section-selector");
     expect(html).toContain("chip-3d-raised");
-    expect(html).toContain("[&amp;:hover]:brightness-110");
+    expect(html).toContain('data-active-section="posts"');
     expect(html).toContain("stroke-background");
     expect(html.match(/fill-current/g)).toHaveLength(1);
     expect(html).toContain('data-state="active"');
@@ -75,31 +80,32 @@ test("expanded navigation presents channels and a collapse action in the desktop
   }
 });
 
-test("chat header keeps thread back navigation and provides an explicit mobile drawer control", () => {
+test("chat header keeps thread back navigation, the sidebar toggle and the More dialog trigger", () => {
   const html = renderToStaticMarkup(
-    <CommunityConversationHeader
-      {...common}
-      browseButtonRef={createRef()}
-      channelId="general"
-      channelName="Studio"
-      channelsOpen={false}
-      onBrowse={() => {}}
-      onTools={() => {}}
-      reconnecting={false}
-      thread
-    />
+    <Dialog>
+      <CommunityConversationHeader
+        {...common}
+        browseButtonRef={createRef()}
+        channelId="general"
+        channelName="Studio"
+        channelsOpen={false}
+        onBrowse={() => {}}
+        reconnecting={false}
+        thread
+      />
+    </Dialog>
   );
   expect(html).toContain('aria-label="Back to channel"');
   expect(html).toContain('href="/a/table/chat/general"');
   expect(html).toContain('aria-label="Toggle community sidebar"');
   expect(html).toContain('aria-controls="community-workspace-navigation"');
   expect(html).toContain('aria-expanded="false"');
-  expect(html).toContain('href="/a/table"');
-  expect(html).toContain('aria-label="table community sections"');
-  expect(html).toContain('aria-current="page"');
+  expect(html).toContain('aria-label="Conversation details and tools"');
+  expect(html).toContain('aria-haspopup="dialog"');
+  expect(html).not.toContain('aria-label="table community sections"');
 });
 
-test("Posts separates sort links from channels and points Global chat directly at the default room", () => {
+test("Posts separates sort links from channels and points Dens directly at the default room", () => {
   const html = renderToStaticMarkup(
     <CommunityWorkspaceNavigation
       {...common}
@@ -129,7 +135,6 @@ test("Posts exposes its drawer and a single labelled chat icon", () => {
   const html = renderToStaticMarkup(
     <CommunitySectionNav
       accentColor="forest"
-      active="posts"
       slug="table"
       navigationOpen={false}
       onOpenNavigation={() => {}}
@@ -139,7 +144,7 @@ test("Posts exposes its drawer and a single labelled chat icon", () => {
   expect(html).toContain('aria-label="Open community sidebar"');
   expect(html).toContain('href="/a/table/chat"');
   expect(html).not.toContain('href="/a/table"');
-  expect(html).toContain('aria-label="Open community chat"');
+  expect(html).toContain('aria-label="Open community Dens"');
   expect(html).not.toContain(">Chat<");
 });
 
@@ -147,7 +152,6 @@ test("compact Posts identity shares its section bar with the sidebar and direct 
   const html = renderToStaticMarkup(
     <CommunitySectionNav
       accentColor="forest"
-      active="posts"
       slug="table"
       identity={<span aria-hidden="true">The Open Table · a/table</span>}
       navigationOpen

@@ -1,18 +1,21 @@
+"use client";
+
 import { Button } from "@asm/ui/shadui/button";
-import { PanelLeft } from "lucide-react";
+import { MessageCircle, PanelLeft } from "lucide-react";
+import Link from "next/link";
 import type { ReactNode, Ref } from "react";
 
+import { useCommunitySectionLinks } from "@/hooks/use-community-section-links";
 import { communityAccentStyle } from "@/lib/communities/accent";
+import { communityChatUiEnabled } from "@/lib/communities/chat-features";
 
-import CommunitySectionLinks from "./community-section-links";
+import CommunitySectionLinkContent from "./community-section-link-content";
 import { COMMUNITY_NAVIGATION_ID } from "./community-workspace-navigation";
 
 interface CommunitySectionNavProps {
   identity?: ReactNode;
   showSections?: boolean;
-  active: "chat" | "posts";
   accentColor: string;
-  channelId?: string;
   globalChatHref?: string;
   slug: string;
   navigationOpen?: boolean;
@@ -21,17 +24,16 @@ interface CommunitySectionNavProps {
 }
 
 export default function CommunitySectionNav({
-  active,
   showSections = true,
   identity,
   accentColor,
-  channelId,
   globalChatHref,
   slug,
   navigationOpen,
   onOpenNavigation,
   navigationTriggerRef,
 }: CommunitySectionNavProps) {
+  const { chatHref } = useCommunitySectionLinks(slug);
   return (
     <nav
       aria-label={`${slug} community sections`}
@@ -54,13 +56,25 @@ export default function CommunitySectionNav({
         </Button>
       ) : null}
       {identity}
-      {showSections ? (
-        <CommunitySectionLinks
-          active={active}
-          channelId={channelId}
-          globalChatHref={globalChatHref}
-          slug={slug}
-        />
+      {showSections && communityChatUiEnabled ? (
+        <Button
+          asChild
+          className="pointer-events-auto relative my-auto size-11 shrink-0 rounded-full"
+          size="icon"
+          variant="ghost"
+        >
+          <Link
+            aria-label="Open community Dens"
+            href={globalChatHref ?? chatHref}
+            prefetch={globalChatHref ? true : undefined}
+            scroll={false}
+            title="Dens"
+          >
+            <CommunitySectionLinkContent>
+              <MessageCircle aria-hidden="true" className="size-5" />
+            </CommunitySectionLinkContent>
+          </Link>
+        </Button>
       ) : null}
     </nav>
   );

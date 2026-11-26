@@ -28,7 +28,6 @@ import Link from "next/link";
 import type { ReactNode, RefObject } from "react";
 import { useContext } from "react";
 
-import { LinkStatusHint } from "@/components/layouts/feedback/link-status-hint";
 import MobileBottomNav from "@/components/layouts/navigation/mobile/mobile-bottom-nav";
 import { useCommunitySectionLinks } from "@/hooks/use-community-section-links";
 import { communityAccentStyle } from "@/lib/communities/accent";
@@ -37,6 +36,8 @@ import { navigateCommunityChat } from "@/lib/communities/chat-navigation";
 import { cn } from "@/lib/utils";
 
 import CommunityAvatar from "../card/community-avatar";
+import CommunitySectionLinkContent from "./community-section-link-content";
+import CommunitySidebarSectionHeading from "./community-sidebar-section-heading";
 import { CommunityWorkspacePortalContext } from "./community-workspace-context";
 
 export function communityNavigationRowClassName(active = false) {
@@ -90,6 +91,7 @@ export default function CommunityWorkspaceNavigation({
   triggerRef: RefObject<HTMLButtonElement | null>;
 }) {
   const workspaceElement = useContext(CommunityWorkspacePortalContext);
+  const expanded = desktop && open;
   const { postsHref, chatHref } = useCommunitySectionLinks(slug, channelId);
   const links = [
     { href: postsHref, icon: FileText, key: "posts", label: "Posts" },
@@ -102,123 +104,145 @@ export default function CommunityWorkspaceNavigation({
                 : chatHref,
             icon: MessageCircle,
             key: "chat",
-            label: active === "posts" ? "Global chat" : "Chat",
+            label: "Dens",
           },
         ]
       : []),
   ];
-  const sectionLinks = (collapsed: boolean) => (
-    <nav
-      aria-label={`${communityName} navigation`}
-      className={cn(
-        "flex shrink-0",
-        collapsed
-          ? "flex-col items-center gap-1 px-2 py-1"
-          : "mx-3 mb-1 gap-1.5"
-      )}
-    >
-      {links.map(({ key, label, href, icon: Icon }) => (
-        <Link
-          key={key}
-          href={href}
-          prefetch={
-            active !== key && (key === "posts" || Boolean(globalChatHref))
-          }
-          scroll={false}
-          onNavigate={(event) => {
-            if (active === "chat" && key === "chat" && channelId) {
-              if (!desktop) {
-                onOpenChange(false);
-              }
-              event.preventDefault();
-              navigateCommunityChat(href);
-            }
-          }}
-          title={collapsed ? label : undefined}
-          aria-label={collapsed ? label : undefined}
-          aria-current={active === key ? "page" : undefined}
-          data-state={active === key ? "active" : "inactive"}
-          className={cn(
-            "focus-visible:outline-ring relative flex min-h-10 min-w-0 items-center justify-center gap-1.5 rounded-lg text-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] motion-reduce:transition-none",
-            collapsed ? "size-10 shrink-0" : "flex-1 px-2",
-            active === key
-              ? "chip-3d-raised font-semibold [&:active]:brightness-95 [&:hover]:brightness-110"
-              : "text-muted-foreground [&:hover]:bg-muted/50 [&:hover]:text-foreground [&:active]:bg-muted border border-transparent font-medium"
-          )}
-        >
-          <Icon
+  const sectionLinks = (collapsed: boolean) => {
+    const segmented = !collapsed && links.length > 1;
+    return (
+      <nav
+        aria-label={`${communityName} navigation`}
+        data-active-section={segmented ? active : undefined}
+        className={cn(
+          "shrink-0",
+          collapsed
+            ? "flex flex-col items-center gap-1 px-2 py-1"
+            : "relative mx-3 mb-1",
+          segmented &&
+            "community-section-switcher segmented-3d grid grid-cols-2 rounded-xl p-1"
+        )}
+      >
+        {segmented ? (
+          <span
             aria-hidden="true"
-            className={cn(
-              "size-4 shrink-0",
-              active === key &&
-                "fill-current text-[var(--community-accent-resolved)]",
-              active === key &&
-                key === "posts" &&
-                "[&>path:not(:first-child)]:stroke-background"
-            )}
+            className="community-section-selector chip-3d-raised pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-lg transition-transform duration-200 ease-out motion-reduce:transition-none"
           />
-          <span className={collapsed ? "sr-only" : "truncate"}>{label}</span>
-          {active === key ? null : (
-            <LinkStatusHint className="absolute right-1 bottom-1 size-2.5" />
-          )}
-        </Link>
-      ))}
-    </nav>
-  );
+        ) : null}
+        {links.map(({ key, label, href, icon: Icon }) => (
+          <Link
+            key={key}
+            href={href}
+            prefetch={
+              active !== key && (key === "posts" || Boolean(globalChatHref))
+            }
+            scroll={false}
+            onNavigate={(event) => {
+              if (active === "chat" && key === "chat" && channelId) {
+                if (!desktop) {
+                  onOpenChange(false);
+                }
+                event.preventDefault();
+                navigateCommunityChat(href);
+              }
+            }}
+            title={collapsed ? label : undefined}
+            aria-label={collapsed ? label : undefined}
+            aria-current={active === key ? "page" : undefined}
+            data-section-link={key}
+            data-state={active === key ? "active" : "inactive"}
+            className={cn(
+              "focus-visible:outline-ring relative flex min-h-10 min-w-0 items-center justify-center rounded-lg text-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] motion-reduce:transition-none",
+              collapsed ? "size-10 shrink-0" : "w-full px-2",
+              segmented && "z-10 min-h-9",
+              active === key && !segmented
+                ? "chip-3d-raised font-semibold [&:active]:brightness-95 [&:hover]:brightness-110"
+                : "text-muted-foreground [&:hover]:text-foreground font-medium",
+              active === key && segmented && "text-foreground font-semibold",
+              active !== key &&
+                (segmented
+                  ? "[&:hover]:bg-background/40"
+                  : "[&:hover]:bg-muted/50")
+            )}
+          >
+            <CommunitySectionLinkContent>
+              <Icon
+                aria-hidden="true"
+                className={cn(
+                  "size-4 shrink-0",
+                  active === key &&
+                    "fill-current text-[var(--community-accent-resolved)]",
+                  active === key &&
+                    key === "posts" &&
+                    "[&>path:not(:first-child)]:stroke-background"
+                )}
+              />
+              <span className={collapsed ? "sr-only" : "truncate"}>
+                {label}
+              </span>
+            </CommunitySectionLinkContent>
+          </Link>
+        ))}
+      </nav>
+    );
+  };
   const selection = readCommunityFeedSelection(
     new URLSearchParams(postsSearchParams)
   );
   const navigationContent = (
     <>
       {active === "posts" ? (
-        <nav aria-label="Post sorting" className="mx-2 mb-2 shrink-0">
-          <h2 className="text-muted-foreground px-3 pt-2 pb-1 text-xs font-semibold">
+        <nav aria-label="Post sorting" className="shrink-0">
+          <CommunitySidebarSectionHeading>
             Sort posts
-          </h2>
-          {(
-            [
-              { icon: Clock, label: "New", sort: "new" },
-              { icon: TrendingUp, label: "Top", sort: "top" },
-            ] as const
-          ).map(({ icon: Icon, label, sort }) => {
-            const current = selection.sort === sort;
-            const params = communityFeedSearchParams(
-              { ...selection, sort },
-              postsSearchParams
-            );
-            const href = `/a/${slug}${params.size ? `?${params}` : ""}`;
-            return (
-              <Link
-                aria-current={current ? "page" : undefined}
-                className={communityNavigationRowClassName(current)}
-                href={href}
-                key={sort}
-                onNavigate={(event) => {
-                  event.preventDefault();
-                  if (
-                    `${window.location.pathname}${window.location.search}` !==
-                    href
-                  ) {
-                    window.history.pushState(null, "", href);
-                  }
-                  if (!desktop) {
-                    onOpenChange(false);
-                  }
-                }}
-                prefetch={false}
-                scroll={false}
-              >
-                <Icon
-                  aria-hidden="true"
-                  className={cn(
-                    "size-4 shrink-0",
-                    current && "text-[var(--community-accent-resolved)]"
-                  )}
-                />
-                {label}
-              </Link>
-            );
-          })}
+          </CommunitySidebarSectionHeading>
+          <div className="px-2">
+            {(
+              [
+                { icon: Clock, label: "New", sort: "new" },
+                { icon: TrendingUp, label: "Top", sort: "top" },
+              ] as const
+            ).map(({ icon: Icon, label, sort }) => {
+              const current = selection.sort === sort;
+              const params = communityFeedSearchParams(
+                { ...selection, sort },
+                postsSearchParams
+              );
+              const href = `/a/${slug}${params.size ? `?${params}` : ""}`;
+              return (
+                <Link
+                  aria-current={current ? "page" : undefined}
+                  className={communityNavigationRowClassName(current)}
+                  href={href}
+                  key={sort}
+                  onNavigate={(event) => {
+                    event.preventDefault();
+                    if (
+                      `${window.location.pathname}${window.location.search}` !==
+                      href
+                    ) {
+                      window.history.pushState(null, "", href);
+                    }
+                    if (!desktop) {
+                      onOpenChange(false);
+                    }
+                  }}
+                  prefetch={false}
+                  scroll={false}
+                >
+                  <Icon
+                    aria-hidden="true"
+                    className={cn(
+                      "size-4 shrink-0",
+                      current && "text-[var(--community-accent-resolved)]"
+                    )}
+                  />
+                  {label}
+                </Link>
+              );
+            })}
+          </div>
         </nav>
       ) : null}
       {navigation}
@@ -248,56 +272,74 @@ export default function CommunityWorkspaceNavigation({
         aria-label="Community sidebar"
         id={desktop ? COMMUNITY_NAVIGATION_ID : undefined}
         className={cn(
-          "community-accent-scope bg-background border-border/60 hidden min-h-0 shrink-0 flex-col border-r xl:flex",
-          desktop && open ? "w-64" : "w-16"
+          "community-accent-scope bg-background border-border/60 hidden min-h-0 shrink-0 flex-col overflow-hidden border-r transition-[width] duration-250 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none xl:flex",
+          expanded ? "w-64" : "w-16"
         )}
         style={communityAccentStyle(accentColor)}
       >
-        <div
-          className={cn(
-            "flex h-15 shrink-0 items-center",
-            open && desktop ? "gap-2 px-3" : "justify-center"
-          )}
-        >
-          {desktop && open ? (
-            <>
-              {identity}
-              {communityLabel}
-            </>
-          ) : null}
+        <div className="relative flex h-15 shrink-0 items-center justify-end px-3">
+          <div
+            aria-hidden={expanded ? undefined : true}
+            className={cn(
+              "pointer-events-none absolute inset-y-0 left-3 flex w-44 items-center gap-2 transition-[opacity,translate] duration-150 ease-out motion-reduce:transition-none",
+              expanded
+                ? "translate-x-0 opacity-100 delay-75"
+                : "-translate-x-2 opacity-0"
+            )}
+          >
+            {identity}
+            {communityLabel}
+          </div>
           <button
             aria-label={
-              desktop && open
+              expanded
                 ? "Collapse community sidebar"
                 : "Expand community sidebar"
             }
             aria-controls={COMMUNITY_NAVIGATION_ID}
-            aria-expanded={desktop && open}
-            className={sidebarIconButton}
+            aria-expanded={expanded}
+            className={cn(sidebarIconButton, "relative")}
             onClick={() => onOpenChange(!open)}
             type="button"
           >
-            {desktop && open ? (
-              <PanelLeftClose className="size-4" />
-            ) : (
-              <PanelLeftOpen className="size-4" />
-            )}
+            <PanelLeftClose
+              aria-hidden="true"
+              className={cn(
+                "absolute size-4 transition duration-150 motion-reduce:transition-none",
+                expanded ? "scale-100 opacity-100" : "scale-75 opacity-0"
+              )}
+            />
+            <PanelLeftOpen
+              aria-hidden="true"
+              className={cn(
+                "absolute size-4 transition duration-150 motion-reduce:transition-none",
+                expanded ? "scale-75 opacity-0" : "scale-100 opacity-100"
+              )}
+            />
           </button>
         </div>
-        {sectionLinks(!(desktop && open))}
-        {desktop && open ? navigationContent : null}
-        {!(desktop && open) && communityChatUiEnabled ? (
-          <button
-            aria-label="Show community channels"
-            title="Channels"
-            className={cn(sidebarIconButton, "mt-1 self-center")}
-            onClick={() => onOpenChange(true)}
-            type="button"
-          >
-            <List className="size-[18px]" />
-            <span className="sr-only">Channels</span>
-          </button>
-        ) : null}
+        <div
+          className={cn(
+            "animate-in fade-in slide-in-from-left-1 flex min-h-0 flex-1 flex-col duration-150 ease-out [animation-delay:55ms] [animation-fill-mode:both] motion-reduce:animate-none",
+            expanded ? "w-[calc(16rem-1px)]" : "w-[calc(4rem-1px)]"
+          )}
+          key={expanded ? "expanded" : "collapsed"}
+        >
+          {sectionLinks(!expanded)}
+          {expanded ? navigationContent : null}
+          {!expanded && communityChatUiEnabled ? (
+            <button
+              aria-label="Show community channels"
+              title="Channels"
+              className={cn(sidebarIconButton, "mt-1 self-center")}
+              onClick={() => onOpenChange(true)}
+              type="button"
+            >
+              <List className="size-[18px]" />
+              <span className="sr-only">Channels</span>
+            </button>
+          ) : null}
+        </div>
       </aside>
       <Sheet open={!desktop && open} onOpenChange={onOpenChange}>
         {workspaceElement ? (

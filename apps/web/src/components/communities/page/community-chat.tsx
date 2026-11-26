@@ -26,13 +26,6 @@ import {
   DialogTitle,
 } from "@asm/ui/shadui/dialog";
 import { Input } from "@asm/ui/shadui/input";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@asm/ui/shadui/sheet";
 import { Textarea } from "@asm/ui/shadui/textarea";
 import {
   ArrowDown,
@@ -54,11 +47,11 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { CSSProperties, Dispatch, SetStateAction } from "react";
+import { createPortal } from "react-dom";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { SavableSticker } from "@/components/messages/savable-sticker";
 import { StickerPicker } from "@/components/messages/sticker-picker";
-import { useCommunityNavigation } from "@/hooks/use-community-navigation";
 import { communityAccentStyle } from "@/lib/communities/accent";
 import type { CommunityChatChannelsResponse } from "@/lib/communities/chat-channels-query";
 import { loadCommunityChatResources } from "@/lib/communities/chat-loading";
@@ -80,10 +73,12 @@ import CommunityRoleBadge, {
 } from "../card/community-role-badge";
 import CommunityChannelListHeader from "./community-channel-list-header";
 import CommunityChannelSettings from "./community-channel-settings";
+import { CommunityChatTranscriptSkeleton } from "./community-chat-loading";
 import CommunityChatMessageActions from "./community-chat-message-actions";
 import CommunityConversationHeader from "./community-conversation-header";
 import CommunityJoinRequests from "./community-join-requests";
-import CommunityWorkspaceNavigation, {
+import { useCommunityWorkspace } from "./community-workspace-context";
+import {
   communityNavigationChatIconClassName,
   communityNavigationRowClassName,
 } from "./community-workspace-navigation";
@@ -288,6 +283,15 @@ function CommunityChatTimeline({
   channelsError: boolean;
   retryChannels: () => void;
 }) {
+  const {
+    navigation: {
+      desktop: desktopNavigation,
+      open: communityNavigationOpen,
+      setOpen: setCommunityNavigationOpen,
+    },
+    navigationTarget,
+    navigationTriggerRef: channelSelectorRef,
+  } = useCommunityWorkspace();
   const router = useRouter();
   const { user } = useSession();
   const isLoggedIn = Boolean(user);
@@ -335,16 +339,10 @@ function CommunityChatTimeline({
   const [pinsLoading, setPinsLoading] = useState(false);
   const [pinsError, setPinsError] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const channelSelectorRef = useRef<HTMLButtonElement>(null);
   const transcriptSize = useRef({ height: 0, width: 0 });
   const [atLatest, setAtLatest] = useState(true);
   const [hasNewActivity, setHasNewActivity] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
-  const {
-    desktop: desktopNavigation,
-    open: communityNavigationOpen,
-    setOpen: setCommunityNavigationOpen,
-  } = useCommunityNavigation();
   const [toolsOpen, setToolsOpen] = useState(false);
   const [privateThreadOpen, setPrivateThreadOpen] = useState(false);
   const [privateThreadName, setPrivateThreadName] = useState("");
@@ -1579,7 +1577,7 @@ function CommunityChatTimeline({
   );
 
   const callToChat =
-    loading || canSend ? null : (
+    loading || canSend || !isLoggedIn ? null : (
       <div className="border-border/60 bg-muted/35 mx-4 mb-3 rounded-2xl border px-4 py-3 text-sm">
         {membership || permissions?.writeRestriction === "BANNED" ? (
           <p className="text-muted-foreground">
@@ -1597,23 +1595,13 @@ function CommunityChatTimeline({
                 Become a member to write in this community.
               </p>
             </div>
-            {isLoggedIn ? (
-              <JoinButton
-                className="w-auto"
-                communityId={communityId}
-                initialMembership={membership}
-                isLoggedIn
-                slug={slug}
-              />
-            ) : (
-              <Button asChild className="w-auto" size="sm" variant="premium">
-                <Link
-                  href={`/login?next=${encodeURIComponent(`/a/${slug}/chat/${channelId}${threadId ? `/threads/${threadId}` : ""}`)}`}
-                >
-                  Sign in to join
-                </Link>
-              </Button>
-            )}
+            <JoinButton
+              className="w-auto"
+              communityId={communityId}
+              initialMembership={membership}
+              isLoggedIn
+              slug={slug}
+            />
           </div>
         )}
       </div>
@@ -1626,6 +1614,9 @@ function CommunityChatTimeline({
         role="alert"
       >
         <p>Your access to this conversation changed.</p>
+        {navigationTarget
+          ? createPortal(<span hidden />, navigationTarget)
+          : null}
         <Button asChild variant="premium">
           <Link href={`/a/${slug}`}>Back to community</Link>
         </Button>
@@ -1639,6 +1630,7 @@ function CommunityChatTimeline({
       className="community-accent-scope relative flex min-h-0 flex-1 flex-col"
       style={communityAccentStyle(accentColor) as CSSProperties}
     >
+      {navigationTarget ? createPortal(channelList, navigationTarget) : null}
       <Dialog
         onOpenChange={(open) => {
           if (!open) {
@@ -1773,49 +1765,34 @@ function CommunityChatTimeline({
         </DialogContent>
       </Dialog>
       <div className="border-border/60 flex min-h-0 flex-1 overflow-hidden border-b">
-        <CommunityWorkspaceNavigation
-          active="chat"
-          accentColor={accentColor}
-          avatarUrl={avatarUrl}
-          channelId={channelId}
-          communityName={communityName}
-          desktop={desktopNavigation}
-          navigation={channelList}
-          onOpenChange={setCommunityNavigationOpen}
-          open={communityNavigationOpen}
-          slug={slug}
-          triggerRef={channelSelectorRef}
-        />
-
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <CommunityConversationHeader
-            accentColor={accentColor}
-            avatarUrl={avatarUrl}
-            browseButtonRef={channelSelectorRef}
-            channelId={channelId}
-            channelName={channelName}
-            channelsOpen={communityNavigationOpen}
-            communityName={communityName}
-            onBrowse={() =>
-              setCommunityNavigationOpen(!communityNavigationOpen)
-            }
-            onTools={() => setToolsOpen(true)}
-            reconnecting={reconnecting}
-            slug={slug}
-            thread={Boolean(threadId)}
-          />
-          <Sheet onOpenChange={setToolsOpen} open={toolsOpen}>
-            <SheetContent
-              side="bottom"
-              className="mx-auto max-h-[85dvh] w-full max-w-2xl overflow-y-auto rounded-t-3xl!"
+          <Dialog onOpenChange={setToolsOpen} open={toolsOpen}>
+            <CommunityConversationHeader
+              accentColor={accentColor}
+              avatarUrl={avatarUrl}
+              browseButtonRef={channelSelectorRef}
+              channelId={channelId}
+              channelName={channelName}
+              channelsOpen={communityNavigationOpen}
+              communityName={communityName}
+              onBrowse={() =>
+                setCommunityNavigationOpen(!communityNavigationOpen)
+              }
+              reconnecting={reconnecting}
+              slug={slug}
+              thread={Boolean(threadId)}
+            />
+            <DialogContent
+              className="community-accent-scope max-h-[85dvh] max-w-md overflow-y-auto overscroll-contain"
+              style={communityAccentStyle(accentColor)}
             >
-              <SheetHeader>
-                <SheetTitle>{channelName}</SheetTitle>
-                <SheetDescription>
+              <DialogHeader>
+                <DialogTitle>{channelName}</DialogTitle>
+                <DialogDescription>
                   {room?.topic || `A conversation in ${communityName}.`}
-                </SheetDescription>
-              </SheetHeader>
-              <div className="grid gap-2 pt-4">
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-2">
                 <Button
                   className="min-h-12 justify-start rounded-xl px-3"
                   onClick={() => {
@@ -1882,8 +1859,8 @@ function CommunityChatTimeline({
                   </p>
                 ) : null}
               </div>
-            </SheetContent>
-          </Sheet>
+            </DialogContent>
+          </Dialog>
           {actionError || statusMessage ? (
             <div
               className="border-border/60 flex items-center justify-between gap-3 border-b px-4 py-2 text-xs"
@@ -2094,12 +2071,7 @@ function CommunityChatTimeline({
                   </p>
                 ) : null}
                 {loading ? (
-                  <div className="m-auto flex flex-col items-center gap-3 py-12 text-center">
-                    <div className="bg-muted size-9 animate-pulse rounded-full" />
-                    <p className="text-muted-foreground text-sm">
-                      Opening the channel…
-                    </p>
-                  </div>
+                  <CommunityChatTranscriptSkeleton />
                 ) : sortedMessages.length === 0 ? (
                   <div className="m-auto max-w-sm py-16 text-center">
                     <CommunityAvatar

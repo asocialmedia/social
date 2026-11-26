@@ -93,6 +93,7 @@ test("community drawer stays inside its portal host and dismisses through its cl
           avatarUrl={null}
           communityName="The Open Table"
           desktop={false}
+          globalChatHref="/a/table/chat/studio"
           navigation={<span>General</span>}
           open={open}
           onOpenChange={setOpen}

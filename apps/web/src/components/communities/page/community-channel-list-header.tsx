@@ -7,6 +7,8 @@ import { Plus, X } from "lucide-react";
 import type { FormEvent } from "react";
 import { useId, useRef, useState } from "react";
 
+import CommunitySidebarSectionHeading from "./community-sidebar-section-heading";
+
 type ChannelType = "TEXT" | "ANNOUNCEMENT";
 
 async function requestChannel(
@@ -71,36 +73,37 @@ export default function CommunityChannelListHeader({
 
   return (
     <>
-      <div className="flex min-h-12 min-w-0 shrink-0 items-center gap-2 px-4">
-        <h2 className="text-muted-foreground flex min-w-0 flex-1 items-baseline gap-1.5 text-xs font-semibold">
-          Channels
-          {count === undefined ? null : (
-            <span className="text-muted-foreground/75 text-[10px] font-medium tabular-nums">
-              {count}
-            </span>
-          )}
-        </h2>
-        {onCreated ? (
-          <button
-            aria-controls={open ? formId : undefined}
-            aria-expanded={open}
-            className="icon-btn-3d text-muted-foreground hover:text-foreground focus-visible:outline-ring flex size-8 shrink-0 items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 disabled:opacity-50"
-            disabled={saving}
-            onClick={() => setOpen(!open)}
-            type="button"
-            title={open ? "Cancel channel creation" : "Create chat"}
-          >
-            {open ? (
-              <X aria-hidden="true" className="size-4" />
-            ) : (
-              <Plus aria-hidden="true" className="size-4" />
-            )}
-            <span className="sr-only">
-              {open ? "Cancel channel creation" : "Create chat"}
-            </span>
-          </button>
-        ) : null}
-      </div>
+      <CommunitySidebarSectionHeading
+        action={
+          onCreated ? (
+            <button
+              aria-controls={open ? formId : undefined}
+              aria-expanded={open}
+              className="icon-btn-3d text-muted-foreground hover:text-foreground focus-visible:outline-ring flex size-8 shrink-0 items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 disabled:opacity-50"
+              disabled={saving}
+              onClick={() => setOpen(!open)}
+              type="button"
+              title={open ? "Cancel channel creation" : "Create chat"}
+            >
+              {open ? (
+                <X aria-hidden="true" className="size-4" />
+              ) : (
+                <Plus aria-hidden="true" className="size-4" />
+              )}
+              <span className="sr-only">
+                {open ? "Cancel channel creation" : "Create chat"}
+              </span>
+            </button>
+          ) : null
+        }
+      >
+        Channels
+        {count === undefined ? null : (
+          <span className="text-muted-foreground/75 text-[10px] font-medium tabular-nums">
+            {count}
+          </span>
+        )}
+      </CommunitySidebarSectionHeading>
       {open && onCreated ? (
         <form
           className="surface-3d mx-3 mb-3 shrink-0 rounded-xl p-3"

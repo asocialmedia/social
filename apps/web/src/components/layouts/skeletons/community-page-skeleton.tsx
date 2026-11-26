@@ -101,32 +101,7 @@ export default function CommunityPageSkeleton() {
               <Skeleton className="size-9 shrink-0 rounded-full" />
             </div>
 
-            {/* Banner header */}
-            <div
-              className="relative h-36 shrink-0 overflow-hidden sm:h-48"
-              aria-hidden="true"
-            >
-              <Skeleton className="h-full w-full rounded-none" />
-            </div>
-            <div className="px-4 pb-4">
-              <div className="relative z-10 -mt-8 flex items-end justify-between gap-3 sm:-mt-10">
-                <Skeleton className="size-16 shrink-0 rounded-xl sm:size-20" />
-                <Skeleton className="h-8 w-20 shrink-0 rounded-full" />
-              </div>
-              <div className="mt-3 space-y-1.5">
-                <Skeleton className="h-6 w-40 rounded-md" />
-                <Skeleton className="h-4 w-48 rounded-md" />
-              </div>
-            </div>
-
-            {/* Sort tabs */}
-            <div className="border-border/60 flex items-center gap-2 border-b px-3 py-3">
-              <Skeleton className="h-5 w-12 rounded-md" />
-              <Skeleton className="h-5 w-10 rounded-md" />
-            </div>
-
-            {/* Feed */}
-            <FeedViewSkeleton />
+            <CommunityPostContentSkeleton />
           </div>
         </div>
       </div>
@@ -134,5 +109,42 @@ export default function CommunityPageSkeleton() {
       <CommunitySidebarSkeleton />
       <MobileBottomNav />
     </>
+  );
+}
+
+export function CommunityPostContentSkeleton() {
+  return (
+    <section
+      aria-busy="true"
+      aria-label="Loading community posts"
+      className="min-h-0 flex-1 overflow-hidden"
+    >
+      {/* Banner header */}
+      <div
+        className="relative h-36 shrink-0 overflow-hidden sm:h-48"
+        aria-hidden="true"
+      >
+        <Skeleton className="h-full w-full rounded-none" />
+      </div>
+      <div className="px-4 pb-4">
+        <div className="relative z-10 -mt-8 flex items-end justify-between gap-3 sm:-mt-10">
+          <Skeleton className="size-16 shrink-0 rounded-xl sm:size-20" />
+          <Skeleton className="h-8 w-20 shrink-0 rounded-full" />
+        </div>
+        <div className="mt-3 space-y-1.5">
+          <Skeleton className="h-6 w-40 rounded-md" />
+          <Skeleton className="h-4 w-48 rounded-md" />
+        </div>
+      </div>
+
+      {/* Sort tabs */}
+      <div className="border-border/60 flex items-center gap-2 border-b px-3 py-3">
+        <Skeleton className="h-5 w-12 rounded-md" />
+        <Skeleton className="h-5 w-10 rounded-md" />
+      </div>
+
+      {/* Feed */}
+      <FeedViewSkeleton />
+    </section>
   );
 }
