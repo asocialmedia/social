@@ -41,6 +41,7 @@ import { cn } from "@/lib/utils";
 import "./join-den-dialog.css";
 
 export interface JoinDenDialogProps {
+  onJoined?: () => void;
   onOpenChange: (open: boolean) => void;
   open: boolean;
 }
@@ -49,7 +50,11 @@ export function JoinDenDialog(props: JoinDenDialogProps) {
   return props.open ? <JoinDenDialogSession {...props} /> : null;
 }
 
-function JoinDenDialogSession({ onOpenChange, open }: JoinDenDialogProps) {
+function JoinDenDialogSession({
+  onJoined,
+  onOpenChange,
+  open,
+}: JoinDenDialogProps) {
   const router = useRouter();
   const feedbackId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -108,6 +113,7 @@ function JoinDenDialogSession({ onOpenChange, open }: JoinDenDialogProps) {
           entry.code
         );
         conversationId = joinedConversationId;
+        onJoined?.();
       }
       if (!mounted.current) {
         return;

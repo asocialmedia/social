@@ -9,7 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@asm/ui/shadui/tooltip";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   MessageCircle,
   PanelLeftClose,
@@ -29,13 +29,13 @@ import { JoinDenDialog } from "@/components/messages/join-den-dialog";
 import { ConversationListSkeleton } from "@/components/messages/messages-skeleton";
 import { OnlineFriendsStrip } from "@/components/messages/online-friends-strip";
 import { toast } from "@/lib/gooey-toast";
-import {
-  createConversation,
-  fetchConversationList,
-  searchMessageUsers,
-} from "@/lib/messages/client";
+import { createConversation, searchMessageUsers } from "@/lib/messages/client";
 import type { SearchUserResult } from "@/lib/messages/client";
 import type { ConversationListLayout } from "@/lib/messages/conversation-list-layout";
+import {
+  conversationListQuery,
+  useRefreshConversationList,
+} from "@/lib/messages/conversation-list-query";
 import {
   DEN_LIST_FILTERS,
   countConversationsByType,
@@ -54,7 +54,6 @@ import { MessageSearchRequestError } from "@/lib/messages/search-request";
 import { focusSearchResult } from "@/lib/messages/search-result-navigation";
 import { useGlobalMessageSearch } from "@/lib/messages/use-global-message-search";
 import type { GlobalMessageSearchResult } from "@/lib/messages/use-global-message-search";
-import { useMessageActivity } from "@/lib/messages/use-message-activity";
 import { usePresence } from "@/lib/messages/use-presence";
 import { cn } from "@/lib/utils";
 
@@ -165,7 +164,7 @@ export function ConversationList({
 }: ConversationListProps) {
   const { user } = useSession();
   const userId = user?.id;
-  const queryClient = useQueryClient();
+  const refetchList = useRefreshConversationList(userId);
   const onlineUsers = usePresence(true);
   const presenceByUserId = useMemo(
     () => new Map(onlineUsers.map((person) => [person.id, person.status])),
@@ -298,8 +297,7 @@ export function ConversationList({
   }, [layout, user]);
 
   const { data, isLoading, isError } = useQuery({
-    queryFn: () => fetchConversationList(),
-    queryKey: ["message-conversations", user?.id],
+    ...conversationListQuery(userId),
     refetchInterval: 30_000,
   });
   const items = data?.items ?? NO_ITEMS;
@@ -332,19 +330,6 @@ export function ConversationList({
     },
     [resetGlobalSearchPosition]
   );
-
-  const refetchList = useCallback(() => {
-    void queryClient.invalidateQueries({
-      queryKey: ["message-conversations", user?.id],
-    });
-  }, [queryClient, user?.id]);
-
-  // A message arriving in ANY conversation re-reads the list, which is what moves
-  // that thread to the top the moment it lands rather than on the next poll. The
-  // event carries only the conversation id, so the response is to refetch: the
-  // server owns the ordering (by conversation activity) and the preview, and
-  // re-deriving either here would be a second implementation to keep in step.
-  useMessageActivity(refetchList);
 
   // Clear search query if sidebar gets collapsed.
   useEffect(() => {
@@ -964,7 +949,11 @@ export function ConversationList({
           onOpenChange={setDenDialogOpen}
           open={denDialogOpen}
         />
-        <JoinDenDialog onOpenChange={setJoinDialogOpen} open={joinDialogOpen} />
+        <JoinDenDialog
+          onJoined={refetchList}
+          onOpenChange={setJoinDialogOpen}
+          open={joinDialogOpen}
+        />
       </div>
     </TooltipProvider>
   );

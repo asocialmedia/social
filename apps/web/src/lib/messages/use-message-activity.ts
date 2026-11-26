@@ -103,7 +103,10 @@ export function drainActivityFrames(buffer: string): {
 // Reconnects with backoff, and a failed connect is not fatal -- Redis may be down,
 // which the app tolerates everywhere else ("failing open"), and the interval picks
 // up the slack.
-export function useMessageActivity(onActivity: () => void): void {
+export function useMessageActivity(
+  onActivity: () => void,
+  enabled: boolean
+): void {
   const { user } = useSession();
   const userId = user?.id;
 
@@ -115,7 +118,7 @@ export function useMessageActivity(onActivity: () => void): void {
   }, [onActivity]);
 
   useEffect(() => {
-    if (!userId || typeof window === "undefined") {
+    if (!enabled || !userId || typeof window === "undefined") {
       return;
     }
 
@@ -149,7 +152,7 @@ export function useMessageActivity(onActivity: () => void): void {
         while (true) {
           // oxlint-disable-next-line no-await-in-loop -- stream chunks are sequential
           const { done, value } = await reader.read();
-          if (done) {
+          if (done || cancelled) {
             break;
           }
           buffer += decoder.decode(value, { stream: true });
@@ -188,5 +191,5 @@ export function useMessageActivity(onActivity: () => void): void {
         clearTimeout(retryTimer);
       }
     };
-  }, [userId]);
+  }, [enabled, userId]);
 }
