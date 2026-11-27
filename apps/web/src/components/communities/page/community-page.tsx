@@ -231,8 +231,6 @@ export default function ClientCommunity({
     : undefined;
   const workspace = useMemo(
     () => ({
-      channels: chatChannels.data?.channels,
-      channelsUpdatedAt: chatChannels.dataUpdatedAt,
       community,
       globalChatHref,
       membership,
@@ -243,8 +241,6 @@ export default function ClientCommunity({
       subscribed,
     }),
     [
-      chatChannels.data?.channels,
-      chatChannels.dataUpdatedAt,
       community,
       globalChatHref,
       membership,

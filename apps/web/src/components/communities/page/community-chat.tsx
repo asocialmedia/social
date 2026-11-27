@@ -27,6 +27,7 @@ import {
 } from "@asm/ui/shadui/dialog";
 import { Input } from "@asm/ui/shadui/input";
 import { Textarea } from "@asm/ui/shadui/textarea";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
   LockKeyhole,
@@ -46,14 +47,18 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { CSSProperties, Dispatch, SetStateAction } from "react";
+import type { CSSProperties } from "react";
 import { createPortal } from "react-dom";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { SavableSticker } from "@/components/messages/savable-sticker";
 import { StickerPicker } from "@/components/messages/sticker-picker";
 import { communityAccentStyle } from "@/lib/communities/accent";
-import type { CommunityChatChannelsResponse } from "@/lib/communities/chat-channels-query";
+import {
+  cacheCommunityChatChannel,
+  CommunityChatChannelsError,
+  communityChatChannelsQuery,
+} from "@/lib/communities/chat-channels-query";
 import { loadCommunityChatResources } from "@/lib/communities/chat-loading";
 import {
   communityChatLocation,
@@ -91,8 +96,6 @@ interface CommunityChatProps {
   threadId?: string;
   communityId: string;
   communityName: string;
-  initialChannels?: CommunityChatRoom[];
-  initialChannelsUpdatedAt?: number;
   memberCount: number;
   canReviewRequests?: boolean;
   membership: {
@@ -175,11 +178,17 @@ export default function CommunityChat(props: CommunityChatProps) {
     <CommunityChatWorkspace
       key={`${user?.id ?? "guest"}:${props.slug}`}
       {...props}
+      userId={user?.id}
     />
   );
 }
 
-function CommunityChatWorkspace(props: CommunityChatProps) {
+function CommunityChatWorkspace({
+  userId,
+  ...props
+}: CommunityChatProps & {
+  userId?: string;
+}) {
   const pathname = usePathname();
   const location = communityChatLocation(pathname, props.slug);
   const channelId = location?.channelId ?? props.channelId;
@@ -191,74 +200,47 @@ function CommunityChatWorkspace(props: CommunityChatProps) {
         : "Community chat | asocialmedia";
     }
   }, [pathname, props.slug, threadId]);
-  const [channels, setChannels] = useState<CommunityChatRoom[]>(
-    props.initialChannels ?? []
-  );
-  const [channelsError, setChannelsError] = useState(false);
-  const [channelAttempt, setChannelAttempt] = useState(0);
-  const channelsUpdatedAt = useRef(props.initialChannelsUpdatedAt ?? 0);
-  const updateChannels: Dispatch<SetStateAction<CommunityChatRoom[]>> =
-    useCallback((value) => {
-      if (Array.isArray(value) && value.length === 0) {
-        channelsUpdatedAt.current = 0;
-      }
-      setChannels(value);
-    }, []);
+  const client = useQueryClient();
+  const channelsQuery = communityChatChannelsQuery(props.slug, userId);
+  const { data, error, isError, refetch } = useQuery({
+    ...channelsQuery,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  const { slug } = props;
   useEffect(() => {
-    if (Date.now() - channelsUpdatedAt.current < 15_000) {
-      return;
-    }
-    const controller = new AbortController();
-    const load = async () => {
-      if (controller.signal.aborted) {
-        return;
-      }
+    const refreshStaleChannels = async () => {
       try {
-        const response = await fetch(
-          `/api/communities/${props.slug}/chat/channels`,
-          { cache: "no-store", signal: controller.signal }
-        );
-        if (!response.ok) {
-          if (!controller.signal.aborted) {
-            setChannelsError(true);
-            if ([401, 403, 404].includes(response.status)) {
-              setChannels([]);
-              channelsUpdatedAt.current = 0;
-            }
-          }
-          return;
-        }
-        const data = (await response.json()) as CommunityChatChannelsResponse;
-        if (!controller.signal.aborted) {
-          setChannels(data.channels);
-          channelsUpdatedAt.current = Date.now();
-          setChannelsError(false);
-        }
+        await client.fetchQuery(communityChatChannelsQuery(slug, userId));
       } catch {
-        if (!controller.signal.aborted) {
-          setChannelsError(true);
-        }
+        // The query exposes the error and retry control to the sidebar.
       }
     };
-    queueMicrotask(() => {
-      void load();
+    void refreshStaleChannels();
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Refresh stale channels when the room or thread changes.
+  }, [client, slug, userId, channelId, threadId]);
+  const clearChannels = useCallback(() => {
+    void client.resetQueries({
+      exact: true,
+      queryKey: communityChatChannelsQuery(slug, userId).queryKey,
     });
-    return () => controller.abort();
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- An explicit retry reloads the channel list.
-  }, [props.slug, channelAttempt, channelId, threadId]);
+  }, [client, slug, userId]);
+  const accessDenied =
+    error instanceof CommunityChatChannelsError &&
+    [401, 403, 404].includes(error.status);
   return (
     <CommunityChatTimeline
       key={threadId ?? channelId}
       {...props}
       channelId={channelId}
       threadId={threadId}
-      channels={channels}
-      setChannels={updateChannels}
-      channelsError={channelsError}
-      retryChannels={() => {
-        channelsUpdatedAt.current = 0;
-        setChannelAttempt((attempt) => attempt + 1);
-      }}
+      channels={accessDenied ? [] : (data?.channels ?? [])}
+      channelsError={isError}
+      clearChannels={clearChannels}
+      refreshChannels={refetch}
+      updateChannel={(channel) =>
+        cacheCommunityChatChannel(client, channelsQuery.queryKey, channel)
+      }
     />
   );
 }
@@ -274,14 +256,16 @@ function CommunityChatTimeline({
   membership,
   slug,
   channels,
-  setChannels,
   channelsError,
-  retryChannels,
+  clearChannels,
+  refreshChannels,
+  updateChannel,
 }: CommunityChatProps & {
   channels: CommunityChatRoom[];
-  setChannels: Dispatch<SetStateAction<CommunityChatRoom[]>>;
   channelsError: boolean;
-  retryChannels: () => void;
+  clearChannels: () => void;
+  refreshChannels: (options?: { throwOnError?: boolean }) => Promise<unknown>;
+  updateChannel: (channel: CommunityChatRoom) => Promise<void>;
 }) {
   const {
     navigation: {
@@ -369,7 +353,6 @@ function CommunityChatTimeline({
   const [savingThreadPreference, setSavingThreadPreference] = useState(false);
   const latestFetch = useRef<Promise<void> | null>(null);
 
-  const channelsUrl = `/api/communities/${slug}/chat/channels`;
   const roomUrl = `/api/communities/${slug}/chat/rooms/${threadId ?? channelId}`;
   const threadsUrl = `/api/communities/${slug}/chat/rooms/${channelId}/threads`;
   const followingUrl = threadId
@@ -566,7 +549,7 @@ function CommunityChatTimeline({
         },
         onHistoryError: (status) => {
           if (status && [401, 403, 404].includes(status)) {
-            setChannels([]);
+            clearChannels();
           }
           setLoadError("This conversation isn't available right now");
           setLoading(false);
@@ -584,7 +567,7 @@ function CommunityChatTimeline({
       });
     });
     return () => controller.abort();
-  }, [roomUrl, threadsUrl, channelId, threadId, setChannels]);
+  }, [roomUrl, threadsUrl, channelId, threadId, clearChannels]);
 
   const roomReady = room !== null;
   useEffect(() => {
@@ -628,12 +611,7 @@ function CommunityChatTimeline({
       }
       if (change?.kind === "room.updated") {
         try {
-          const response = await fetch(channelsUrl, { cache: "no-store" });
-          if (response.ok) {
-            const data =
-              (await response.json()) as CommunityChatChannelsResponse;
-            setChannels(data.channels);
-          }
+          await refreshChannels({ throwOnError: true });
         } catch {
           setActionError("Couldn't refresh community channels.");
         }
@@ -673,7 +651,7 @@ function CommunityChatTimeline({
       setPendingDraft(null);
       setPermissions(null);
       setRoom(null);
-      setChannels([]);
+      clearChannels();
       setReplyTarget(null);
       setPublicThreadSource(null);
       setPublicThreadName("");
@@ -696,16 +674,16 @@ function CommunityChatTimeline({
     source.addEventListener("error", () => setReconnecting(true));
     return () => source.close();
   }, [
-    channelsUrl,
     appendMessages,
+    clearChannels,
     fetchChangedMessage,
     fetchLatest,
     loading,
     openWindow,
+    refreshChannels,
     refreshThreads,
     roomReady,
     roomUrl,
-    setChannels,
   ]);
 
   // oxlint-disable react/exhaustive-effect-dependencies -- Re-anchor when the bounded transcript window changes, including edits and removals.
@@ -1452,8 +1430,8 @@ function CommunityChatTimeline({
         count={channels.length}
         onCreated={
           canManage
-            ? (channel) => {
-                setChannels((current) => [...current, channel]);
+            ? async (channel) => {
+                await updateChannel(channel);
                 if (!desktopNavigation) {
                   setCommunityNavigationOpen(false);
                 }
@@ -1466,7 +1444,11 @@ function CommunityChatTimeline({
       {channelsError ? (
         <div className="text-muted-foreground px-5 py-2 text-xs">
           Couldn’t load channels.{" "}
-          <button type="button" className="underline" onClick={retryChannels}>
+          <button
+            type="button"
+            className="underline"
+            onClick={() => refreshChannels()}
+          >
             Try again
           </button>
         </div>
@@ -1808,17 +1790,8 @@ function CommunityChatTimeline({
                 {canManage && room?.kind === "CHANNEL" ? (
                   <CommunityChannelSettings
                     canArchive={channels.length > 1}
-                    onUpdated={(updated) => {
-                      setChannels((current) =>
-                        current
-                          .map((channel) =>
-                            channel.id === updated.id ? updated : channel
-                          )
-                          .filter((channel) => !channel.archived)
-                          .toSorted(
-                            (left, right) => left.sortOrder - right.sortOrder
-                          )
-                      );
+                    onUpdated={async (updated) => {
+                      await updateChannel(updated);
                       setRoom(updated);
                       if (updated.archived) {
                         router.push(`/a/${slug}/chat`);

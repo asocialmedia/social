@@ -10,8 +10,7 @@ export default function CommunityDensView({
   channelId: string;
   threadId?: string;
 }) {
-  const { channels, channelsUpdatedAt, community, membership, stats } =
-    useCommunityWorkspace();
+  const { community, membership, stats } = useCommunityWorkspace();
 
   return (
     <CommunityChat
@@ -25,8 +24,6 @@ export default function CommunityDensView({
       channelId={channelId}
       communityId={community.id}
       communityName={community.name}
-      initialChannels={channels}
-      initialChannelsUpdatedAt={channelsUpdatedAt}
       memberCount={stats.members}
       membership={membership}
       slug={community.slug}
