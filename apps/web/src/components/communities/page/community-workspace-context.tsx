@@ -1,7 +1,6 @@
 "use client";
 
 import type { CommunityData, CommunityStats } from "@asm/db";
-import type { CommunityChatRoom } from "@asm/messages";
 import type { RefObject } from "react";
 import { createContext, useContext } from "react";
 
@@ -22,8 +21,6 @@ export interface CommunityWorkspaceData {
 }
 
 interface CommunityWorkspaceView extends CommunityWorkspaceData {
-  channels?: CommunityChatRoom[];
-  channelsUpdatedAt: number;
   globalChatHref?: string;
   navigation: ReturnType<typeof useCommunityNavigation>;
   navigationTarget: HTMLDivElement | null;

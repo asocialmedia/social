@@ -9,7 +9,10 @@ import { useRouter } from "next/navigation";
 
 import { useSession } from "@/app/(main)/session-provider";
 import { LinkStatusHint } from "@/components/layouts/feedback/link-status-hint";
-import { communityChatChannelsQuery } from "@/lib/communities/chat-channels-query";
+import {
+  cacheCommunityChatChannel,
+  communityChatChannelsQuery,
+} from "@/lib/communities/chat-channels-query";
 
 import CommunityChannelListHeader from "./community-channel-list-header";
 import {
@@ -36,11 +39,12 @@ export default function CommunityChannelShortcuts({
         count={data?.channels.length}
         onCreated={
           data?.permissions.canManage
-            ? (channel) => {
-                queryClient.setQueryData(query.queryKey, {
-                  ...data,
-                  channels: [...channels, channel],
-                });
+            ? async (channel) => {
+                await cacheCommunityChatChannel(
+                  queryClient,
+                  query.queryKey,
+                  channel
+                );
                 router.push(`/a/${slug}/chat/${channel.id}`, { scroll: false });
               }
             : undefined

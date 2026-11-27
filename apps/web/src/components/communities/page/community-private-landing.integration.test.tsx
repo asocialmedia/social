@@ -9,12 +9,8 @@ import type { Root } from "react-dom/client";
 
 let currentUser: { id: string } | null = null;
 const refresh = mock(() => {});
-const goToLogin = mock(() => {});
 mock.module("@/app/(main)/session-provider", () => ({
   useSession: () => ({ user: currentUser }),
-}));
-mock.module("@/hooks/auth/use-require-auth", () => ({
-  useRequireAuth: () => ({ goToLogin }),
 }));
 mock.module("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 mock.module("./community-posts-workspace", () => ({
@@ -95,7 +91,6 @@ afterEach(async () => {
   failPreview = false;
   writes.length = 0;
   refresh.mockClear();
-  goToLogin.mockClear();
 });
 
 afterAll(() => {
@@ -169,7 +164,7 @@ async function render() {
   await settle();
 }
 
-test("guest sees a sign-in prompt without an about section or content navigation", async () => {
+test("guest sees the members-only notice with no request controls or content navigation", async () => {
   await render();
   expect(dom.document.body.textContent).toContain(
     "Posts are for members of this community."
@@ -179,8 +174,7 @@ test("guest sees a sign-in prompt without an about section or content navigation
   );
   expect(dom.document.querySelector("#community-public-about")).toBeNull();
   expect(dom.document.querySelector('a[href*="/chat"]')).toBeNull();
-  await act(() => button("Sign in to request access").click());
-  expect(goToLogin).toHaveBeenCalledTimes(1);
+  expect(dom.document.querySelector("button")).toBeNull();
   expect(writes).toHaveLength(0);
 });
 

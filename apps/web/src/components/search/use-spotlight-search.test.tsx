@@ -49,6 +49,7 @@ function Probe({
     <div
       data-asm={Boolean(result.asm.data)}
       data-bluesky={Boolean(result.bluesky.data)}
+      data-waiting={result.waiting}
     />
   );
 }
@@ -57,6 +58,17 @@ const settle = () =>
   act(async () => {
     await delay(300);
   });
+
+async function waitForRender<Value>(read: () => Value, expected: Value) {
+  const deadline = performance.now() + 1000;
+  while (read() !== expected && performance.now() < deadline) {
+    // oxlint-disable-next-line no-await-in-loop -- Flush React after scheduled query notifications.
+    await act(async () => {
+      await delay(10);
+    });
+  }
+  expect(read()).toBe(expected);
+}
 
 test("debounces typing, renders ASM independently, reuses cached sources, and cancels stale requests", async () => {
   const fetchBefore = globalThis.fetch;
@@ -99,40 +111,36 @@ test("debounces typing, renders ASM independently, reuses cached sources, and ca
     await render("soft");
     await render("software");
     expect(calls).toHaveLength(0);
-    await settle();
+    await waitForRender(() => calls.length, 2);
     expect(calls.map((call) => call.url)).toEqual([
       "/api/search/spotlight?q=software&kind=all",
       "/api/protocols/bluesky/search?q=software&kind=all",
     ]);
-    await act(async () => {
+    await act(() => {
       calls[0]?.resolve(
         Response.json({ communities: [], posts: [], users: [] })
       );
-      await delay(10);
     });
-    expect(host.firstElementChild?.dataset.asm).toBe("true");
+    await waitForRender(() => host.firstElementChild?.dataset.asm, "true");
     expect(host.firstElementChild?.dataset.bluesky).toBe("false");
     await render("software", "asm");
     expect(calls).toHaveLength(2);
     await render("astronomy", "asm");
     expect(calls[1]?.signal?.aborted).toBe(true);
-    await settle();
-    expect(calls).toHaveLength(3);
+    await waitForRender(() => calls.length, 3);
     expect(calls[2]?.url).toBe("/api/search/spotlight?q=astronomy&kind=all");
     await render("software", "asm");
     expect(calls[2]?.signal?.aborted).toBe(true);
-    await settle();
+    await waitForRender(() => host.firstElementChild?.dataset.waiting, "false");
     expect(calls).toHaveLength(3);
     expect(host.firstElementChild?.dataset.asm).toBe("true");
     await render("software", "all", "community");
-    await settle();
-    expect(calls).toHaveLength(4);
+    await waitForRender(() => calls.length, 4);
     expect(calls[3]?.url).toBe(
       "/api/search/spotlight?q=software&kind=community"
     );
     await render("software", "bluesky", "user");
-    await settle();
-    expect(calls).toHaveLength(5);
+    await waitForRender(() => calls.length, 5);
     expect(calls[4]?.url).toBe(
       "/api/protocols/bluesky/search?q=software&kind=user"
     );
